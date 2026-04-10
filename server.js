@@ -12,24 +12,24 @@ const { google } = require("googleapis");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===== Middleware =====
+// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const upload = multer({ dest: "/tmp/" });
+// ===== UPLOAD =====
+const upload = multer({
+  dest: "/tmp/inmersia-uploads/",
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
-// ===== 🔐 ENV VARIABLES =====
+// ===== ENV =====
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
-
-// DEBUG (puedes borrar después)
-console.log("CLIENT ID:", GOOGLE_CLIENT_ID);
-console.log("REDIRECT:", GOOGLE_REDIRECT_URI);
 
 // ===== GOOGLE AUTH =====
 const oauth2Client = new google.auth.OAuth2(
@@ -40,17 +40,18 @@ const oauth2Client = new google.auth.OAuth2(
 
 let googleTokens = null;
 
-// LOGIN GOOGLE
+// ===== LOGIN GOOGLE =====
 app.get("/api/auth/google", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
+    prompt: "consent",
     scope: ["https://www.googleapis.com/auth/calendar"],
   });
 
   res.redirect(url);
 });
 
-// CALLBACK
+// ===== CALLBACK =====
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
@@ -59,25 +60,26 @@ app.get("/api/auth/callback/google", async (req, res) => {
     oauth2Client.setCredentials(tokens);
     googleTokens = tokens;
 
-    res.send("✅ Google Calendar conectado correctamente");
+    res.send(`
+      <h2>✅ Google Calendar conectado</h2>
+      <script>
+        window.location.href = "/";
+      </script>
+    `);
   } catch (err) {
     console.error(err);
     res.status(500).send("❌ Error conectando Google");
   }
 });
 
-// TEST CALENDAR
+// ===== TEST CALENDAR =====
 app.get("/api/calendar/test", async (req, res) => {
   if (!googleTokens) {
     return res.status(400).json({ error: "No conectado a Google" });
   }
 
   oauth2Client.setCredentials(googleTokens);
-
-  const calendar = google.calendar({
-    version: "v3",
-    auth: oauth2Client,
-  });
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
   try {
     const response = await calendar.events.list({
@@ -89,6 +91,50 @@ app.get("/api/calendar/test", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===== CREAR EVENTO 🔥 =====
+app.post("/api/calendar/create", async (req, res) => {
+  if (!googleTokens) {
+    return res.status(400).json({ error: "No conectado a Google" });
+  }
+
+  const { summary, description, start, end } = req.body;
+
+  oauth2Client.setCredentials(googleTokens);
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  try {
+    const event = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: {
+        summary,
+        description,
+        start: {
+          dateTime: start,
+          timeZone: "America/Santiago",
+        },
+        end: {
+          dateTime: end,
+          timeZone: "America/Santiago",
+        },
+      },
+    });
+
+    res.json({ ok: true, event });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== HEALTH =====
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    gemini: !!GEMINI_KEY,
+    whisper: !!OPENAI_KEY,
+    google: !!googleTokens,
+  });
 });
 
 // ===== WHISPER =====
@@ -136,7 +182,7 @@ app.post("/api/ai/generate", async (req, res) => {
   const data = await response.json();
 
   res.json({
-    text: data?.candidates?.[0]?.content?.parts?.[0]?.text || "Sin respuesta",
+    text: data.candidates?.[0]?.content?.parts?.[0]?.text || "Sin respuesta",
   });
 });
 
@@ -147,5 +193,5 @@ app.get("*", (req, res) => {
 
 // ===== START =====
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on ${PORT}`);
 });
