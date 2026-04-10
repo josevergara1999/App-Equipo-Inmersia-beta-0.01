@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
@@ -11,7 +12,7 @@ const { google } = require("googleapis");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ─── Middleware ──────────────────────────────────────────────────
+// ===== Middleware =====
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,7 +22,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// ─── ENV ─────────────────────────────────────────────────────────
+// ===== ENV =====
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
@@ -29,7 +30,10 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-// ─── GOOGLE AUTH ─────────────────────────────────────────────────
+// DEBUG CLAVE 🔥
+console.log("👉 REDIRECT URI REAL:", GOOGLE_REDIRECT_URI);
+
+// ===== GOOGLE AUTH =====
 const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
@@ -38,16 +42,17 @@ const oauth2Client = new google.auth.OAuth2(
 
 let googleTokens = null;
 
-// Login
+// ===== LOGIN GOOGLE =====
 app.get("/api/auth/google", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: ["https://www.googleapis.com/auth/calendar"],
   });
+
   res.redirect(url);
 });
 
-// Callback
+// ===== CALLBACK =====
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
@@ -63,12 +68,17 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// Test Calendar
+// ===== TEST CALENDAR =====
 app.get("/api/calendar/test", async (req, res) => {
-  if (!googleTokens) return res.status(400).json({ error: "No conectado a Google" });
+  if (!googleTokens)
+    return res.status(400).json({ error: "No conectado a Google" });
 
   oauth2Client.setCredentials(googleTokens);
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  const calendar = google.calendar({
+    version: "v3",
+    auth: oauth2Client,
+  });
 
   try {
     const response = await calendar.events.list({
@@ -82,7 +92,7 @@ app.get("/api/calendar/test", async (req, res) => {
   }
 });
 
-// ─── HEALTH ──────────────────────────────────────────────────────
+// ===== HEALTH =====
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
@@ -91,26 +101,33 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// ─── WHISPER ─────────────────────────────────────────────────────
+// ===== WHISPER =====
 app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
-  if (!OPENAI_KEY) return res.status(500).json({ error: "OPENAI_API_KEY missing" });
+  if (!OPENAI_KEY)
+    return res.status(500).json({ error: "OPENAI_API_KEY missing" });
 
   const form = new FormData();
   form.append("file", fs.createReadStream(req.file.path));
   form.append("model", "whisper-1");
 
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}` },
-    body: form,
-  });
+  const response = await fetch(
+    "https://api.openai.com/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_KEY}`,
+      },
+      body: form,
+    }
+  );
 
   const data = await response.json();
   fs.unlink(req.file.path, () => {});
+
   res.json({ transcript: data.text });
 });
 
-// ─── GEMINI ──────────────────────────────────────────────────────
+// ===== GEMINI =====
 app.post("/api/ai/generate", async (req, res) => {
   const { prompt } = req.body;
 
@@ -126,15 +143,17 @@ app.post("/api/ai/generate", async (req, res) => {
   );
 
   const data = await response.json();
-  res.json({ text: data.candidates?.[0]?.content?.parts?.[0]?.text });
+  res.json({
+    text: data.candidates?.[0]?.content?.parts?.[0]?.text,
+  });
 });
 
-// ─── FRONTEND ────────────────────────────────────────────────────
+// ===== FRONTEND =====
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ─── START ───────────────────────────────────────────────────────
+// ===== START =====
 app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
