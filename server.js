@@ -19,19 +19,17 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const upload = multer({ dest: "/tmp/" });
 
-// ===== 🔥 GOOGLE CONFIG (FIJO PARA DEBUG) =====
-const GOOGLE_CLIENT_ID =
-  "963118662211-8cuu7rvgjchknn8akfk07guqspjmg4bo.apps.googleusercontent.com";
+// ===== 🔐 ENV VARIABLES =====
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
-const GOOGLE_CLIENT_SECRET =
-  "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";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-const GOOGLE_REDIRECT_URI =
-  "https://app-equipo-inmersia-beta-0-01.onrender.com/api/auth/callback/google";
-
-// DEBUG
-console.log("🔥 CLIENT ID:", GOOGLE_CLIENT_ID);
-console.log("🔥 REDIRECT:", GOOGLE_REDIRECT_URI);
+// DEBUG (puedes borrar después)
+console.log("CLIENT ID:", GOOGLE_CLIENT_ID);
+console.log("REDIRECT:", GOOGLE_REDIRECT_URI);
 
 // ===== GOOGLE AUTH =====
 const oauth2Client = new google.auth.OAuth2(
@@ -68,30 +66,59 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// TEST
+// TEST CALENDAR
 app.get("/api/calendar/test", async (req, res) => {
   if (!googleTokens) {
     return res.status(400).json({ error: "No conectado a Google" });
   }
 
   oauth2Client.setCredentials(googleTokens);
+
   const calendar = google.calendar({
     version: "v3",
     auth: oauth2Client,
   });
 
-  const response = await calendar.events.list({
-    calendarId: "primary",
-    maxResults: 5,
-  });
+  try {
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      maxResults: 5,
+    });
 
-  res.json(response.data.items);
+    res.json(response.data.items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ===== IA =====
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
+// ===== WHISPER =====
+app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
+  if (!OPENAI_KEY) {
+    return res.status(500).json({ error: "OPENAI_API_KEY missing" });
+  }
 
+  const form = new FormData();
+  form.append("file", fs.createReadStream(req.file.path));
+  form.append("model", "whisper-1");
+
+  const response = await fetch(
+    "https://api.openai.com/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_KEY}`,
+      },
+      body: form,
+    }
+  );
+
+  const data = await response.json();
+  fs.unlink(req.file.path, () => {});
+
+  res.json({ transcript: data.text });
+});
+
+// ===== GEMINI =====
 app.post("/api/ai/generate", async (req, res) => {
   const { prompt } = req.body;
 
