@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
@@ -11,28 +12,28 @@ const { google } = require("googleapis");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ---------- Middleware ----------
+// ===== Middleware =====
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const upload = multer({
-  dest: "/tmp/",
-});
+const upload = multer({ dest: "/tmp/" });
 
-// ---------- ENV ----------
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
+// ===== 🔥 GOOGLE CONFIG (FIJO PARA DEBUG) =====
+const GOOGLE_CLIENT_ID =
+  "963118662211-8cuu7rvgjchknn8akfk07guqspjmg4bo.apps.googleusercontent.com";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+const GOOGLE_CLIENT_SECRET =
+  "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";
 
-// 🔥 LOG CLAVE PARA DEBUG
-console.log("🔥 CLIENT ID EN USO:", GOOGLE_CLIENT_ID);
-console.log("🔥 REDIRECT URI EN USO:", GOOGLE_REDIRECT_URI);
+const GOOGLE_REDIRECT_URI =
+  "https://app-equipo-inmersia-beta-0-01.onrender.com/api/auth/callback/google";
 
-// ---------- GOOGLE AUTH ----------
+// DEBUG
+console.log("🔥 CLIENT ID:", GOOGLE_CLIENT_ID);
+console.log("🔥 REDIRECT:", GOOGLE_REDIRECT_URI);
+
+// ===== GOOGLE AUTH =====
 const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
@@ -41,7 +42,7 @@ const oauth2Client = new google.auth.OAuth2(
 
 let googleTokens = null;
 
-// 👉 LOGIN GOOGLE
+// LOGIN GOOGLE
 app.get("/api/auth/google", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
@@ -51,7 +52,7 @@ app.get("/api/auth/google", (req, res) => {
   res.redirect(url);
 });
 
-// 👉 CALLBACK GOOGLE
+// CALLBACK
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
@@ -67,63 +68,30 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// 👉 TEST CALENDAR
+// TEST
 app.get("/api/calendar/test", async (req, res) => {
   if (!googleTokens) {
     return res.status(400).json({ error: "No conectado a Google" });
   }
 
   oauth2Client.setCredentials(googleTokens);
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
-
-  try {
-    const response = await calendar.events.list({
-      calendarId: "primary",
-      maxResults: 5,
-    });
-
-    res.json(response.data.items);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------- HEALTH ----------
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    google: !!GOOGLE_CLIENT_ID,
+  const calendar = google.calendar({
+    version: "v3",
+    auth: oauth2Client,
   });
+
+  const response = await calendar.events.list({
+    calendarId: "primary",
+    maxResults: 5,
+  });
+
+  res.json(response.data.items);
 });
 
-// ---------- WHISPER ----------
-app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
-  if (!OPENAI_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY missing" });
-  }
+// ===== IA =====
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
-  const form = new FormData();
-  form.append("file", fs.createReadStream(req.file.path));
-  form.append("model", "whisper-1");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-      },
-      body: form,
-    }
-  );
-
-  const data = await response.json();
-  fs.unlink(req.file.path, () => {});
-
-  res.json({ transcript: data.text });
-});
-
-// ---------- GEMINI ----------
 app.post("/api/ai/generate", async (req, res) => {
   const { prompt } = req.body;
 
@@ -141,18 +109,16 @@ app.post("/api/ai/generate", async (req, res) => {
   const data = await response.json();
 
   res.json({
-    text:
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "Sin respuesta",
+    text: data?.candidates?.[0]?.content?.parts?.[0]?.text || "Sin respuesta",
   });
 });
 
-// ---------- FRONTEND ----------
+// ===== FRONTEND =====
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ---------- START ----------
+// ===== START =====
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
