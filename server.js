@@ -1,51 +1,66 @@
 require("dotenv").config();
 
 const express = require("express");
-const multer = require("multer");
 const cors = require("cors");
-const fetch = require("node-fetch");
-const FormData = require("form-data");
-const path = require("path");
-const fs = require("fs");
 const { google } = require("googleapis");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===== MIDDLEWARE =====
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// ===== UPLOAD =====
-const upload = multer({
-  dest: "/tmp/inmersia-uploads/",
-  limits: { fileSize: 50 * 1024 * 1024 },
-});
+// ===== USERS =====
+const users = {
+  "cleme@inmersia.com": { password: "1234", googleTokens: null },
+  "jose@inmersia.com": { password: "1234", googleTokens: null },
+};
 
-// ===== ENV =====
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const sessions = {};
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
-
-// ===== GOOGLE AUTH =====
+// ===== GOOGLE CONFIG =====
 const oauth2Client = new google.auth.OAuth2(
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  GOOGLE_REDIRECT_URI
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
 );
 
-let googleTokens = null;
+// ===== LOGIN =====
+app.post("/api/login", (req, res) => {
+  const { email, password } = req.body;
 
-// ===== LOGIN GOOGLE =====
+  if (!users[email] || users[email].password !== password) {
+    return res.status(401).json({ error: "Credenciales inválidas" });
+  }
+
+  const sessionId = Math.random().toString(36).substring(2);
+  sessions[sessionId] = email;
+
+  res.json({ sessionId });
+});
+
+// ===== GET USER =====
+function getUser(req) {
+  const sessionId = req.headers["x-session-id"];
+  const email = sessions[sessionId];
+  return users[email];
+}
+
+// ===== GOOGLE LOGIN =====
 app.get("/api/auth/google", (req, res) => {
+  const sessionId = req.query.sessionId;
+
+  if (!sessionId) {
+    return res.send("❌ Falta sessionId");
+  }
+
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: ["https://www.googleapis.com/auth/calendar"],
+    state: sessionId,
   });
 
   res.redirect(url);
@@ -54,32 +69,45 @@ app.get("/api/auth/google", (req, res) => {
 // ===== CALLBACK =====
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
+  const sessionId = req.query.state;
+
+  const email = sessions[sessionId];
+  const user = users[email];
+
+  if (!user) {
+    return res.send("❌ Sesión inválida");
+  }
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    googleTokens = tokens;
+    user.googleTokens = tokens;
 
     res.send(`
-      <h2>✅ Google Calendar conectado</h2>
+      <h2>✅ Google conectado correctamente</h2>
       <script>
         window.location.href = "/";
       </script>
     `);
   } catch (err) {
     console.error(err);
-    res.status(500).send("❌ Error conectando Google");
+    res.send("❌ Error conectando Google");
   }
 });
 
 // ===== TEST CALENDAR =====
 app.get("/api/calendar/test", async (req, res) => {
-  if (!googleTokens) {
+  const user = getUser(req);
+
+  if (!user || !user.googleTokens) {
     return res.status(400).json({ error: "No conectado a Google" });
   }
 
-  oauth2Client.setCredentials(googleTokens);
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+  oauth2Client.setCredentials(user.googleTokens);
+
+  const calendar = google.calendar({
+    version: "v3",
+    auth: oauth2Client,
+  });
 
   try {
     const response = await calendar.events.list({
@@ -93,105 +121,33 @@ app.get("/api/calendar/test", async (req, res) => {
   }
 });
 
-// ===== CREAR EVENTO 🔥 =====
-app.post("/api/calendar/create", async (req, res) => {
-  if (!googleTokens) {
-    return res.status(400).json({ error: "No conectado a Google" });
+// ===== CHANGE PASSWORD =====
+app.post("/api/change-password", (req, res) => {
+  const user = getUser(req);
+  const { newPassword } = req.body;
+
+  if (!user) {
+    return res.status(401).json({ error: "No autorizado" });
   }
 
-  const { summary, description, start, end } = req.body;
+  user.password = newPassword;
 
-  oauth2Client.setCredentials(googleTokens);
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
-
-  try {
-    const event = await calendar.events.insert({
-      calendarId: "primary",
-      requestBody: {
-        summary,
-        description,
-        start: {
-          dateTime: start,
-          timeZone: "America/Santiago",
-        },
-        end: {
-          dateTime: end,
-          timeZone: "America/Santiago",
-        },
-      },
-    });
-
-    res.json({ ok: true, event });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ ok: true });
 });
 
 // ===== HEALTH =====
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
-    gemini: !!GEMINI_KEY,
-    whisper: !!OPENAI_KEY,
-    google: !!googleTokens,
   });
 });
 
-// ===== WHISPER =====
-app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
-  if (!OPENAI_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY missing" });
-  }
-
-  const form = new FormData();
-  form.append("file", fs.createReadStream(req.file.path));
-  form.append("model", "whisper-1");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-      },
-      body: form,
-    }
-  );
-
-  const data = await response.json();
-  fs.unlink(req.file.path, () => {});
-
-  res.json({ transcript: data.text });
-});
-
-// ===== GEMINI =====
-app.post("/api/ai/generate", async (req, res) => {
-  const { prompt } = req.body;
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      }),
-    }
-  );
-
-  const data = await response.json();
-
-  res.json({
-    text: data.candidates?.[0]?.content?.parts?.[0]?.text || "Sin respuesta",
-  });
-});
-
-// ===== FRONTEND =====
+// ===== FRONT =====
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // ===== START =====
 app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
+  console.log("🚀 Server running on " + PORT);
 });
