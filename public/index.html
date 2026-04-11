@@ -116,87 +116,54 @@ function Fd({label:l,children:ch}){return<div style={{marginBottom:12}}><label s
 
 // ═══ LOGIN ══════════════════════════════════════════════════════
 function Login({users:us,onLogin:ol}){
-  const[e,sE]=useState("");const[p,sP]=useState("");const[er,sEr]=useState("");
-  const go=()=>{const u=us.find(u=>u.email===e&&u.pass===p);u?ol(u):sEr("Credenciales incorrectas");};
-  const go = () => {
-  const u = us.find(u => u.email === e && u.pass === p);
-  u ? ol(u) : setError("Credenciales incorrectas");
-};
 
-const loginGoogle = () => {
-  window.location.href = "/api/auth/google-login";
-};
- return(
-<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}>
-  <div className="su" style={{width:420,padding:34,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:20,position:"relative"}}>
+  const[e,sE]=useState("");
+  const[p,sP]=useState("");
+  const[er,sEr]=useState("");
 
-    <div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:"60%",height:2,background:"linear-gradient(90deg,transparent,var(--accent2),transparent)"}}/>
+  const go=()=>{
+    const u=us.find(u=>u.email===e&&u.pass===p);
+    u?ol(u):sEr("Credenciales incorrectas");
+  };
 
-    <div style={{textAlign:"center",marginBottom:20}}>
-      <div style={{display:"inline-flex",padding:"5px 14px",borderRadius:20,background:"var(--bg4)",fontSize:9,fontWeight:600,color:"var(--accent)",letterSpacing:2,marginBottom:12}}>
-        CONTENT MANAGEMENT
+  const loginGoogle=()=>{
+    window.location.href="/api/auth/google-login";
+  };
+
+  return(
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}>
+      <div className="su" style={{width:420,padding:34,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:20}}>
+
+        <h1 style={{textAlign:"center",marginBottom:20}}>INMERSIA</h1>
+
+        {er && <div style={{color:"red",marginBottom:10}}>{er}</div>}
+
+        <input
+          type="email"
+          value={e}
+          onChange={x=>{sE(x.target.value);sEr("")}}
+          placeholder="Email"
+        />
+
+        <input
+          type="password"
+          value={p}
+          onChange={x=>{sP(x.target.value);sEr("")}}
+          placeholder="Contraseña"
+        />
+
+        <button onClick={go} style={{width:"100%",marginTop:10,padding:10}}>
+          Iniciar sesión
+        </button>
+
+        <button onClick={loginGoogle} style={{width:"100%",marginTop:10,padding:10,background:"#4285F4",color:"#fff"}}>
+          Iniciar con Google
+        </button>
+
       </div>
-
-      <h1 style={{
-        fontSize:34,
-        fontWeight:900,
-        background:"linear-gradient(135deg,var(--accent),var(--gold))",
-        WebkitBackgroundClip:"text",
-        WebkitTextFillColor:"transparent",
-        letterSpacing:3
-      }}>
-        INMERSIA
-      </h1>
     </div>
-
-    {er && (
-      <div style={{background:"rgba(255,107,107,.1)",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"var(--danger)"}}>
-        {er}
-      </div>
-    )}
-
-    <Fd label="Email">
-      <input 
-        type="email" 
-        value={e} 
-        onChange={x=>{se(x.target.value);ser("")}} 
-        placeholder="tu@inmersia.cl" 
-        onKeyDown={x=>x.key==="Enter"&&go()} 
-      />
-    </Fd>
-
-    <Fd label="Contraseña">
-      <input 
-        type="password" 
-        value={p} 
-        onChange={x=>{sp(x.target.value);ser("")}} 
-        placeholder="••••" 
-        onKeyDown={x=>x.key==="Enter"&&go()} 
-      />
-    </Fd>
-
-    <Bt v="p" onClick={go} style={{width:"100%",padding:11,fontSize:14}}>
-      Iniciar sesión
-    </Bt>
-
- {/* 🔥 BOTON GOOGLE */}
-{(
-  <button 
-    onClick={loginGoogle} 
-    style={{
-      width:"100%",
-      marginTop:10,
-      padding:11,
-      borderRadius:8,
-      background:"#4285F4",
-      color:"white",
-      fontWeight:600,
-      border:"none"
-    }}
-  >
-    Iniciar con Google
-  </button>
-)}
+  );
+}
 // ═══ MAIN APP ═══════════════════════════════════════════════════
 function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[users,sU]=useState(initU);
