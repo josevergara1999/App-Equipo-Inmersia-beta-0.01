@@ -427,7 +427,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {!recing?<Bt v="d" onClick={startRec} style={{display:"flex",alignItems:"center",gap:4,padding:"7px 12px",fontSize:11}}>🎙️ Iniciar</Bt>:<Bt v="s" onClick={stopRec} style={{display:"flex",alignItems:"center",gap:4}}><div className="rd"/>Finalizar</Bt>}
             </div>
           </div>
-          {recing&&<div className="cd" style={{padding:14,marginBottom:12,textAlign:"center"}}><div className="rd" style={{margin:"0 auto 6px"}}/><div style={{fontSize:13,fontWeight:700,color:"var(--danger)"}}>Grabando...</div><div style={{fontSize:10,color:"var(--tx2)"}}>Whisper + CUMBRE AI procesaran al finalizar</div></div>}
+          {recing&&<div className="cd" style={{padding:14,marginBottom:12,textAlign:"center"}}><div className="rd" style={{margin:"0 auto 6px"}}/><div style={{fontSize:13,fontWeight:700,color:"var(--danger)"}}>Grabando...</div><div style={{fontSize:10,color:"var(--tx2)"}}>Gemini AI procesará al finalizar</div></div>}
           {meets.map(m=>(<div key={m.id} className="cd" style={{marginBottom:10}}><div style={{padding:12}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div><Bg>{m.company}</Bg><span style={{fontSize:10,color:"var(--tx2)",marginLeft:6}}>{m.date}</span></div>{m.audioUrl&&<a href={m.audioUrl} download style={{fontSize:9,color:"var(--accent)"}}>⬇ Audio</a>}</div>
             {m.transcript&&<details style={{marginBottom:4}}><summary style={{fontSize:10,color:"var(--tx2)",cursor:"pointer"}}>Transcripcion</summary><pre style={{background:"var(--bg3)",padding:6,borderRadius:6,fontSize:9,whiteSpace:"pre-wrap",maxHeight:120,overflow:"auto"}}>{m.transcript}</pre></details>}
