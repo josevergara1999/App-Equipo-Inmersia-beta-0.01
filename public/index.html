@@ -63,6 +63,7 @@ const API={
     const d=await r.json();if(d.error)throw new Error(d.error);return d.text;
   },
   async health(){const r=await fetch("/api/health");return r.json();},
+  async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
 };
 
 // ═══ CONFIG ═════════════════════════════════════════════════════
@@ -193,7 +194,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // Team payments
   const[teamPay,sTP]=useState({});
   // Backend status
-  const[apiStatus,sApiStatus]=useState({gemini:false});
+  const[apiStatus,sApiStatus]=useState({gemini:false,email:false});
   const aiRef=useRef(null);
 
   // Check backend health on mount
@@ -290,6 +291,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           {/* API Status indicator */}
           <div style={{padding:"6px 9px",fontSize:9,color:"var(--tx3)"}}>
             <div>⛰ Gemini: {apiStatus.gemini?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
+            <div>📧 Email: {apiStatus.email?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
 
           </div>
         </div>
@@ -444,7 +446,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=users.map(x=>x.email);if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:SS[u.state]?.l||u.state});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
