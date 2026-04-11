@@ -371,7 +371,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         <div style={{flex:1,padding:"4px 4px",display:"flex",flexDirection:"column",gap:1,overflow:"auto"}}>
           {Object.entries(visP).map(([k,[l,ic]])=>(<button key={k} onClick={()=>sPg(k)} style={{background:pg===k?"linear-gradient(135deg,var(--accent3),var(--accent2))":"transparent",color:pg===k?"#fff":"var(--tx2)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,fontWeight:pg===k?600:400,textAlign:"left",fontFamily:"inherit"}}><span style={{fontSize:12}}>{ic}</span>{l}</button>))}
           <div style={{height:1,background:"var(--border)",margin:"3px"}}/>
-          <button onClick={myGcal?()=>sShGcal(true):gcalAuth} style={{background:myGcal?"rgba(78,205,196,.08)":"transparent",color:myGcal?"var(--success)":"var(--tx2)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,textAlign:"left",fontFamily:"inherit"}}><span>📅</span>{myGcal?"GCal ✓":"Conectar GCal"}</button>
+          <button onClick={myGcal?()=>sShGcal(true):connectGCal} style={{background:myGcal?"rgba(78,205,196,.08)":"transparent",color:myGcal?"var(--success)":"var(--tx2)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,textAlign:"left",fontFamily:"inherit"}}><span>📅</span>{myGcal?"GCal ✓":"Conectar GCal"}</button>
           {isA&&<button onClick={()=>sShBill(true)} style={{background:"transparent",color:"var(--gold)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,textAlign:"left",fontFamily:"inherit",fontWeight:600}}><span>💰</span>Facturacion</button>}
           {/* API Status indicator */}
           <div style={{padding:"6px 9px",fontSize:9,color:"var(--tx3)"}}>
