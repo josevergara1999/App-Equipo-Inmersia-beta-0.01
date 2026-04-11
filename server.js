@@ -1,18 +1,23 @@
 const express = require("express");
 const path = require("path");
 
-// fetch para Node
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 // ===============================
+// 🧪 TEST
+// ===============================
+app.get("/api/test", (req, res) => {
+  res.json({ ok: true, msg: "INMERSIA server running" });
+});
+
+// ===============================
 // 🔐 LOGIN GOOGLE
 // ===============================
 app.get("/api/auth/google-login", (req, res) => {
   const redirect = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=openid email profile`;
-
   res.redirect(redirect);
 });
 
@@ -21,7 +26,6 @@ app.get("/api/auth/google-login", (req, res) => {
 // ===============================
 app.get("/api/auth/google", (req, res) => {
   const redirect = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal`;
-
   res.redirect(redirect);
 });
 
@@ -37,7 +41,6 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 
   try {
-    // 🔥 INTERCAMBIO TOKEN
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -57,11 +60,8 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.send("Error obteniendo token");
     }
 
-    // 🔥 OBTENER USUARIO
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`
-      }
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
 
     const userData = await userRes.json();
@@ -69,7 +69,6 @@ app.get("/api/auth/callback/google", async (req, res) => {
 
     console.log("LOGIN OK:", email);
 
-    // 🔥 REDIRECT FINAL
     if (state === "gcal") {
       return res.redirect("/?gcal=success");
     }
@@ -86,6 +85,11 @@ app.get("/api/auth/callback/google", async (req, res) => {
 // 🟢 SERVIR FRONTEND DESDE /public
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));
+
+// Catch-all: si no matchea nada, servir index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // ===============================
 app.listen(PORT, () => {
