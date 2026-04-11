@@ -289,7 +289,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 16px",borderBottom:"1px solid var(--border)",background:"var(--bg2)"}}>
-          <h1 style={{fontSize:15,fontWeight:700,margin:0}}>{allP[pg]?.[1]} {allP[pg]?.[0]}</h1>
+          <h1 style={{fontSize:15,fontWeight:700,margin:0}}>{visP[pg]?.[1]} {visP[pg]?.[0]}</h1>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             <select value={fCo} onChange={e=>sFCo(e.target.value)} style={{fontSize:10,padding:"5px 8px",width:"auto"}}><option value="all">Todas</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
             <Bt v="go" onClick={()=>sNTk(true)} style={{padding:"5px 10px",fontSize:10}}>+ Tarea</Bt>
