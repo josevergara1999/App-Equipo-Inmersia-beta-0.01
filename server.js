@@ -1,5 +1,6 @@
 const express = require("express");
-const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args));
+const path = require("path");
+const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -23,7 +24,7 @@ app.get("/api/auth/google", (req, res) => {
 });
 
 // ===============================
-// 🔁 CALLBACK GOOGLE (LOGIN + GCAL)
+// 🔁 CALLBACK GOOGLE
 // ===============================
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
@@ -34,7 +35,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 
   try {
-    // 🔥 intercambiar code por token
+    // 🔥 TOKEN
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,7 +55,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.send("Error obteniendo token");
     }
 
-    // 🔥 obtener usuario
+    // 🔥 USER
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -66,7 +67,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
 
     console.log("LOGIN OK:", email);
 
-    // 🔥 REDIRECT CORRECTO (CLAVE)
+    // 🔥 REDIRECT CORRECTO
     if (state === "gcal") {
       return res.redirect("/?gcal=success");
     }
@@ -80,11 +81,9 @@ app.get("/api/auth/callback/google", async (req, res) => {
 });
 
 // ===============================
-// 🟢 ROOT
+// 🟢 SERVIR FRONTEND (CLAVE)
 // ===============================
-app.get("/", (req, res) => {
-  res.send("Servidor funcionando 🚀");
-});
+app.use(express.static(__dirname));
 
 // ===============================
 app.listen(PORT, () => {
