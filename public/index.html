@@ -27,7 +27,7 @@ button{cursor:pointer;border:none;font-family:inherit;border-radius:var(--r);tra
 select option{background:var(--bg3);color:var(--tx)}
 .ep{cursor:grab;padding:6px 9px;margin-bottom:4px;border-radius:8px;font-size:10px;background:var(--bg3);transition:transform .15s;border-left:3px solid var(--accent)}
 .ep:hover{transform:translateX(3px);background:var(--bg4)}
-.ep{touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.ep{-webkit-user-select:none;user-select:none}
 @media(max-width:768px){body{overflow:auto}nav{width:100%!important;height:auto!important;flex-direction:row!important;overflow-x:auto!important;flex-wrap:wrap}}
 .tb{background:linear-gradient(135deg,rgba(240,192,64,.08),rgba(240,192,64,.02));border:1px solid rgba(240,192,64,.25);border-radius:12px;padding:14px 16px}
 .rd{width:12px;height:12px;border-radius:50%;background:#ff4444;animation:rec 1.5s infinite}
@@ -276,14 +276,25 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const stats=useMemo(()=>{const t=td();return{total:tasks.length,atr:tasks.filter(x=>x.date&&x.date<t&&!["aprobado","publicado"].includes(x.state)).length,apr:tasks.filter(x=>x.state==="en_aprobacion").length,hoy:tasks.filter(x=>x.date===t).length,pen:tasks.filter(x=>!x.date).length,byU:users.map(u=>({...u,tot:tasks.filter(x=>x.responsable===u.id).length,done:tasks.filter(x=>x.responsable===u.id&&["aprobado","publicado"].includes(x.state)).length}))};},[tasks,users]);
   const myTd=useMemo(()=>tasks.filter(t=>t.date===td()&&t.responsable===cu.id),[tasks,cu]);
   const myTm=useMemo(()=>tasks.filter(t=>t.date===tm()&&t.responsable===cu.id),[tasks,cu]);
-  const fT=useMemo(()=>fCo==="all"?tasks:tasks.filter(t=>t.companyId===parseInt(fCo)),[tasks,fCo]);
+  const fT=useMemo(()=>fCo==="all"?tasks:tasks.filter(t=>String(t.companyId)===String(fCo)),[tasks,fCo]);
   const pend=useMemo(()=>fT.filter(t=>!t.date),[fT]);const sched=useMemo(()=>fT.filter(t=>t.date),[fT]);
   const dIM=(y,m)=>new Date(y,m+1,0).getDate();const fDay=(y,m)=>{const d=new Date(y,m,1).getDay();return d===0?6:d-1;};
   const calC=useMemo(()=>{const f=fDay(cY,cM),d=dIM(cY,cM),c=[];for(let i=0;i<f;i++)c.push(null);for(let i=1;i<=d;i++)c.push(i);return c;},[cM,cY]);
+
+  // Weekly view: current week
+  const weekDays=useMemo(()=>{
+    const now=new Date();const dow=now.getDay();const mon=dow===0?6:dow-1;
+    const start=new Date(now);start.setDate(start.getDate()-mon);
+    const days=[];
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),dayName:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"][i],isToday:d.toDateString()===now.toDateString()});}
+    return days;
+  },[]);
+  const wTasks=day=>fT.filter(t=>t.date===day);
+  const wExtras=day=>extras.filter(e=>e.date===day&&(fCo==="all"||String(e.companyId)===String(fCo)));
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return sched.filter(t=>t.date===ds);};
-  const dEx=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return extras.filter(e=>e.date===ds&&(fCo==="all"||e.companyId===parseInt(fCo)));};
+  const dEx=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return extras.filter(e=>e.date===ds&&(fCo==="all"||String(e.companyId)===String(fCo)));};
   const autoD=()=>{const pe=tasks.filter(t=>!t.date);if(!pe.length)return;const wd=[];for(let d=1;d<=dIM(cY,cM);d++){const dow=new Date(cY,cM,d).getDay();if(dow!==0&&dow!==6)wd.push(d);}const eds=users.filter(u=>u.role!=="visualizador");const up=[...tasks];let di=0,ei=0;pe.forEach(pt=>{const idx=up.findIndex(t=>t.id===pt.id);if(idx===-1)return;up[idx]={...up[idx],date:cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(wd[di%wd.length]).padStart(2,"0"),responsable:up[idx].responsable||eds[ei%eds.length].id};di++;ei++;});sT(up);addN(pe.length+" tareas distribuidas");};
-  const hDrop=day=>{if(!drag||!day)return;const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(drag.tp==="task")upT(drag.id,{date:ds});else if(drag.tp==="extra"){const coId=fCo!=="all"?parseInt(fCo):cos[0]?.id;if(coId)addEx(drag.exId,ds,coId);}else if(drag.tp==="repost"){const coId=fCo!=="all"?parseInt(fCo):cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}sDr(null);};
+  const hDrop=day=>{if(!drag||!day)return;const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(drag.tp==="task")upT(drag.id,{date:ds});else if(drag.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(drag.exId,ds,coId);}else if(drag.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}sDr(null);};
   const hDropP=()=>{if(drag?.tp==="task"){upT(drag.id,{date:null});sDr(null);}};
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>t.companyId!==coId||t.state!=="no_realizado"||t.date);return[...keep,...genTasks({...co,plan:np})];});}};
   const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
@@ -420,6 +431,26 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div>}
           </div>
+
+          {/* WEEKLY VIEW */}
+          <div style={{marginTop:16}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>📅 Esta Semana</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+              {weekDays.map(wd=>{const wt=wTasks(wd.ds);const we=wExtras(wd.ds);
+                return(<div key={wd.ds} onClick={()=>{if(isMob&&drag&&drag.tp==="task"){upT(drag.id,{date:wd.ds});sDr(null);}}} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(drag?.tp==="task"){upT(drag.id,{date:wd.ds});sDr(null);}}} style={{background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,padding:8,minHeight:140}}>
+                  <div style={{textAlign:"center",marginBottom:6}}>
+                    <div style={{fontSize:9,color:wd.isToday?"var(--accent)":"var(--tx2)",fontWeight:600}}>{wd.dayName}</div>
+                    <div style={{fontSize:18,fontWeight:wd.isToday?800:600,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</div>
+                  </div>
+                  {wt.map(t=>(<div key={t.id} onClick={e=>{e.stopPropagation();sMd2(t);}} style={{cursor:"pointer",padding:"4px 6px",marginBottom:3,borderRadius:6,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,borderLeft:"3px solid "+(TT[t.type]?.c||"#999"),overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                    {TT[t.type]?.i||"⭐"} {t.title}
+                  </div>))}
+                  {we.map(e=>(<div key={e.id} style={{padding:"3px 6px",marginBottom:2,borderRadius:6,fontSize:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,borderLeft:"3px solid var(--gold)",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{e.icon} {e.name}</div>))}
+                  {wt.length===0&&we.length===0&&<div style={{textAlign:"center",fontSize:8,color:"var(--tx3)",padding:"10px 0"}}>—</div>}
+                </div>);})}
+            </div>
+          </div>
+
         </div>)}
 
         {/* COMPANIES */}
@@ -437,7 +468,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div></div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{sCos(p=>[...p,{...c,id:Date.now(),hasLoyalty:false,hasMeta:false}]);sT(p=>[...p,...genTasks(c)]);sNC(false);}}/></Md>
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title="Editar Plan">{editCo&&<Fd label="Plan"><select defaultValue={editCo.plan} onChange={e=>{updCoP(editCo.id,e.target.value);sEC(null);}}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>}</Md>
         </div>)}
 
