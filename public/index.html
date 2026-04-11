@@ -724,6 +724,11 @@ useEffect(() => {
   }
 
 }, []);
+
+  if(!u) return <Login users={us} onLogin={x=>{localStorage.setItem("userEmail",x.email);sU(x);}}/>;
+  return <Main user={u} users={us} onLogout={()=>{localStorage.removeItem("userEmail");sU(null);}} setUsers={sUs}/>;
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
