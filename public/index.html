@@ -27,6 +27,8 @@ button{cursor:pointer;border:none;font-family:inherit;border-radius:var(--r);tra
 select option{background:var(--bg3);color:var(--tx)}
 .ep{cursor:grab;padding:6px 9px;margin-bottom:4px;border-radius:8px;font-size:10px;background:var(--bg3);transition:transform .15s;border-left:3px solid var(--accent)}
 .ep:hover{transform:translateX(3px);background:var(--bg4)}
+.ep{touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+@media(max-width:768px){body{overflow:auto}nav{width:100%!important;height:auto!important;flex-direction:row!important;overflow-x:auto!important;flex-wrap:wrap}}
 .tb{background:linear-gradient(135deg,rgba(240,192,64,.08),rgba(240,192,64,.02));border:1px solid rgba(240,192,64,.25);border-radius:12px;padding:14px 16px}
 .rd{width:12px;height:12px;border-radius:50%;background:#ff4444;animation:rec 1.5s infinite}
 </style>
@@ -386,29 +388,30 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* CALENDAR */}
         {pg==="calendar"&&(<div className="fi">
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><Bt v="g" onClick={()=>{if(cM===0){sCM(11);sCY(cY-1)}else sCM(cM-1)}}>&lt;</Bt><span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center",fontFamily:"'Space Mono',monospace"}}>{MO[cM]} {cY}</span><Bt v="g" onClick={()=>{if(cM===11){sCM(0);sCY(cY+1)}else sCM(cM+1)}}>&gt;</Bt></div>
             <Bt v="go" onClick={autoD} style={{padding:"6px 10px",fontSize:10}}>🤖 Auto</Bt>
           </div>
-          <div style={{display:"flex",gap:6}}>
-            <div onDragOver={e=>e.preventDefault()} onDrop={hDropP} style={{width:155,flexShrink:0,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:7,maxHeight:"72vh",overflow:"auto"}}>
+          <div style={{display:"flex",gap:6,flexDirection:window.innerWidth<768?"column":"row"}}>
+            <div onDragOver={e=>e.preventDefault()} onDrop={hDropP} onTouchEnd={()=>{if(drag){hDropP();sDr(null);}}} style={{width:window.innerWidth<768?"100%":155,flexShrink:0,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:7,maxHeight:window.innerWidth<768?"30vh":"72vh",overflow:"auto"}}>
               <div style={{fontSize:9,fontWeight:700,color:"var(--tx2)"}}>PENDIENTES ({pend.length})</div>
-              <div draggable onDragStart={()=>sDr({tp:"repost"})} className="ep" style={{borderLeftColor:"#8886a0",background:"var(--bg4)",marginBottom:6,marginTop:4}}><div style={{fontWeight:700,color:"var(--tx2)"}}>🔄 + Repost (∞)</div></div>
-              {pend.slice(0,30).map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} className="ep" style={{borderLeftColor:TT[t.type]?.c||"var(--accent)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}
+              <div draggable onDragStart={()=>sDr({tp:"repost"})} onTouchStart={()=>sDr({tp:"repost"})} className="ep" style={{borderLeftColor:"#8886a0",background:"var(--bg4)",marginBottom:6,marginTop:4}}><div style={{fontWeight:700,color:"var(--tx2)"}}>🔄 + Repost (∞)</div></div>
+              {pend.slice(0,30).map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} onTouchStart={()=>sDr({tp:"task",id:t.id})} className="ep" style={{borderLeftColor:TT[t.type]?.c||"var(--accent)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}
             </div>
-            <div style={{flex:1}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
-              {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
-              {calC.map((day,i)=>{const dt2=dTk(day);const de2=dEx(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;
-                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} style={{background:isT?"rgba(157,107,255,.05)":"var(--bg2)",minHeight:64,padding:2,opacity:day?1:.3}}>
-                  {day&&(<><div style={{fontSize:8,fontWeight:isT?800:400,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 3px",borderRadius:4,display:"inline-block"}}>{day}</div>
-                    {dt2.slice(0,3).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"1px 3px",marginBottom:1,borderRadius:3,fontSize:7,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
-                    {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"1px 3px",marginBottom:1,borderRadius:3,fontSize:7,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
+            <div style={{flex:1,overflow:"auto"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
+              {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:window.innerWidth<768?7:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
+              {calC.map((day,i)=>{const dt2=dTk(day);const de2=dEx(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;const maxShow=window.innerWidth<768?2:4;const hiddenCount=Math.max(0,dt2.length-maxShow)+Math.max(0,de2.length-2);
+                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} onTouchEnd={()=>{if(drag&&day){hDrop(day);sDr(null);}}} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:window.innerWidth<768?50:95,padding:3,opacity:day?1:.3}}>
+                  {day&&(<><div style={{fontSize:window.innerWidth<768?9:10,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
+                    {dt2.slice(0,maxShow).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
+                    {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
+                    {hiddenCount>0&&(<div onClick={()=>{const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");sMd2({id:"day_"+day,title:"📅 Día "+day+" - "+MO[cM],company:"Todas las tareas",state:"no_realizado",date:ds,comments:[],votes:{},files:[],_allTasks:dt2,_allExtras:de2});}} style={{cursor:"pointer",padding:"2px 4px",borderRadius:4,fontSize:7,background:"rgba(157,107,255,.12)",color:"var(--accent)",fontWeight:700,textAlign:"center",marginTop:1}}>+{hiddenCount} más</div>)}
                   </>)}</div>);})}
             </div></div>
-            {isA&&<div style={{width:165,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
+            {isA&&<div style={{width:window.innerWidth<768?"100%":165,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
               <div className="tb" style={{padding:8}}><div style={{fontSize:8,fontWeight:700,color:"var(--gold)"}}>EXTRAS</div><div style={{fontSize:16,fontWeight:900,fontFamily:"'Space Mono',monospace",color:"var(--gold)"}}>{fP(totEx)}</div></div>
-              <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:6,flex:1,maxHeight:"50vh",overflow:"auto"}}>
-                {EXTRAS.filter(e=>e.id!=="repost").map(ex=>(<div key={ex.id} draggable onDragStart={()=>sDr({tp:"extra",exId:ex.id})} className="ep" style={{borderLeftColor:ex.color}}>
+              <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:6,flex:1,maxHeight:window.innerWidth<768?"30vh":"50vh",overflow:"auto"}}>
+                {EXTRAS.filter(e=>e.id!=="repost").map(ex=>(<div key={ex.id} draggable onDragStart={()=>sDr({tp:"extra",exId:ex.id})} onTouchStart={()=>sDr({tp:"extra",exId:ex.id})} className="ep" style={{borderLeftColor:ex.color}}>
                   <div style={{fontWeight:600,fontSize:8}}>{ex.icon} {ex.name}</div>
                   <div style={{color:"var(--gold)",fontWeight:700,fontSize:9,fontFamily:"'Space Mono',monospace"}}>{ex.price>0?fP(ex.price):"Free"}</div>
                 </div>))}
