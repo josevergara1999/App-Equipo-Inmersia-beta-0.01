@@ -216,11 +216,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
-  const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
+  const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());const[wkOff,sWkOff]=useState(0);
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
-  const[isMob,sIsMob]=useState(window.innerWidth<768);
+  const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   // GCal
@@ -262,7 +262,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   const genTasks=useCallback(co=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
     Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;},[]);
-  useEffect(()=>{if(tasks.length===0&&cos.length>0&&dbLoaded){const fromDb=cos.flatMap(c=>genTasks(c));if(fromDb.length)sT(fromDb);}},[dbLoaded]);
+  useEffect(()=>{if(cos.length>0&&dbLoaded){
+    const cosWithoutTasks=cos.filter(c=>!tasks.some(t=>String(t.companyId)===String(c.id)));
+    if(cosWithoutTasks.length){const newTasks=cosWithoutTasks.flatMap(c=>genTasks(c));if(newTasks.length)sT(p=>[...p,...newTasks]);}
+  }},[dbLoaded,cos]);
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
@@ -281,14 +284,15 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const dIM=(y,m)=>new Date(y,m+1,0).getDate();const fDay=(y,m)=>{const d=new Date(y,m,1).getDay();return d===0?6:d-1;};
   const calC=useMemo(()=>{const f=fDay(cY,cM),d=dIM(cY,cM),c=[];for(let i=0;i<f;i++)c.push(null);for(let i=1;i<=d;i++)c.push(i);return c;},[cM,cY]);
 
-  // Weekly view: current week
+  // Weekly view with navigation
   const weekDays=useMemo(()=>{
-    const now=new Date();const dow=now.getDay();const mon=dow===0?6:dow-1;
+    const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
     const start=new Date(now);start.setDate(start.getDate()-mon);
+    const today=new Date();
     const days=[];
-    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),dayName:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"][i],isToday:d.toDateString()===now.toDateString()});}
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),month:MO[d.getMonth()],dayName:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"][i],isToday:d.toDateString()===today.toDateString()});}
     return days;
-  },[]);
+  },[wkOff]);
   const wTasks=day=>fT.filter(t=>t.date===day);
   const wExtras=day=>extras.filter(e=>e.date===day&&(fCo==="all"||String(e.companyId)===String(fCo)));
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return sched.filter(t=>t.date===ds);};
@@ -434,7 +438,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
           {/* WEEKLY VIEW */}
           <div style={{marginTop:16}}>
-            <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>📅 Esta Semana</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <Bt v="g" onClick={()=>sWkOff(w=>w-1)}>&lt;</Bt>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:13,fontWeight:700}}>📅 Semana {wkOff===0?"Actual":wkOff>0?"+"+wkOff:wkOff}</div>
+                <div style={{fontSize:10,color:"var(--tx2)"}}>{weekDays[0]?.day} {weekDays[0]?.month} — {weekDays[6]?.day} {weekDays[6]?.month}</div>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:9,padding:"4px 8px"}}>Hoy</Bt>}
+                <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
+              </div>
+            </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
               {weekDays.map(wd=>{const wt=wTasks(wd.ds);const we=wExtras(wd.ds);
                 return(<div key={wd.ds} onClick={()=>{if(isMob&&drag&&drag.tp==="task"){upT(drag.id,{date:wd.ds});sDr(null);}}} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(drag?.tp==="task"){upT(drag.id,{date:wd.ds});sDr(null);}}} style={{background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,padding:8,minHeight:140}}>
@@ -575,16 +589,38 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       </Md>
 
       {/* MOBILE BOTTOM NAV */}
-      {isMob&&<nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
-        {[["dashboard","📊"],["calendar","📅"],["tasks","✅"],["companies","🏢"],["ai","🤖"],["meetings","🎙"]].map(([k,ic])=>(<button key={k} onClick={()=>sPg(k)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
-          <span style={{fontSize:18}}>{ic}</span>
-          <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
-        </button>))}
-        <button onClick={ol} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
-          <Av u={cu} sz={20}/>
-          <span>Salir</span>
-        </button>
-      </nav>}
+      {isMob&&<>
+        {/* Slide-up menu */}
+        {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:998,backdropFilter:"blur(3px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px env(safe-area-inset-bottom,12px)",animation:"slideUp .25s ease"}}>
+            <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {[["loyalty","💳","Fidelización"],["meta","📣","Meta Ads"],["payments","💰","Pagos"],["team","👥","Equipo"],["meetings","🎙","Reuniones"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(157,107,255,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
+                <span style={{fontSize:22}}>{ic}</span>{l}
+              </button>))}
+              <button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:myGcal?"rgba(78,205,196,.1)":"var(--bg3)",border:"1px solid "+(myGcal?"var(--success)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:myGcal?"var(--success)":"var(--tx2)",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>📅</span>{myGcal?"GCal ✓":"GCal"}
+              </button>
+              {isA&&<button onClick={()=>{sShBill(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>💰</span>Facturación
+              </button>}
+              <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--danger)",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>🚪</span>Salir
+              </button>
+            </div>
+          </div>
+        </div>}
+        <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
+          {[["dashboard","📊"],["calendar","📅"],["tasks","✅"],["companies","🏢"],["ai","🤖"]].map(([k,ic])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+            <span style={{fontSize:18}}>{ic}</span>
+            <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
+          </button>))}
+          <button onClick={()=>sMobMenu(!mobMenu)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:mobMenu?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+            <span style={{fontSize:18}}>⋯</span>
+            <span style={{fontWeight:mobMenu?700:400}}>Más</span>
+          </button>
+        </nav>
+      </>}
     </div>
   );
 }
