@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// ===== USERS
+// ===== USERS =====
 const users = {
   "clementeignacio19@gmail.com": { password: "1234", googleTokens: null },
   "gcastilloaguirre@gmail.com": { password: "1234", googleTokens: null },
@@ -21,16 +21,17 @@ const users = {
   "inmersiatours@gmail.com": { password: "1234", googleTokens: null },
 };
 
+// ===== SESSIONS =====
 const sessions = {};
 
-// ===== GOOGLE CONFIG
+// ===== GOOGLE CONFIG =====
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// ===== LOGIN NORMAL
+// ===== LOGIN NORMAL =====
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
 
@@ -44,26 +45,30 @@ app.post("/api/login", (req, res) => {
   res.json({ sessionId });
 });
 
-// ===== GET USER
+// ===== GET USER =====
 function getUser(req) {
   const sessionId = req.headers["x-session-id"];
   const email = sessions[sessionId];
   return users[email];
 }
 
-// ===== GOOGLE LOGIN (NUEVO 🔥)
+// ===== LOGIN GOOGLE =====
 app.get("/api/auth/google-login", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
-    scope: ["profile", "email"],
+    scope: [
+      "profile",
+      "email",
+      "https://www.googleapis.com/auth/calendar"
+    ]
   });
 
   res.redirect(url);
 });
 
-// ===== CALLBACK LOGIN GOOGLE
-app.get("/api/auth/google-login/callback", async (req, res) => {
+// ===== CALLBACK GOOGLE =====
+app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
   try {
@@ -72,15 +77,18 @@ app.get("/api/auth/google-login/callback", async (req, res) => {
 
     const oauth2 = google.oauth2({
       auth: oauth2Client,
-      version: "v2",
+      version: "v2"
     });
 
-    const { data } = await oauth2.userinfo.get();
-    const email = data.email;
+    const userInfo = await oauth2.userinfo.get();
+    const email = userInfo.data.email;
 
+    // Solo permitir correos autorizados
     if (!users[email]) {
-      return res.send("❌ No autorizado");
+      return res.send("❌ Usuario no autorizado");
     }
+
+    users[email].googleTokens = tokens;
 
     const sessionId = Math.random().toString(36).substring(2);
     sessions[sessionId] = email;
@@ -94,16 +102,16 @@ app.get("/api/auth/google-login/callback", async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.send("❌ Error login Google");
+    res.send("❌ Error en login Google");
   }
 });
 
-// ===== GOOGLE CALENDAR
+// ===== CONECTAR CALENDAR =====
 app.get("/api/auth/google", (req, res) => {
   const sessionId = req.query.sessionId;
 
-  if (!sessionId) {
-    return res.send("❌ Falta sessionId");
+  if (!sessionId || !sessions[sessionId]) {
+    return res.send("❌ Sesión inválida");
   }
 
   const url = oauth2Client.generateAuthUrl({
@@ -116,7 +124,7 @@ app.get("/api/auth/google", (req, res) => {
   res.redirect(url);
 });
 
-// ===== CALLBACK CALENDAR
+// ===== CALLBACK CALENDAR =====
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
   const sessionId = req.query.state;
@@ -133,18 +141,16 @@ app.get("/api/auth/callback/google", async (req, res) => {
     user.googleTokens = tokens;
 
     res.send(`
-      <h2>✅ Google conectado correctamente</h2>
-      <script>
-        window.location.href = "/";
-      </script>
+      <h2>✅ Google Calendar conectado</h2>
+      <script>window.location.href="/"</script>
     `);
   } catch (err) {
     console.error(err);
-    res.send("❌ Error conectando Google");
+    res.send("❌ Error conectando Calendar");
   }
 });
 
-// ===== TEST CALENDAR
+// ===== TEST CALENDAR =====
 app.get("/api/calendar/test", async (req, res) => {
   const user = getUser(req);
 
@@ -171,31 +177,17 @@ app.get("/api/calendar/test", async (req, res) => {
   }
 });
 
-// ===== CHANGE PASSWORD
-app.post("/api/change-password", (req, res) => {
-  const user = getUser(req);
-  const { newPassword } = req.body;
-
-  if (!user) {
-    return res.status(401).json({ error: "No autorizado" });
-  }
-
-  user.password = newPassword;
-
-  res.json({ ok: true });
-});
-
-// ===== HEALTH
+// ===== HEALTH =====
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// ===== FRONT
+// ===== FRONT =====
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ===== START
+// ===== START =====
 app.listen(PORT, () => {
   console.log("🚀 Server running on " + PORT);
 });
