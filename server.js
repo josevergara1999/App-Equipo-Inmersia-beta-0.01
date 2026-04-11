@@ -300,7 +300,7 @@ app.get("/api/auth/google-login", (req, res) => {
 });
 
 app.get("/api/auth/google", (req, res) => {
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal`);
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal&access_type=offline&prompt=consent`);
 });
 
 app.get("/api/auth/callback/google", async (req, res) => {
@@ -320,11 +320,102 @@ app.get("/api/auth/callback/google", async (req, res) => {
     const userData = await userRes.json();
     console.log("LOGIN OK:", userData.email);
 
-    if (state === "gcal") return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}`);
+    if (state === "gcal") {
+      // Store refresh_token in Supabase for persistent access
+      if (tokenData.refresh_token) {
+        try {
+          const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+          const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+          // Load existing gcal tokens
+          const loadRes = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.gcal_tokens&select=value`, {
+            headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` }
+          });
+          const loadData = await loadRes.json();
+          const existing = loadData?.[0]?.value || {};
+          existing[userData.email] = { refresh_token: tokenData.refresh_token, access_token: tokenData.access_token, email: userData.email };
+
+          // Upsert
+          await fetch(`${sbUrl}/rest/v1/app_data`, {
+            method: "POST",
+            headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}`, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+            body: JSON.stringify({ key: "gcal_tokens", value: existing, updated_at: new Date().toISOString() })
+          });
+          console.log("GCal refresh_token stored for:", userData.email);
+        } catch (e) { console.error("Error storing gcal token:", e.message); }
+      }
+      return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}&gcal_email=${userData.email}`);
+    }
+
     return res.redirect(`/?login=success&email=${userData.email}`);
   } catch (err) {
     console.error(err);
     res.send("Error en callback Google");
+  }
+});
+
+// ===============================
+// 📅 GCAL SYNC - persistent
+// ===============================
+async function getGCalAccessToken(email) {
+  const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+  const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+
+  const loadRes = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.gcal_tokens&select=value`, {
+    headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` }
+  });
+  const loadData = await loadRes.json();
+  const tokens = loadData?.[0]?.value || {};
+  const userToken = tokens[email];
+  if (!userToken?.refresh_token) return null;
+
+  // Refresh the access token
+  const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: userToken.refresh_token,
+      grant_type: "refresh_token"
+    })
+  });
+  const refreshData = await refreshRes.json();
+  if (!refreshData.access_token) { console.error("Refresh failed:", refreshData); return null; }
+  return refreshData.access_token;
+}
+
+app.post("/api/gcal/sync", async (req, res) => {
+  try {
+    const { email, title, company, date } = req.body;
+    if (!email || !date) return res.json({ ok: false, msg: "Faltan datos" });
+
+    const accessToken = await getGCalAccessToken(email);
+    if (!accessToken) return res.json({ ok: false, msg: "GCal no conectado para " + email });
+
+    const event = {
+      summary: title,
+      description: "INMERSIA: " + (company || ""),
+      start: { date },
+      end: { date }
+    };
+
+    const calRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+      body: JSON.stringify(event)
+    });
+    const calData = await calRes.json();
+
+    if (calData.error) {
+      console.error("GCal sync error:", calData.error);
+      return res.json({ ok: false, msg: calData.error.message });
+    }
+
+    console.log("GCal event created:", title, "->", email);
+    res.json({ ok: true, eventId: calData.id });
+  } catch (err) {
+    console.error("Error gcal sync:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
