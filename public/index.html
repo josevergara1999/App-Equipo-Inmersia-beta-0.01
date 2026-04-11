@@ -220,6 +220,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
+  const[isMob,sIsMob]=useState(isMob);
+  useEffect(()=>{const h=()=>sIsMob(isMob);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   // GCal
   const[gcalTokens,sGCT]=useState(JSON.parse(localStorage.getItem("inm_gcal_tokens")||"{}"));
@@ -337,8 +339,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   if(!dbLoaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando datos...</div></div>);
 
   return(
-    <div style={{display:"flex",height:"100vh",background:"var(--bg)"}}>
-      <nav style={{width:190,background:"var(--bg2)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0,overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:isMob?"column":"row",height:"100vh",background:"var(--bg)"}}>
+      {/* SIDEBAR - desktop only */}
+      {!isMob&&<nav style={{width:190,background:"var(--bg2)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0,overflow:"hidden"}}>
         <div style={{padding:"12px 12px",borderBottom:"1px solid var(--border)"}}>
           <div style={{fontSize:8,color:"var(--accent)",fontWeight:600,letterSpacing:2}}>PLATFORM</div>
           <div style={{fontSize:17,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:3}}>INMERSIA</div>
@@ -348,18 +351,16 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{height:1,background:"var(--border)",margin:"3px"}}/>
           <button onClick={myGcal?()=>sShGcal(true):connectGCal} style={{background:myGcal?"rgba(78,205,196,.08)":"transparent",color:myGcal?"var(--success)":"var(--tx2)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,textAlign:"left",fontFamily:"inherit"}}><span>📅</span>{myGcal?"GCal ✓":"Conectar GCal"}</button>
           {isA&&<button onClick={()=>sShBill(true)} style={{background:"transparent",color:"var(--gold)",display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:8,fontSize:11,textAlign:"left",fontFamily:"inherit",fontWeight:600}}><span>💰</span>Facturacion</button>}
-          {/* API Status indicator */}
           <div style={{padding:"6px 9px",fontSize:9,color:"var(--tx3)"}}>
             <div>⛰ Gemini: {apiStatus.gemini?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
             <div>📧 Email: {apiStatus.email?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
-
           </div>
         </div>
         <div style={{padding:8,borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",gap:6}}>
           <Av u={cu} sz={26}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cu.name}</div><div style={{fontSize:8,color:"var(--tx2)"}}>{cu.role}</div></div>
           <button onClick={ol} style={{background:"var(--bg4)",color:"var(--tx2)",width:22,height:22,borderRadius:6,fontSize:9}}>→</button>
         </div>
-      </nav>
+      </nav>}
 
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 16px",borderBottom:"1px solid var(--border)",background:"var(--bg2)"}}>
@@ -372,7 +373,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             </div>
           </div>
         </header>
-        <div style={{flex:1,overflow:"auto",padding:16}}>
+        <div style={{flex:1,overflow:"auto",padding:isMob?"12px 10px 80px":16}}>
 
         {/* DASHBOARD */}
         {pg==="dashboard"&&(<div className="fi">
@@ -392,25 +393,25 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <div style={{display:"flex",alignItems:"center",gap:8}}><Bt v="g" onClick={()=>{if(cM===0){sCM(11);sCY(cY-1)}else sCM(cM-1)}}>&lt;</Bt><span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center",fontFamily:"'Space Mono',monospace"}}>{MO[cM]} {cY}</span><Bt v="g" onClick={()=>{if(cM===11){sCM(0);sCY(cY+1)}else sCM(cM+1)}}>&gt;</Bt></div>
             <Bt v="go" onClick={autoD} style={{padding:"6px 10px",fontSize:10}}>🤖 Auto</Bt>
           </div>
-          <div style={{display:"flex",gap:6,flexDirection:window.innerWidth<768?"column":"row"}}>
-            <div onDragOver={e=>e.preventDefault()} onDrop={hDropP} onTouchEnd={()=>{if(drag){hDropP();sDr(null);}}} style={{width:window.innerWidth<768?"100%":155,flexShrink:0,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:7,maxHeight:window.innerWidth<768?"30vh":"72vh",overflow:"auto"}}>
+          <div style={{display:"flex",gap:6,flexDirection:isMob?"column":"row"}}>
+            <div onDragOver={e=>e.preventDefault()} onDrop={hDropP} onTouchEnd={()=>{if(drag){hDropP();sDr(null);}}} style={{width:isMob?"100%":155,flexShrink:0,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:7,maxHeight:isMob?"30vh":"72vh",overflow:"auto"}}>
               <div style={{fontSize:9,fontWeight:700,color:"var(--tx2)"}}>PENDIENTES ({pend.length})</div>
               <div draggable onDragStart={()=>sDr({tp:"repost"})} onTouchStart={()=>sDr({tp:"repost"})} className="ep" style={{borderLeftColor:"#8886a0",background:"var(--bg4)",marginBottom:6,marginTop:4}}><div style={{fontWeight:700,color:"var(--tx2)"}}>🔄 + Repost (∞)</div></div>
               {pend.slice(0,30).map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} onTouchStart={()=>sDr({tp:"task",id:t.id})} className="ep" style={{borderLeftColor:TT[t.type]?.c||"var(--accent)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}
             </div>
             <div style={{flex:1,overflow:"auto"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
-              {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:window.innerWidth<768?7:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
-              {calC.map((day,i)=>{const dt2=dTk(day);const de2=dEx(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;const maxShow=window.innerWidth<768?2:4;const hiddenCount=Math.max(0,dt2.length-maxShow)+Math.max(0,de2.length-2);
-                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} onTouchEnd={()=>{if(drag&&day){hDrop(day);sDr(null);}}} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:window.innerWidth<768?50:95,padding:3,opacity:day?1:.3}}>
-                  {day&&(<><div style={{fontSize:window.innerWidth<768?9:10,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
-                    {dt2.slice(0,maxShow).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
-                    {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
+              {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:isMob?7:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
+              {calC.map((day,i)=>{const dt2=dTk(day);const de2=dEx(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;const maxShow=isMob?2:4;const hiddenCount=Math.max(0,dt2.length-maxShow)+Math.max(0,de2.length-2);
+                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} onTouchEnd={()=>{if(drag&&day){hDrop(day);sDr(null);}}} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:isMob?50:95,padding:3,opacity:day?1:.3}}>
+                  {day&&(<><div style={{fontSize:isMob?9:10,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
+                    {dt2.slice(0,maxShow).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:isMob?7:8,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
+                    {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:isMob?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
                     {hiddenCount>0&&(<div onClick={()=>{const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");sDayView({date:ds,day,tasks:dt2,extras:de2});}} style={{cursor:"pointer",padding:"2px 4px",borderRadius:4,fontSize:7,background:"rgba(157,107,255,.12)",color:"var(--accent)",fontWeight:700,textAlign:"center",marginTop:1}}>+{hiddenCount} más</div>)}
                   </>)}</div>);})}
             </div></div>
-            {isA&&<div style={{width:window.innerWidth<768?"100%":165,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
+            {isA&&<div style={{width:isMob?"100%":165,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
               <div className="tb" style={{padding:8}}><div style={{fontSize:8,fontWeight:700,color:"var(--gold)"}}>EXTRAS</div><div style={{fontSize:16,fontWeight:900,fontFamily:"'Space Mono',monospace",color:"var(--gold)"}}>{fP(totEx)}</div></div>
-              <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:6,flex:1,maxHeight:window.innerWidth<768?"30vh":"50vh",overflow:"auto"}}>
+              <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:6,flex:1,maxHeight:isMob?"30vh":"50vh",overflow:"auto"}}>
                 {EXTRAS.filter(e=>e.id!=="repost").map(ex=>(<div key={ex.id} draggable onDragStart={()=>sDr({tp:"extra",exId:ex.id})} onTouchStart={()=>sDr({tp:"extra",exId:ex.id})} className="ep" style={{borderLeftColor:ex.color}}>
                   <div style={{fontWeight:600,fontSize:8}}>{ex.icon} {ex.name}</div>
                   <div style={{color:"var(--gold)",fontWeight:700,fontSize:9,fontFamily:"'Space Mono',monospace"}}>{ex.price>0?fP(ex.price):"Free"}</div>
@@ -540,6 +541,18 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           </div>))}</>)}
         </div>)}
       </Md>
+
+      {/* MOBILE BOTTOM NAV */}
+      {isMob&&<nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
+        {[["dashboard","📊"],["calendar","📅"],["tasks","✅"],["companies","🏢"],["ai","🤖"],["meetings","🎙"]].map(([k,ic])=>(<button key={k} onClick={()=>sPg(k)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+          <span style={{fontSize:18}}>{ic}</span>
+          <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
+        </button>))}
+        <button onClick={ol} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+          <Av u={cu} sz={20}/>
+          <span>Salir</span>
+        </button>
+      </nav>}
     </div>
   );
 }
