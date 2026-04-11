@@ -1,20 +1,24 @@
 const express = require("express");
 const fetch = require("node-fetch");
 const cors = require("cors");
+const path = require("path");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 🔥 SERVIR FRONTEND
+app.use(express.static(path.join(__dirname, "public")));
+
 const PORT = process.env.PORT || 10000;
 
-// 🔐 CONFIG
+// 🔐 CONFIG GOOGLE
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 const REDIRECT_URI = "https://app-equipo-inmersia-beta-0-01.onrender.com/api/auth/callback/google";
 
-// 👉 EMAILS AUTORIZADOS
+// 👥 USUARIOS AUTORIZADOS
 const allowedUsers = [
   "clementeignacio19@gmail.com",
   "gcastilloaguirre@gmail.com",
@@ -57,7 +61,6 @@ app.get("/api/auth/callback/google", async (req, res) => {
     });
 
     const tokenData = await tokenRes.json();
-
     const access_token = tokenData.access_token;
 
     // 👤 obtener usuario
@@ -76,7 +79,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.send("❌ Usuario no autorizado");
     }
 
-    // ✅ login OK → redirige al front
+    // ✅ LOGIN OK → vuelve al frontend
     res.redirect(`/?login=success&email=${user.email}`);
 
   } catch (err) {
@@ -85,9 +88,9 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// 🟢 TEST
-app.get("/", (req, res) => {
-  res.send("Servidor funcionando 🚀");
+// 🌐 SPA (IMPORTANTE)
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // 🚀 START
