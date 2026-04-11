@@ -36,6 +36,44 @@ select option{background:var(--bg3);color:var(--tx)}
 <script type="text/babel">
 const{useState,useEffect,useCallback,useMemo,useRef}=React;
 
+// ═══ SUPABASE CONFIG ════════════════════════════════════════════
+const SUPABASE_URL="https://cvytwyvaxccbcpfqezlr.supabase.co";
+const SUPABASE_KEY="sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+const SB_HEADERS={"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Content-Type":"application/json"};
+
+const DB={
+  async load(key){
+    try{
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${key}&select=value`,{headers:SB_HEADERS});
+      const d=await r.json();
+      return d?.[0]?.value||[];
+    }catch(e){console.error("DB load error:",key,e);return[];}
+  },
+  async save(key,value){
+    try{
+      await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${key}`,{
+        method:"PATCH",
+        headers:{...SB_HEADERS,"Prefer":"return=minimal"},
+        body:JSON.stringify({value,updated_at:new Date().toISOString()})
+      });
+    }catch(e){console.error("DB save error:",key,e);}
+  },
+  async loadAll(){
+    try{
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data?select=key,value`,{headers:SB_HEADERS});
+      const d=await r.json();
+      const m={};d.forEach(x=>m[x.key]=x.value);return m;
+    }catch(e){console.error("DB loadAll error:",e);return{};}
+  }
+};
+
+// Debounce helper
+const debounceTimers={};
+function dbSave(key,value){
+  clearTimeout(debounceTimers[key]);
+  debounceTimers[key]=setTimeout(()=>DB.save(key,value),800);
+}
+
 // ═══ API CLIENT — all calls go through backend ═════════════════
 const API={
   async generate(prompt,temperature=0.7){
@@ -172,8 +210,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const isA=cu.role==="admin";
   const[pg,sPg]=useState("dashboard");
   const visP={dashboard:["Dashboard","📊"],calendar:["Calendario","📅"],companies:["Empresas","🏢"],tasks:["Tareas","✅"],team:["Equipo","👥"],ai:["Cumbre AI","🤖"],loyalty:["Fidelización","💳"],meta:["Meta Ads","📣"],meetings:["Reuniones","🎙"],payments:["Pagos","💰"]};
-  const[cos,sCos]=useState([{id:1,name:"Fauna",plan:"society",color:"#4ecdc4",hasMeta:false,hasLoyalty:true},{id:2,name:"Huemul",plan:"basic",color:"#9d6bff",hasMeta:false,hasLoyalty:true},{id:3,name:"Antue",plan:"pro_emprende",color:"#ff6b6b",hasMeta:false,hasLoyalty:false}]);
+  const[cos,sCos]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
+  const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
@@ -198,11 +237,28 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const aiRef=useRef(null);
 
   // Check backend health on mount
-  useEffect(()=>{API.health().then(d=>sApiStatus({gemini:d.gemini,})).catch(()=>{});},[]);
+  useEffect(()=>{API.health().then(d=>sApiStatus({gemini:d.gemini,email:d.email})).catch(()=>{});},[]);
+
+  // Load from Supabase on mount
+  useEffect(()=>{
+    DB.loadAll().then(d=>{
+      if(d.companies?.length)sCos(d.companies);
+      if(d.tasks?.length)sT(d.tasks);
+      if(d.extras?.length)sEx(d.extras);
+      if(d.meetings?.length)sMeets(d.meetings);
+      sDbLoaded(true);
+    }).catch(()=>sDbLoaded(true));
+  },[]);
+
+  // Save to Supabase on changes
+  useEffect(()=>{if(dbLoaded)dbSave("companies",cos);},[cos,dbLoaded]);
+  useEffect(()=>{if(dbLoaded)dbSave("tasks",tasks);},[tasks,dbLoaded]);
+  useEffect(()=>{if(dbLoaded)dbSave("extras",extras);},[extras,dbLoaded]);
+  useEffect(()=>{if(dbLoaded)dbSave("meetings",meets);},[meets,dbLoaded]);
 
   const genTasks=useCallback(co=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
     Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;},[]);
-  useEffect(()=>{if(tasks.length===0)sT(cos.flatMap(c=>genTasks(c)));},[]);
+  useEffect(()=>{if(tasks.length===0&&cos.length>0&&dbLoaded){const fromDb=cos.flatMap(c=>genTasks(c));if(fromDb.length)sT(fromDb);}},[dbLoaded]);
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
@@ -275,6 +331,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const stopRec=()=>{if(mRec){mRec.stop();mRec.stream.getTracks().forEach(t=>t.stop());}};
   const hFile=(tid,file)=>{const r=new FileReader();r.onload=e=>{upT(tid,{files:[...(tasks.find(t=>t.id===tid)?.files||[]),{name:file.name,data:e.target.result,type:file.type}]});};r.readAsDataURL(file);};
 
+
+  if(!dbLoaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando datos...</div></div>);
 
   return(
     <div style={{display:"flex",height:"100vh",background:"var(--bg)"}}>
