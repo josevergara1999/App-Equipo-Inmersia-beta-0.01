@@ -220,8 +220,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
-  const[isMob,sIsMob]=useState(isMob);
-  useEffect(()=>{const h=()=>sIsMob(isMob);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  const[isMob,sIsMob]=useState(window.innerWidth<768);
+  useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   // GCal
   const[gcalTokens,sGCT]=useState(JSON.parse(localStorage.getItem("inm_gcal_tokens")||"{}"));
