@@ -170,6 +170,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
   const[pg,sPg]=useState("dashboard");
+  const visP={dashboard:["Dashboard","📊"],calendar:["Calendario","📅"],companies:["Empresas","🏢"],tasks:["Tareas","✅"],team:["Equipo","👥"],ai:["Cumbre AI","🤖"],loyalty:["Fidelización","💳"],meta:["Meta Ads","📣"],meetings:["Reuniones","🎙"],payments:["Pagos","💰"]};
   const[cos,sCos]=useState([{id:1,name:"Fauna",plan:"society",color:"#4ecdc4",hasMeta:false,hasLoyalty:true},{id:2,name:"Huemul",plan:"basic",color:"#9d6bff",hasMeta:false,hasLoyalty:true},{id:3,name:"Antue",plan:"pro_emprende",color:"#ff6b6b",hasMeta:false,hasLoyalty:false}]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);
