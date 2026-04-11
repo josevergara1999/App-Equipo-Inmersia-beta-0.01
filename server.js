@@ -1,68 +1,29 @@
-require("dotenv").config();
+import express from "express";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
 
-const express = require("express");
-const cors = require("cors");
-const { google } = require("googleapis");
-const path = require("path");
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+// ===== CONFIG =====
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.GOOGLE_REDIRECT;
 
-// ===== USERS =====
-const users = {
-  "clementeignacio19@gmail.com": { password: "1234", googleTokens: null },
-  "gcastilloaguirre@gmail.com": { password: "1234", googleTokens: null },
-  "contifellenberg@gmail.com": { password: "1234", googleTokens: null },
-  "j.agutoledo@gmail.com": { password: "1234", googleTokens: null },
-  "inmersiatours@gmail.com": { password: "1234", googleTokens: null },
-};
-
-// ===== SESSIONS =====
-const sessions = {};
-
-// ===== GOOGLE CONFIG =====
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
-
-// ===== LOGIN NORMAL =====
-app.post("/api/login", (req, res) => {
-  const { email, password } = req.body;
-
-  if (!users[email] || users[email].password !== password) {
-    return res.status(401).json({ error: "Credenciales inválidas" });
-  }
-
-  const sessionId = Math.random().toString(36).substring(2);
-  sessions[sessionId] = email;
-
-  res.json({ sessionId });
-});
-
-// ===== GET USER =====
-function getUser(req) {
-  const sessionId = req.headers["x-session-id"];
-  const email = sessions[sessionId];
-  return users[email];
-}
+// ===== USERS (memoria simple) =====
+const users = {};
 
 // ===== LOGIN GOOGLE =====
 app.get("/api/auth/google-login", (req, res) => {
-  const url = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: [
-      "profile",
-      "email",
-      "https://www.googleapis.com/auth/calendar"
-    ]
-  });
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?` +
+    `client_id=${CLIENT_ID}` +
+    `&redirect_uri=${REDIRECT_URI}` +
+    `&response_type=code` +
+    `&scope=https://www.googleapis.com/auth/calendar` +
+    `&access_type=offline` +
+    `&prompt=consent`;
 
   res.redirect(url);
 });
@@ -71,34 +32,53 @@ app.get("/api/auth/google-login", (req, res) => {
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
+  if (!code) {
+    return res.send("❌ No code");
+  }
 
-    const oauth2 = google.oauth2({
-      auth: oauth2Client,
-      version: "v2"
+  try {
+    // 🔁 intercambiar code por token
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        redirect_uri: REDIRECT_URI,
+        grant_type: "authorization_code"
+      })
     });
 
-    const userInfo = await oauth2.userinfo.get();
-    const email = userInfo.data.email;
+    const tokenData = await tokenRes.json();
 
-    // Solo permitir correos autorizados
+    // 👤 obtener info usuario
+    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`
+      }
+    });
+
+    const userData = await userRes.json();
+    const email = userData.email;
+
+    // ===== AQUÍ ESTABA EL ERROR =====
+    // ahora crea usuario automáticamente
     if (!users[email]) {
-      return res.send("❌ Usuario no autorizado");
+      users[email] = {
+        password: null,
+        googleTokens: null
+      };
     }
 
-    users[email].googleTokens = tokens;
+    // guardar tokens
+    users[email].googleTokens = tokenData;
 
-    const sessionId = Math.random().toString(36).substring(2);
-    sessions[sessionId] = email;
+    // guardar sesión simple
+    const sessionId = email;
 
-    res.send(`
-      <script>
-        localStorage.setItem("sessionId", "${sessionId}");
-        window.location.href = "/";
-      </script>
-    `);
+    // redirigir al frontend
+    res.redirect(`/?sessionId=${sessionId}`);
 
   } catch (err) {
     console.error(err);
@@ -106,88 +86,21 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// ===== CONECTAR CALENDAR =====
-app.get("/api/auth/google", (req, res) => {
+// ===== OBTENER TOKENS =====
+app.get("/api/google-tokens", (req, res) => {
   const sessionId = req.query.sessionId;
 
-  if (!sessionId || !sessions[sessionId]) {
-    return res.send("❌ Sesión inválida");
+  if (!sessionId || !users[sessionId]) {
+    return res.json({});
   }
 
-  const url = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: ["https://www.googleapis.com/auth/calendar"],
-    state: sessionId,
-  });
-
-  res.redirect(url);
+  res.json(users[sessionId].googleTokens || {});
 });
 
-// ===== CALLBACK CALENDAR =====
-app.get("/api/auth/callback/google", async (req, res) => {
-  const code = req.query.code;
-  const sessionId = req.query.state;
-
-  const email = sessions[sessionId];
-  const user = users[email];
-
-  if (!user) {
-    return res.send("❌ Sesión inválida");
-  }
-
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    user.googleTokens = tokens;
-
-    res.send(`
-      <h2>✅ Google Calendar conectado</h2>
-      <script>window.location.href="/"</script>
-    `);
-  } catch (err) {
-    console.error(err);
-    res.send("❌ Error conectando Calendar");
-  }
-});
-
-// ===== TEST CALENDAR =====
-app.get("/api/calendar/test", async (req, res) => {
-  const user = getUser(req);
-
-  if (!user || !user.googleTokens) {
-    return res.status(400).json({ error: "No conectado a Google" });
-  }
-
-  oauth2Client.setCredentials(user.googleTokens);
-
-  const calendar = google.calendar({
-    version: "v3",
-    auth: oauth2Client,
-  });
-
-  try {
-    const response = await calendar.events.list({
-      calendarId: "primary",
-      maxResults: 5,
-    });
-
-    res.json(response.data.items);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== HEALTH =====
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-// ===== FRONT =====
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+// ===== SERVIR FRONT =====
+app.use(express.static("public"));
 
 // ===== START =====
 app.listen(PORT, () => {
-  console.log("🚀 Server running on " + PORT);
+  console.log("🚀 Server corriendo en puerto " + PORT);
 });
