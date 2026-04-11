@@ -261,12 +261,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   useEffect(()=>{if(dbLoaded)dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(dbLoaded)dbSave("meetings",meets);},[meets,dbLoaded]);
 
-  const genTasks=useCallback(co=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
-    Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;},[]);
-  useEffect(()=>{if(cos.length>0&&dbLoaded){
-    const cosWithoutTasks=cos.filter(c=>!tasks.some(t=>String(t.companyId)===String(c.id)));
-    if(cosWithoutTasks.length){const newTasks=cosWithoutTasks.flatMap(c=>genTasks(c));if(newTasks.length)sT(p=>[...p,...newTasks]);}
-  }},[dbLoaded,cos]);
+
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
@@ -298,10 +293,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const wExtras=day=>extras.filter(e=>e.date===day&&(fCo==="all"||String(e.companyId)===String(fCo)));
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return sched.filter(t=>t.date===ds);};
   const dEx=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return extras.filter(e=>e.date===ds&&(fCo==="all"||String(e.companyId)===String(fCo)));};
-  const autoD=()=>{const pe=tasks.filter(t=>!t.date);if(!pe.length)return;const wd=[];for(let d=1;d<=dIM(cY,cM);d++){const dow=new Date(cY,cM,d).getDay();if(dow!==0&&dow!==6)wd.push(d);}const eds=users.filter(u=>u.role!=="visualizador");const up=[...tasks];let di=0,ei=0;pe.forEach(pt=>{const idx=up.findIndex(t=>t.id===pt.id);if(idx===-1)return;up[idx]={...up[idx],date:cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(wd[di%wd.length]).padStart(2,"0"),responsable:up[idx].responsable||eds[ei%eds.length].id};di++;ei++;});sT(up);addN(pe.length+" tareas distribuidas");};
+
   const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);upT(d.id,{date:null});}};
-  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>t.companyId!==coId||t.state!=="no_realizado"||t.date);return[...keep,...genTasks({...co,plan:np})];});}};
+  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));};
   const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
@@ -407,7 +402,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="calendar"&&(<div className="fi">
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><Bt v="g" onClick={()=>{if(cM===0){sCM(11);sCY(cY-1)}else sCM(cM-1)}}>&lt;</Bt><span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center",fontFamily:"'Space Mono',monospace"}}>{MO[cM]} {cY}</span><Bt v="g" onClick={()=>{if(cM===11){sCM(0);sCY(cY+1)}else sCM(cM+1)}}>&gt;</Bt></div>
-            <Bt v="go" onClick={autoD} style={{padding:"6px 10px",fontSize:10}}>🤖 Auto</Bt>
           </div>
           <div style={{display:"flex",gap:6,flexDirection:isMob?"column":"row"}}>
             <div onDragOver={e=>e.preventDefault()} onDrop={hDropP} style={{width:isMob?"100%":155,flexShrink:0,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:7,maxHeight:isMob?"30vh":"72vh",overflow:"auto"}}>
@@ -483,7 +477,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div></div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);sNC(false);}}/></Md>
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title="Editar Plan">{editCo&&<Fd label="Plan"><select defaultValue={editCo.plan} onChange={e=>{updCoP(editCo.id,e.target.value);sEC(null);}}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>}</Md>
         </div>)}
 
