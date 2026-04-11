@@ -193,11 +193,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // Team payments
   const[teamPay,sTP]=useState({});
   // Backend status
-  const[apiStatus,sApiStatus]=useState({gemini:false,whisper:false});
+  const[apiStatus,sApiStatus]=useState({gemini:false});
   const aiRef=useRef(null);
 
   // Check backend health on mount
-  useEffect(()=>{API.health().then(d=>sApiStatus({gemini:d.gemini,whisper:d.whisper})).catch(()=>{});},[]);
+  useEffect(()=>{API.health().then(d=>sApiStatus({gemini:d.gemini,})).catch(()=>{});},[]);
 
   const genTasks=useCallback(co=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
     Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;},[]);
@@ -264,7 +264,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // ─── MEETINGS — via backend ───────────────────────────────────
   const startRec=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(stream);const chunks=[];
     mr.ondataavailable=e=>chunks.push(e.data);
-    mr.onstop=async()=>{const blob=new Blob(chunks,{type:"audio/webm"});const url=URL.createObjectURL(blob);sRecing(false);addN("Procesando con Whisper + CUMBRE AI...");
+    mr.onstop=async()=>{const blob=new Blob(chunks,{type:"audio/webm"});const url=URL.createObjectURL(blob);sRecing(false);addN("Procesando con Gemini AI...");
       try{const result=await API.generateActa(blob,mCo||"General",users.map(u=>u.name).join(", "));
         sMeets(p=>[{id:ni(),date:td(),company:mCo||"General",acta:result.acta,transcript:result.transcript,audioUrl:url},...p]);
         if(result.tasks?.length){const nw=result.tasks.map(t=>{const rp=users.find(u=>u.name.toLowerCase().includes(t.responsable?.toLowerCase()||""));return{id:ni(),title:t.title,company:mCo||"General",companyId:0,type:"custom",description:"Reunion "+td(),responsable:rp?.id||null,date:null,state:"no_realizado",comments:[],votes:{},files:[]};});
@@ -290,7 +290,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           {/* API Status indicator */}
           <div style={{padding:"6px 9px",fontSize:9,color:"var(--tx3)"}}>
             <div>⛰ Gemini: {apiStatus.gemini?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
-            <div>🎙 Whisper: {apiStatus.whisper?<span style={{color:"var(--success)"}}>✓</span>:<span style={{color:"var(--danger)"}}>✗</span>}</div>
+
           </div>
         </div>
         <div style={{padding:8,borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",gap:6}}>
