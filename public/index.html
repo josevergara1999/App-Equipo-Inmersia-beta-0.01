@@ -601,45 +601,33 @@ function App(){
   const [us,sUs]=useState(INIT_USERS);
 
   // 🔥 LOGIN GOOGLE
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
 
-    const email = params.get("email");
-    const login = params.get("login");
+  const email = params.get("email");
+  const login = params.get("login");
+  const gcal = params.get("gcal");
 
-    if (login === "success" && email) {
-      localStorage.setItem("userEmail", email);
+  // 🔐 LOGIN
+  if (login === "success" && email) {
+    localStorage.setItem("userEmail", email);
+    sU({ email });
+    window.history.replaceState({}, document.title, "/");
+  }
 
-      // setear usuario
-      sU({ email });
+  // 📅 GCAL
+  if (gcal === "success") {
+    alert("Google Calendar conectado ✅");
+    window.history.replaceState({}, document.title, "/");
+  }
 
-      // limpiar URL
-      window.history.replaceState({}, document.title, "/");
-    }
+  // 🔄 mantener sesión
+  const saved = localStorage.getItem("userEmail");
+  if (saved && !u) {
+    sU({ email: saved });
+  }
 
-    // 🔥 mantener sesión si ya estaba logeado
-    const saved = localStorage.getItem("userEmail");
-    if (saved && !u) {
-      sU({ email: saved });
-    }
-
-  }, []);
-
-if(!u) return <Login users={us} onLogin={(user)=>{
-  localStorage.setItem("userEmail", user.email);
-  sU(user);
-}}/>;
-
-  return <Main 
-    user={u} 
-    users={us} 
-    setUsers={sUs} 
-    onLogout={()=>{
-      localStorage.removeItem("userEmail");
-      sU(null);
-    }}
-  />;
-}
+}, []);
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
