@@ -229,15 +229,14 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
 
   // GCal OAuth
-const gcalAuth = () => {
-  const sessionId = localStorage.getItem("sessionId");
+const email = localStorage.getItem("userEmail");
 
-  if (!sessionId) {
-    alert("Debes iniciar sesión primero");
-    return;
-  }
+if (!email) {
+  alert("Debes iniciar sesión primero");
+  return;
+}
 
-  window.location.href = `/api/auth/google?sessionId=${sessionId}`;
+  window.location.href = `/api/auth/google?email=${email}`;
 };
   useEffect(()=>{const h=window.location.hash;if(h.includes("access_token")){const tk=h.split("access_token=")[1]?.split("&")[0];if(tk){const nw={...gcalTokens,[cu.id]:tk};sGCT(nw);localStorage.setItem("inm_gcal_tokens",JSON.stringify(nw));window.location.hash="";addN("Google Calendar conectado!");}}},[]);
   const syncAllGCal=async task=>{const tks=Object.entries(gcalTokens).filter(([,v])=>v);if(!tks.length)return;const ev={summary:task.title,description:task.company,start:{date:task.date},end:{date:task.date}};let ok=0;for(const[,tk]of tks){try{await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+tk},body:JSON.stringify(ev)});ok++;}catch{}}addN("GCal sync: "+ok+" calendario(s)");};
