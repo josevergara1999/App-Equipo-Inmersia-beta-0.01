@@ -13,10 +13,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// ===== USERS (simple demo)
+// ===== USERS (CORREGIDO .cl)
 const users = {
-  "cleme@inmersia.com": { password: "1234", googleTokens: null },
-  "jose@inmersia.com": { password: "1234", googleTokens: null },
+  "cleme@inmersia.cl": { password: "1234", googleTokens: null },
+  "jose@inmersia.cl": { password: "1234", googleTokens: null },
 };
 
 const sessions = {};
@@ -122,7 +122,7 @@ app.get("/api/calendar/test", async (req, res) => {
   }
 });
 
-// ===== AI GENERATE (OPENAI)
+// ===== AI GENERATE
 app.post("/api/ai/generate", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -147,9 +147,11 @@ app.post("/api/ai/generate", async (req, res) => {
   }
 });
 
-// ===== FAKE TRANSCRIBE (placeholder)
+// ===== TRANSCRIBE (FAKE)
 app.post("/api/transcribe", async (req, res) => {
-  res.json({ transcript: "Transcripción simulada (configura Whisper después)" });
+  res.json({
+    transcript: "Transcripción simulada (configura Whisper después)",
+  });
 });
 
 // ===== GENERATE ACTA
