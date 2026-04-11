@@ -104,6 +104,7 @@ const API={
   },
   async health(){const r=await fetch("/api/health");return r.json();},
   async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
+  async gcalSync(email,title,company,date){try{const r=await fetch("/api/gcal/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,title,company,date})});return r.json();}catch(e){console.log("gcal sync err:",e);return{ok:false};}},
 };
 
 // ═══ CONFIG ═════════════════════════════════════════════════════
@@ -324,7 +325,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     const h=window.location.hash;
     if(h.includes("access_token")){const tk=h.split("access_token=")[1]?.split("&")[0];if(tk){const nw={...gcalTokens,[cu.id]:tk};sGCT(nw);localStorage.setItem("inm_gcal_tokens",JSON.stringify(nw));window.location.hash="";addN("Google Calendar conectado!");}}
   },[]);
-  const syncAllGCal=async task=>{const tks=Object.entries(gcalTokens).filter(([,v])=>v);if(!tks.length)return;const ev={summary:task.title,description:task.company,start:{date:task.date},end:{date:task.date}};let ok=0;for(const[,tk]of tks){try{await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+tk},body:JSON.stringify(ev)});ok++;}catch{}}addN("GCal sync: "+ok+" calendario(s)");};
+  const syncAllGCal=async task=>{if(!task.date)return;const email=localStorage.getItem("userEmail")||cu.gmail||cu.email;const result=await API.gcalSync(email,task.title,task.company,task.date);if(result?.ok)addN("📅 Sincronizado a Google Calendar");else if(result?.msg)addN("GCal: "+result.msg);};
 
   // ─── CUMBRE AI — via backend ──────────────────────────────────
   const hAI=async()=>{if(!aiIn.trim())return;const msg=aiIn.trim();sAM(p=>[...p,{r:"u",t:msg}]);sAI("");sAL(true);
