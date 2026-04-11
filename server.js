@@ -13,14 +13,14 @@ const REDIRECT_URI = process.env.GOOGLE_REDIRECT;
 // ===== USERS =====
 const users = {};
 
-// ===== LOGIN GOOGLE =====
+// ===== LOGIN GOOGLE (SOLO LOGIN, SIN CALENDAR) =====
 app.get("/api/auth/google-login", (req, res) => {
   const url =
     "https://accounts.google.com/o/oauth2/v2/auth?" +
     `client_id=${CLIENT_ID}` +
     `&redirect_uri=${REDIRECT_URI}` +
     `&response_type=code` +
-    `&scope=https://www.googleapis.com/auth/calendar` +
+    `&scope=openid email profile` +   // 👈 CLAVE (CAMBIADO)
     `&access_type=offline` +
     `&prompt=consent`;
 
@@ -65,12 +65,11 @@ app.get("/api/auth/callback/google", async (req, res) => {
     // ✅ CREAR USUARIO AUTOMÁTICO
     if (!users[email]) {
       users[email] = {
-        password: null,
-        googleTokens: null,
+        googleTokens: tokenData,
       };
+    } else {
+      users[email].googleTokens = tokenData;
     }
-
-    users[email].googleTokens = tokenData;
 
     const sessionId = email;
 
@@ -81,7 +80,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
   }
 });
 
-// ===== GET TOKENS =====
+// ===== OBTENER TOKENS =====
 app.get("/api/google-tokens", (req, res) => {
   const sessionId = req.query.sessionId;
 
