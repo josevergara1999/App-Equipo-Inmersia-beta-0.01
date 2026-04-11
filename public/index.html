@@ -215,7 +215,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[cos,sCos]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
-  const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);
+  const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");
@@ -405,7 +405,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   {day&&(<><div style={{fontSize:window.innerWidth<768?9:10,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
                     {dt2.slice(0,maxShow).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
                     {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:window.innerWidth<768?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
-                    {hiddenCount>0&&(<div onClick={()=>{const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");sMd2({id:"day_"+day,title:"📅 Día "+day+" - "+MO[cM],company:"Todas las tareas",state:"no_realizado",date:ds,comments:[],votes:{},files:[],_allTasks:dt2,_allExtras:de2});}} style={{cursor:"pointer",padding:"2px 4px",borderRadius:4,fontSize:7,background:"rgba(157,107,255,.12)",color:"var(--accent)",fontWeight:700,textAlign:"center",marginTop:1}}>+{hiddenCount} más</div>)}
+                    {hiddenCount>0&&(<div onClick={()=>{const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");sDayView({date:ds,day,tasks:dt2,extras:de2});}} style={{cursor:"pointer",padding:"2px 4px",borderRadius:4,fontSize:7,background:"rgba(157,107,255,.12)",color:"var(--accent)",fontWeight:700,textAlign:"center",marginTop:1}}>+{hiddenCount} más</div>)}
                   </>)}</div>);})}
             </div></div>
             {isA&&<div style={{width:window.innerWidth<768?"100%":165,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
@@ -523,6 +523,23 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {isA&&<Md open={shBill} onClose={()=>sShBill(false)} title={"Facturacion "+MO[cM]} width={620}>
         <BillPg cos={cos} plans={PLANS} billing={mBill} month={MO[cM]} year={cY} remEx={remEx} billRcpts={billRcpts} sBR={sBR} cM={cM} cY={cY}/>
       </Md>}
+      <Md open={!!dayView} onClose={()=>sDayView(null)} title={"📅 " + (dayView?.day||"") + " " + MO[cM] + " " + cY} width={480}>
+        {dayView&&(<div>
+          <div style={{fontSize:11,color:"var(--tx2)",marginBottom:8}}>{dayView.tasks.length} tareas · {dayView.extras.length} extras</div>
+          {dayView.tasks.map(t=>(<div key={t.id} onClick={()=>{sDayView(null);sMd2(t);}} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",marginBottom:4,background:"var(--bg3)",borderRadius:8,borderLeft:"3px solid "+(TT[t.type]?.c||"#999"),transition:"background .15s"}}>
+            <span style={{fontSize:12}}>{TT[t.type]?.i||"⭐"}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{t.title}</div>
+              <div style={{fontSize:9,color:"var(--tx2)"}}>{t.company} · {SS[t.state]?.l||t.state}</div>
+            </div>
+            <Bg color={SS[t.state]?.c} b={SS[t.state]?.b} style={{fontSize:8}}>{SS[t.state]?.l}</Bg>
+          </div>))}
+          {dayView.extras.length>0&&(<><div style={{fontSize:10,fontWeight:700,color:"var(--gold)",margin:"10px 0 4px"}}>Extras</div>
+          {dayView.extras.map(e=>(<div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",marginBottom:3,background:"rgba(240,192,64,.06)",borderRadius:8,borderLeft:"3px solid var(--gold)"}}>
+            <span>{e.icon}</span><span style={{fontSize:11,flex:1}}>{e.name}</span><span style={{fontSize:10,color:"var(--gold)",fontWeight:700,fontFamily:"'Space Mono',monospace"}}>{e.price>0?fP(e.price):"Free"}</span>
+          </div>))}</>)}
+        </div>)}
+      </Md>
     </div>
   );
 }
