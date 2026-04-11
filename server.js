@@ -70,7 +70,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
     console.log("LOGIN OK:", email);
 
     if (state === "gcal") {
-      return res.redirect("/?gcal=success");
+      return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}`);
     }
 
     return res.redirect(`/?login=success&email=${email}`);
