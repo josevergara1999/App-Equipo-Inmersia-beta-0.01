@@ -69,11 +69,11 @@ const API={
 // ═══ CONFIG ═════════════════════════════════════════════════════
 const INIT_USERS=[
   {id:1,name:"Conti",email:"conti@inmersia.cl",role:"editor",avatar:"CO",color:"#9d6bff",pass:"1234"},
-  {id:2,name:"Cleme",email:"cleme@inmersia.cl",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234"},
+  {id:2,name:"Cleme",email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234"},
   {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b",pass:"1234"},
   {id:4,name:"Gali",email:"gali@inmersia.cl",role:"visualizador",avatar:"GA",color:"#ffd93d",pass:"1234"},
-  {id:5,name:"Javi",email:"javi@inmersia.cl",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234"},
-  {id:6,name:"Jose",email:"jose@inmersia.cl",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234"},
+  {id:5,name:"Javi",email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234"},
+  {id:6,name:"Jose",email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234"},
 ];
 
 const PLANS={
@@ -620,7 +620,8 @@ useEffect(() => {
   // 🔐 LOGIN
   if (login === "success" && email) {
     localStorage.setItem("userEmail", email);
-    sU({ email });
+    const found = us.find(x => x.email === email || x.gmail === email);
+    sU(found || { id:99, name: email.split("@")[0], email, role: "admin", avatar: email.slice(0,2).toUpperCase(), color: "#9d6bff" });
     window.history.replaceState({}, document.title, "/");
   }
 
@@ -641,7 +642,8 @@ useEffect(() => {
   // 🔄 mantener sesión
   const saved = localStorage.getItem("userEmail");
   if (saved && !u) {
-    sU({ email: saved });
+    const found = us.find(x => x.email === saved || x.gmail === saved);
+    sU(found || { id:99, name: saved.split("@")[0], email: saved, role: "admin", avatar: saved.slice(0,2).toUpperCase(), color: "#9d6bff" });
   }
 
 }, []);
