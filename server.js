@@ -1,99 +1,67 @@
 const express = require("express");
-const fetch = require("node-fetch");
-const cors = require("cors");
-const path = require("path");
+const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args));
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-
-// 🔥 SERVIR FRONTEND
-app.use(express.static(path.join(__dirname, "public")));
-
 const PORT = process.env.PORT || 10000;
 
-// 🔐 CONFIG GOOGLE
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-const REDIRECT_URI = "https://app-equipo-inmersia-beta-0-01.onrender.com/api/auth/callback/google";
-
-// 👥 USUARIOS AUTORIZADOS
-const allowedUsers = [
-  "clementeignacio19@gmail.com",
-  "gcastilloaguirre@gmail.com",
-  "contifellenberg@gmail.com",
-  "j.agutoledo@gmail.com",
-  "inmersiatours@gmail.com",
-  "jose.vergara.diaz.vr@gmail.com"
-];
-
-// 🚀 LOGIN GOOGLE
+// 🔥 LOGIN GOOGLE
 app.get("/api/auth/google-login", (req, res) => {
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    response_type: "code",
-    scope: "openid email profile",
-    access_type: "offline",
-    prompt: "consent"
-  });
-
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  const redirect = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=openid email profile`;
+  res.redirect(redirect);
 });
 
-// 🔁 CALLBACK GOOGLE
+// 🔥 GCAL + LOGIN CALLBACK
 app.get("/api/auth/callback/google", async (req, res) => {
   const code = req.query.code;
 
   try {
-    // 🔁 intercambiar code por token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         code,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
         grant_type: "authorization_code"
       })
     });
 
     const tokenData = await tokenRes.json();
-    const access_token = tokenData.access_token;
 
-    // 👤 obtener usuario
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
-        Authorization: `Bearer ${access_token}`
+        Authorization: `Bearer ${tokenData.access_token}`
       }
     });
 
-    const user = await userRes.json();
+    const userData = await userRes.json();
 
-    console.log("USER:", user);
+    const email = userData.email;
 
-    // 🚫 validar acceso
-    if (!allowedUsers.includes(user.email)) {
-      return res.send("❌ Usuario no autorizado");
+    // 🔥 diferencia entre login y gcal
+    if (req.query.state === "gcal") {
+      res.redirect(`/?gcal=success`);
+    } else {
+      res.redirect(`/?login=success&email=${email}`);
     }
-
-    // ✅ LOGIN OK → vuelve al frontend
-    res.redirect(`/?login=success&email=${user.email}`);
 
   } catch (err) {
     console.error(err);
-    res.send("❌ Error en autenticación");
+    res.send("Error en Google");
   }
 });
 
-// 🌐 SPA (IMPORTANTE)
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+// 🔥 GCAL BOTÓN
+app.get("/api/auth/google", (req, res) => {
+  const redirect = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal`;
+  res.redirect(redirect);
 });
 
-// 🚀 START
+app.get("/", (req, res) => {
+  res.send("Servidor funcionando 🚀");
+});
+
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("Server corriendo en", PORT);
 });
