@@ -1,5 +1,7 @@
 const express = require("express");
 const path = require("path");
+
+// fetch para Node
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
@@ -15,7 +17,7 @@ app.get("/api/auth/google-login", (req, res) => {
 });
 
 // ===============================
-// 📅 GCAL AUTH
+// 📅 GOOGLE CALENDAR AUTH
 // ===============================
 app.get("/api/auth/google", (req, res) => {
   const redirect = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal`;
@@ -31,11 +33,11 @@ app.get("/api/auth/callback/google", async (req, res) => {
   const state = req.query.state;
 
   if (!code) {
-    return res.send("No code received");
+    return res.send("No code recibido");
   }
 
   try {
-    // 🔥 TOKEN
+    // 🔥 INTERCAMBIO TOKEN
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -55,7 +57,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.send("Error obteniendo token");
     }
 
-    // 🔥 USER
+    // 🔥 OBTENER USUARIO
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -67,7 +69,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
 
     console.log("LOGIN OK:", email);
 
-    // 🔥 REDIRECT CORRECTO
+    // 🔥 REDIRECT FINAL
     if (state === "gcal") {
       return res.redirect("/?gcal=success");
     }
@@ -81,9 +83,9 @@ app.get("/api/auth/callback/google", async (req, res) => {
 });
 
 // ===============================
-// 🟢 SERVIR FRONTEND (CLAVE)
+// 🟢 SERVIR FRONTEND DESDE /public
 // ===============================
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, "public")));
 
 // ===============================
 app.listen(PORT, () => {
