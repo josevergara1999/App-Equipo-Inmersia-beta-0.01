@@ -264,6 +264,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
+
+  const genTasks=(co)=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
+    Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;};
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
   const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"&&t.state!=="en_aprobacion"?{votes:{}}:{})}));
   const delT=id=>sT(p=>p.filter(t=>t.id!==id));
@@ -296,7 +299,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);upT(d.id,{date:null});}};
-  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));};
+  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
   const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
@@ -408,7 +411,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               <div style={{fontSize:9,fontWeight:700,color:"var(--tx2)"}}>PENDIENTES ({pend.length})</div>
               {isMob&&drag&&<div style={{padding:"6px 8px",background:"rgba(157,107,255,.15)",borderRadius:6,marginBottom:4,fontSize:9,color:"var(--accent)",fontWeight:600,textAlign:"center"}}>📌 Toca un día para asignar · <span onClick={()=>sDr(null)} style={{color:"var(--danger)",cursor:"pointer"}}>Cancelar</span></div>}
               <div draggable onDragStart={()=>sDr({tp:"repost"})} onClick={()=>{if(isMob)sDr(drag?.tp==="repost"?null:{tp:"repost"});}} className="ep" style={{borderLeftColor:"#8886a0",background:drag?.tp==="repost"?"rgba(157,107,255,.15)":"var(--bg4)",marginBottom:6,marginTop:4}}><div style={{fontWeight:700,color:"var(--tx2)"}}>🔄 + Repost (∞)</div></div>
-              {pend.slice(0,30).map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} onClick={()=>{if(isMob)sDr(drag?.id===t.id?null:{tp:"task",id:t.id});}} className="ep" style={{borderLeftColor:TT[t.type]?.c||"var(--accent)",background:drag?.id===t.id?"rgba(157,107,255,.15)":"var(--bg3)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}
+              {fCo==="all"?cos.map(co=>{const coTasks=pend.filter(t=>String(t.companyId)===String(co.id));if(!coTasks.length)return null;return(<div key={co.id}><div style={{fontSize:8,fontWeight:700,color:co.color,margin:"6px 0 2px",borderBottom:"1px solid "+co.color+"33",paddingBottom:2}}>{co.name} ({coTasks.length})</div>{coTasks.map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} onClick={()=>{if(isMob)sDr(drag?.id===t.id?null:{tp:"task",id:t.id});}} className="ep" style={{borderLeftColor:co.color,background:drag?.id===t.id?"rgba(157,107,255,.15)":"var(--bg3)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}</div>);}):
+              pend.slice(0,40).map(t=>(<div key={t.id} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} onClick={()=>{if(isMob)sDr(drag?.id===t.id?null:{tp:"task",id:t.id});}} className="ep" style={{borderLeftColor:TT[t.type]?.c||"var(--accent)",background:drag?.id===t.id?"rgba(157,107,255,.15)":"var(--bg3)"}}><div style={{fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div></div>))}
             </div>
             <div style={{flex:1,overflow:"auto"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
               {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:isMob?7:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
@@ -477,7 +481,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div></div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sNC(false);}}/></Md>
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);addN("Empresa creada: "+nc.name);sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title="Editar Plan">{editCo&&<Fd label="Plan"><select defaultValue={editCo.plan} onChange={e=>{updCoP(editCo.id,e.target.value);sEC(null);}}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>}</Md>
         </div>)}
 
