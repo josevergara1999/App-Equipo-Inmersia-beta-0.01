@@ -275,12 +275,12 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
   const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"&&t.state!=="en_aprobacion"?{votes:{}}:{})}));
   const delT=id=>sT(p=>p.filter(t=>t.id!==id));
-  const vote=(tid,uid,ok)=>sT(p=>p.map(t=>{if(t.id!==tid)return t;const v={...t.votes,[uid]:ok};const rej=Object.values(v).some(x=>!x);const all=users.every(u=>v[u.id]!==undefined);let ns=t.state;if(rej)ns="en_proceso";else if(all)ns="aprobado";return{...t,votes:v,state:ns};}));
+  const vote=(tid,uid,ok)=>sT(p=>p.map(t=>{if(t.id!==tid)return t;const v={...t.votes,[uid]:ok};const team=users.filter(u=>u.role!=="cliente");const rej=Object.values(v).some(x=>!x);const all=team.every(u=>v[u.id]!==undefined);let ns=t.state;if(rej)ns="en_proceso";else if(all)ns="aprobado";return{...t,votes:v,state:ns};}));
   const addEx=(exId,date,coId)=>{const ex=EXTRAS.find(e=>e.id===exId);const co=cos.find(c=>c.id===coId);if(!ex)return;sEx(p=>[...p,{id:ni(),extraId:exId,companyId:coId,company:co?.name||"",date,name:ex.name,price:ex.price,icon:ex.icon,color:ex.color}]);if(ex.price>0)addN("Extra: "+ex.name+" "+fP(ex.price));};
   const remEx=id=>sEx(p=>p.filter(e=>e.id!==id));
   const mBill=useMemo(()=>{const pfx=cY+"-"+String(cM+1).padStart(2,"0");const mE=extras.filter(e=>e.date?.startsWith(pfx));const by={};cos.forEach(c=>{const ce=mE.filter(e=>e.companyId===c.id);const pp=PLANS[c.plan]?.price||0;const et=ce.reduce((s,e)=>s+e.price,0);by[c.id]={company:c,planPrice:pp,extras:ce,extrasTotal:et,total:pp+et};});return by;},[extras,cos,cM,cY]);
   const totEx=useMemo(()=>Object.values(mBill).reduce((s,b)=>s+b.extrasTotal,0),[mBill]);
-  const stats=useMemo(()=>{const t=td();return{total:tasks.length,atr:tasks.filter(x=>x.date&&x.date<t&&!["aprobado","publicado"].includes(x.state)).length,apr:tasks.filter(x=>x.state==="en_aprobacion").length,hoy:tasks.filter(x=>x.date===t).length,pen:tasks.filter(x=>!x.date).length,byU:users.map(u=>({...u,tot:tasks.filter(x=>x.responsable===u.id).length,done:tasks.filter(x=>x.responsable===u.id&&["aprobado","publicado"].includes(x.state)).length}))};},[tasks,users]);
+  const stats=useMemo(()=>{const t=td();return{total:tasks.length,atr:tasks.filter(x=>x.date&&x.date<t&&!["aprobado","publicado"].includes(x.state)).length,apr:tasks.filter(x=>x.state==="en_aprobacion").length,hoy:tasks.filter(x=>x.date===t).length,pen:tasks.filter(x=>!x.date).length,byU:users.filter(u=>u.role!=="cliente").map(u=>({...u,tot:tasks.filter(x=>x.responsable===u.id).length,done:tasks.filter(x=>x.responsable===u.id&&["aprobado","publicado"].includes(x.state)).length}))};},[tasks,users]);
   const myTd=useMemo(()=>tasks.filter(t=>t.date===td()&&t.responsable===cu.id),[tasks,cu]);
   const myTm=useMemo(()=>tasks.filter(t=>t.date===tm()&&t.responsable===cu.id),[tasks,cu]);
   const fT=useMemo(()=>fCo==="all"?tasks:tasks.filter(t=>String(t.companyId)===String(fCo)),[tasks,fCo]);
@@ -502,7 +502,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* TEAM */}
         {pg==="team"&&(<div className="fi" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
-          {users.map(u=>{const ut=tasks.filter(t=>t.responsable===u.id);const dn=ut.filter(t=>["aprobado","publicado"].includes(t.state)).length;const myPays=teamPay[u.id]||[];
+          {users.filter(u=>u.role!=="cliente").map(u=>{const ut=tasks.filter(t=>t.responsable===u.id);const dn=ut.filter(t=>["aprobado","publicado"].includes(t.state)).length;const myPays=teamPay[u.id]||[];
             return(<div key={u.id} className="cd" style={{padding:16,textAlign:"center",position:"relative"}}><div style={{position:"absolute",top:0,left:0,right:0,height:3,background:u.color}}/>
               <Av u={u} sz={44}/><div style={{marginTop:6,fontWeight:800,fontSize:13}}>{u.name}</div>
               {isA?<select value={u.role} onChange={e=>chRole(u.id,e.target.value)} style={{marginTop:4,fontSize:10,padding:"3px 6px",width:"auto"}}><option value="admin">admin</option><option value="editor">editor</option><option value="visualizador">visualizador</option></select>:<Bg style={{marginTop:4}}>{u.role}</Bg>}
@@ -747,11 +747,12 @@ function CoForm({onSave}){const[n,sN]=useState("");const[p,sP]=useState("society
 function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
   const[desc,sD]=useState(t.description||"");const[com,sC]=useState("");const fR=useRef(null);
   const sts=["no_realizado","en_proceso","en_aprobacion","aprobado","publicado"];
+  const teamUsers=users.filter(u=>u.role!=="cliente");
   return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
     <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}><Bg color={TT[t.type]?.c}>{TT[t.type]?.i} {TT[t.type]?.l||t.type}</Bg><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b}>{SS[t.state]?.l}</Bg><Bg>{t.company}</Bg>
       <div style={{marginLeft:"auto",display:"flex",gap:3}}>{t.date&&<Bt v="g" onClick={onUns} style={{fontSize:9,color:"var(--warn)"}}>↩</Bt>}{t.date&&hasGcal&&<Bt v="g" onClick={onSync} style={{fontSize:9,color:"var(--info)"}}>📅</Bt>}<Bt v="g" onClick={onDel} style={{fontSize:9,color:"var(--danger)"}}>🗑</Bt></div></div>
     <Fd label="Estado"><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{sts.map(s=><button key={s} onClick={()=>onUp({state:s})} style={{padding:"4px 9px",borderRadius:6,fontSize:9,fontWeight:600,background:t.state===s?SS[s].c+"cc":"var(--bg4)",color:t.state===s?"#fff":"var(--tx2)",fontFamily:"inherit"}}>{SS[s].l}</button>)}</div></Fd>
-    <Fd label="Responsable"><select value={t.responsable||""} onChange={e=>onUp({responsable:parseInt(e.target.value)||null})}><option value="">--</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Fd>
+    <Fd label="Responsable"><select value={t.responsable||""} onChange={e=>onUp({responsable:parseInt(e.target.value)||null})}><option value="">--</option>{teamUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Fd>
     <Fd label="Fecha"><input type="date" value={t.date||""} onChange={e=>onUp({date:e.target.value||null})}/></Fd>
     <Fd label="Descripcion"><textarea value={desc} onChange={e=>sD(e.target.value)} onBlur={()=>onUp({description:desc})} rows={2} placeholder="..."/></Fd>
     {(t.state==="en_aprobacion"||t.state==="en_proceso")&&(<div style={{background:"var(--bg3)",borderRadius:8,padding:8}}>
@@ -760,10 +761,17 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
       <input ref={fR} type="file" style={{display:"none"}} onChange={e=>{if(e.target.files[0])onFile(e.target.files[0]);}}/><Bt v="s" onClick={()=>fR.current?.click()} style={{fontSize:9}}>📎 Subir</Bt>
     </div>)}
     {t.state==="en_aprobacion"&&(<div style={{background:"var(--bg3)",borderRadius:8,padding:8}}>
-      <div style={{fontSize:10,fontWeight:700,marginBottom:4}}>Votacion</div>
-      {users.map(u=>{const v=t.votes?.[u.id];return(<div key={u.id} style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}><Av u={u} sz={16}/><span style={{fontSize:9,flex:1}}>{u.name}</span>
+      <div style={{fontSize:10,fontWeight:700,marginBottom:4}}>Votación Equipo</div>
+      {teamUsers.map(u=>{const v=t.votes?.[u.id];return(<div key={u.id} style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}><Av u={u} sz={16}/><span style={{fontSize:9,flex:1}}>{u.name}</span>
         {v===undefined?((u.id===cu.id||cu.role==="admin")?<div style={{display:"flex",gap:2}}><Bt v="s" onClick={()=>onVote(u.id,true)} style={{padding:"2px 6px",fontSize:8,background:"var(--success)",color:"#fff"}}>✓</Bt><Bt v="s" onClick={()=>onVote(u.id,false)} style={{padding:"2px 6px",fontSize:8,background:"var(--danger)",color:"#fff"}}>✗</Bt></div>:<span style={{fontSize:8,color:"var(--tx3)"}}>...</span>)
         :<Bg color={v?"var(--success)":"var(--danger)"} style={{fontSize:8}}>{v?"✓":"✗"}</Bg>}</div>);})}
+    </div>)}
+    {t.state==="en_aprobacion"&&(<div style={{background:"linear-gradient(135deg,rgba(240,192,64,.08),rgba(240,192,64,.02))",border:"1px solid rgba(240,192,64,.25)",borderRadius:8,padding:10}}>
+      <div style={{fontSize:10,fontWeight:700,marginBottom:4,color:"var(--gold)"}}>🏢 Aprobación Cliente — {t.company}</div>
+      {t.clientApproval?(<div style={{fontSize:10}}>
+        <Bg color={t.clientApproval.status==="aprobado"?"var(--success)":"var(--danger)"}>{t.clientApproval.status==="aprobado"?"✅ Aprobado":"✗ Rechazado"} por {t.clientApproval.by}</Bg>
+        {t.clientApproval.comment&&<div style={{marginTop:4,fontSize:9,color:"var(--tx2)",background:"var(--bg3)",padding:6,borderRadius:4}}>"{t.clientApproval.comment}"</div>}
+      </div>):(<div style={{fontSize:9,color:"var(--tx2)"}}>⏳ Esperando aprobación del cliente</div>)}
     </div>)}
     <div><div style={{fontSize:9,color:"var(--tx2)",fontWeight:600,marginBottom:3}}>COMENTARIOS ({t.comments?.length||0})</div>
       {(t.comments||[]).map((c,i)=><div key={i} style={{background:"var(--bg3)",padding:"4px 6px",borderRadius:4,marginBottom:2,fontSize:9}}><b style={{color:"var(--accent)"}}>{c.user}:</b> {c.text}</div>)}
