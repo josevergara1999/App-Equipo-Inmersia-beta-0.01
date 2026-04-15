@@ -220,7 +220,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());const[wkOff,sWkOff]=useState(0);
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
-  const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");
+  const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");const[calDirty,sCalDirty]=useState(false);
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
@@ -258,7 +258,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   // Save to Supabase on changes
   useEffect(()=>{if(dbLoaded)dbSave("companies",cos);},[cos,dbLoaded]);
-  useEffect(()=>{if(dbLoaded)dbSave("tasks",tasks);},[tasks,dbLoaded]);
+  useEffect(()=>{if(dbLoaded&&!calDirty)dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
   useEffect(()=>{if(dbLoaded)dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(dbLoaded)dbSave("meetings",meets);},[meets,dbLoaded]);
 
@@ -298,8 +298,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return sched.filter(t=>t.date===ds);};
   const dEx=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return extras.filter(e=>e.date===ds&&(fCo==="all"||String(e.companyId)===String(fCo)));};
 
-  const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
-  const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);upT(d.id,{date:null});}};
+  const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);sCalDirty(true);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
+  const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:null});}};
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
   const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
@@ -451,7 +451,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
               {weekDays.map(wd=>{const wt=wTasks(wd.ds);const we=wExtras(wd.ds);
-                return(<div key={wd.ds} onClick={()=>{if(isMob&&drag&&drag.tp==="task"){const d={...drag};sDr(null);upT(d.id,{date:wd.ds});}}} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);upT(d.id,{date:wd.ds});}}} style={{background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,padding:8,minHeight:140}}>
+                return(<div key={wd.ds} onClick={()=>{if(isMob&&drag&&drag.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:wd.ds});}}} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:wd.ds});}}} style={{background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,padding:8,minHeight:140}}>
                   <div style={{textAlign:"center",marginBottom:6}}>
                     <div style={{fontSize:9,color:wd.isToday?"var(--accent)":"var(--tx2)",fontWeight:600}}>{wd.dayName}</div>
                     <div style={{fontSize:18,fontWeight:wd.isToday?800:600,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</div>
@@ -550,11 +550,16 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="payments"&&isA&&(<div className="fi" style={{maxWidth:600,margin:"0 auto"}}><TeamPayPg users={users} teamPay={teamPay} sTP={sTP} addN={addN}/></div>)}
 
         </div>
+      {/* FLOATING SAVE BUTTON */}
+      {calDirty&&<div style={{position:"fixed",bottom:isMob?70:20,right:20,zIndex:998,display:"flex",gap:8,animation:"slideUp .3s ease"}}>
+        <button onClick={()=>{sT(tasks);sCalDirty(false);addN("Cambios descartados");window.location.reload();}} style={{padding:"12px 18px",background:"var(--bg4)",color:"var(--tx2)",borderRadius:12,fontSize:12,fontWeight:600,border:"1px solid var(--border)",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(0,0,0,.4)"}}>✕ Descartar</button>
+        <button onClick={()=>{DB.save("tasks",tasks);DB.save("extras",extras);sCalDirty(false);addN("✅ Calendario guardado");}} style={{padding:"12px 24px",background:"linear-gradient(135deg,var(--accent3),var(--accent2))",color:"#fff",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(157,107,255,.4)",display:"flex",alignItems:"center",gap:6}}>💾 Guardar cambios</button>
+      </div>}
       </main>
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=users.map(x=>x.email);if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:SS[u.state]?.l||u.state});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=users.map(x=>x.gmail||x.email);if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:SS[u.state]?.l||u.state});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
