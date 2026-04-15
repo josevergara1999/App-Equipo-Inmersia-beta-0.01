@@ -275,7 +275,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
   const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"&&t.state!=="en_aprobacion"?{votes:{}}:{})}));
   const delT=id=>sT(p=>p.filter(t=>t.id!==id));
-  const vote=(tid,uid,ok)=>sT(p=>p.map(t=>{if(t.id!==tid)return t;const v={...t.votes,[uid]:ok};const team=users.filter(u=>u.role!=="cliente");const rej=Object.values(v).some(x=>!x);const all=team.every(u=>v[u.id]!==undefined);let ns=t.state;if(rej)ns="en_proceso";else if(all)ns="aprobado";return{...t,votes:v,state:ns};}));
+  const vote=(tid,uid,ok)=>sT(p=>p.map(t=>{if(t.id!==tid)return t;const v={...t.votes,[uid]:ok};const team=users.filter(u=>u.role!=="cliente");const rej=Object.values(v).some(x=>!x);let ns=t.state;if(rej)ns="en_proceso";return{...t,votes:v,state:ns};}));
   const addEx=(exId,date,coId)=>{const ex=EXTRAS.find(e=>e.id===exId);const co=cos.find(c=>c.id===coId);if(!ex)return;sEx(p=>[...p,{id:ni(),extraId:exId,companyId:coId,company:co?.name||"",date,name:ex.name,price:ex.price,icon:ex.icon,color:ex.color}]);if(ex.price>0)addN("Extra: "+ex.name+" "+fP(ex.price));};
   const remEx=id=>sEx(p=>p.filter(e=>e.id!==id));
   const mBill=useMemo(()=>{const pfx=cY+"-"+String(cM+1).padStart(2,"0");const mE=extras.filter(e=>e.date?.startsWith(pfx));const by={};cos.forEach(c=>{const ce=mE.filter(e=>e.companyId===c.id);const pp=PLANS[c.plan]?.price||0;const et=ce.reduce((s,e)=>s+e.price,0);by[c.id]={company:c,planPrice:pp,extras:ce,extrasTotal:et,total:pp+et};});return by;},[extras,cos,cM,cY]);
@@ -396,6 +396,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* DASHBOARD */}
         {pg==="dashboard"&&(<div className="fi">
+          {/* CLIENT REJECTION ALERTS */}
+          {tasks.filter(t=>t.clientApproval?.status==="rechazado"&&t.state==="en_proceso").length>0&&(<div style={{marginBottom:14}}>
+            {tasks.filter(t=>t.clientApproval?.status==="rechazado"&&t.state==="en_proceso").map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",background:"linear-gradient(135deg,rgba(255,68,68,.1),rgba(255,68,68,.03))",border:"1px solid rgba(255,68,68,.3)",borderRadius:10,padding:12,marginBottom:6,animation:"fadeIn .3s ease"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                <span style={{fontSize:16}}>🚨</span>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--danger)"}}>RECHAZADO por {t.clientApproval.by}</div>
+              </div>
+              <div style={{fontSize:11,fontWeight:600,marginBottom:2}}>{TT[t.type]?.i||"⭐"} {t.title}</div>
+              {t.clientApproval.comment&&<div style={{fontSize:10,color:"var(--tx2)",background:"var(--bg3)",padding:6,borderRadius:4,marginTop:4}}>"{t.clientApproval.comment}"</div>}
+            </div>))}
+          </div>)}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
             <div className="cd" style={{padding:12}}><div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--success)"}}>📅 Hoy</div>{myTd.length===0?<div style={{fontSize:10,color:"var(--tx3)"}}>Nada</div>:myTd.map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:5,padding:"5px 7px",borderRadius:5,marginBottom:2,background:"var(--bg3)",fontSize:10}}><span>{TT[t.type]?.i||"⭐"}</span><span style={{flex:1}}>{t.title}</span><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b} style={{fontSize:8}}>{SS[t.state]?.l}</Bg></div>))}</div>
             <div className="cd" style={{padding:12}}><div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--info)"}}>📆 Mañana</div>{myTm.length===0?<div style={{fontSize:10,color:"var(--tx3)"}}>Nada</div>:myTm.map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:5,padding:"5px 7px",borderRadius:5,marginBottom:2,background:"var(--bg3)",fontSize:10}}><span>{TT[t.type]?.i||"⭐"}</span><span style={{flex:1}}>{t.title}</span><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b} style={{fontSize:8}}>{SS[t.state]?.l}</Bg></div>))}</div>
@@ -422,7 +433,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <div style={{flex:1,overflow:"auto"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
               {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"4px 0",textAlign:"center",fontSize:isMob?7:9,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
               {calC.map((day,i)=>{const dt2=dTk(day);const de2=dEx(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;const maxShow=isMob?2:4;const hiddenCount=Math.max(0,dt2.length-maxShow)+Math.max(0,de2.length-2);
-                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} onClick={()=>{if(isMob&&drag&&day){hDrop(day);}}} style={{background:isT?"rgba(157,107,255,.08)":drag&&day?"rgba(157,107,255,.04)":"var(--bg2)",minHeight:isMob?50:95,padding:3,opacity:day?1:.3,border:drag&&day?"1px dashed rgba(157,107,255,.3)":"1px solid transparent"}}>
+                return(<div key={i} onDragOver={e=>e.preventDefault()} onDrop={()=>hDrop(day)} onClick={()=>{if(isMob&&drag&&day){hDrop(day);}}} style={{background:isT?"rgba(157,107,255,.08)":drag&&day?"rgba(157,107,255,.04)":"var(--bg2)",minHeight:isMob?50:95,maxHeight:isMob?70:120,overflow:"hidden",padding:3,opacity:day?1:.3,border:drag&&day?"1px dashed rgba(157,107,255,.3)":"1px solid transparent",position:"relative"}}>
                   {day&&(<><div style={{fontSize:isMob?9:10,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"1px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
                     {dt2.slice(0,maxShow).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:isMob?7:8,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid "+(TT[t.type]?.c||"#999")}}>{t.title}</div>))}
                     {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:isMob?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
@@ -563,7 +574,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=users.map(x=>x.gmail||x.email);if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:SS[u.state]?.l||u.state});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
@@ -785,11 +796,12 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
 function ClientView({user:cu,onLogout:ol}){
   const[tasks,sT]=useState([]);const[cos,sCos]=useState([]);const[loaded,sLoaded]=useState(false);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
-  const[selTask,sSelTask]=useState(null);const[comment,sComment]=useState("");
+  const[selTask,sSelTask]=useState(null);const[comment,sComment]=useState("");const[wkOff,sWkOff]=useState(0);
   const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
   const myTasks=tasks.filter(t=>co&&String(t.companyId)===String(co.id));
   const approval=myTasks.filter(t=>t.state==="en_aprobacion");
   const scheduled=myTasks.filter(t=>t.date);
+  const teamEmails=["contifellenberg@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
 
   useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);sLoaded(true);});},[]);
 
@@ -798,8 +810,16 @@ function ClientView({user:cu,onLogout:ol}){
   const calC=useMemo(()=>{const f=fDay(cY,cM),d=dIM(cY,cM),c=[];for(let i=0;i<f;i++)c.push(null);for(let i=1;i<=d;i++)c.push(i);return c;},[cM,cY]);
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return scheduled.filter(t=>t.date===ds);};
 
-  const approve=(taskId)=>{const up=tasks.map(t=>t.id===taskId?{...t,state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:["inmersiatours@gmail.com"],taskTitle:tasks.find(t=>t.id===taskId)?.title,company:cu.companyName,state:"Aprobado por cliente",date:tasks.find(t=>t.id===taskId)?.date});sSelTask(null);};
-  const reject=(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:["inmersiatours@gmail.com"],taskTitle:task?.title,company:cu.companyName,state:"Rechazado por cliente: "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
+  const weekDays=useMemo(()=>{
+    const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
+    const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),month:MO[d.getMonth()],dayName:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"][i],isToday:d.toDateString()===today.toDateString()});}
+    return days;
+  },[wkOff]);
+  const wTasks=day=>myTasks.filter(t=>t.date===day);
+
+  const approve=(taskId)=>{const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:task?.date});sSelTask(null);};
+  const reject=(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
   const addComment=(taskId)=>{if(!comment.trim())return;const up=tasks.map(t=>t.id===taskId?{...t,comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);sComment("");};
 
   if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando...</div></div>);
@@ -831,6 +851,10 @@ function ClientView({user:cu,onLogout:ol}){
                 </div>
               </div>
               {t.description&&<div style={{fontSize:11,color:"var(--tx2)",marginBottom:8,background:"var(--bg3)",padding:8,borderRadius:6}}>{t.description}</div>}
+              {t.files?.length>0&&<div style={{marginBottom:8,background:"var(--bg3)",borderRadius:6,padding:8}}>
+                <div style={{fontSize:10,fontWeight:600,marginBottom:4}}>📎 Contenido adjunto ({t.files.length})</div>
+                {t.files.map((f,i)=>(<div key={i} style={{marginBottom:4}}>{f.type?.startsWith("image")?<img src={f.data} style={{maxWidth:"100%",maxHeight:200,borderRadius:6}}/>:f.type?.startsWith("video")?<video src={f.data} controls style={{maxWidth:"100%",maxHeight:200,borderRadius:6}}/>:<a href={f.data} download={f.name} style={{fontSize:11,color:"var(--accent)",display:"block",padding:4}}>{f.name}</a>}</div>))}
+              </div>}
               {(t.comments||[]).length>0&&<div style={{marginBottom:8}}>{t.comments.map((c,i)=><div key={i} style={{fontSize:10,padding:"3px 6px",marginBottom:2,background:"var(--bg3)",borderRadius:4}}><b style={{color:"var(--accent)"}}>{c.user}:</b> {c.text}</div>)}</div>}
               <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <input value={selTask===t.id?comment:""} onFocus={()=>sSelTask(t.id)} onChange={e=>sComment(e.target.value)} placeholder="Comentario (requerido para rechazar)..." style={{flex:1,fontSize:11,padding:"7px 10px",minWidth:150}}/>
@@ -854,10 +878,36 @@ function ClientView({user:cu,onLogout:ol}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
             {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"6px 0",textAlign:"center",fontSize:10,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
             {calC.map((day,i)=>{const dt2=dTk(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;
-              return(<div key={i} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:80,padding:4,opacity:day?1:.3}}>
+              return(<div key={i} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:80,maxHeight:110,overflow:"hidden",padding:4,opacity:day?1:.3}}>
                 {day&&(<><div style={{fontSize:11,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"2px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
                   {dt2.map(t=>(<div key={t.id} onClick={()=>sSelTask(selTask===t.id?null:t.id)} style={{cursor:"pointer",padding:"3px 6px",marginBottom:2,borderRadius:5,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"3px solid "+(TT[t.type]?.c||"#999")}}>{TT[t.type]?.i||"⭐"} {t.title}</div>))}
                 </>)}</div>);})}
+          </div>
+        </div>
+
+        {/* WEEKLY VIEW */}
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <Bt v="g" onClick={()=>sWkOff(w=>w-1)}>&lt;</Bt>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:700}}>📅 Vista Semanal</div>
+              <div style={{fontSize:10,color:"var(--tx2)"}}>{weekDays[0]?.day} {weekDays[0]?.month} — {weekDays[6]?.day} {weekDays[6]?.month}</div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:9,padding:"4px 8px"}}>Hoy</Bt>}
+              <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+            {weekDays.map(wd=>{const wt=wTasks(wd.ds);
+              return(<div key={wd.ds} style={{background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,padding:8,minHeight:120}}>
+                <div style={{textAlign:"center",marginBottom:6}}>
+                  <div style={{fontSize:9,color:wd.isToday?"var(--accent)":"var(--tx2)",fontWeight:600}}>{wd.dayName}</div>
+                  <div style={{fontSize:18,fontWeight:wd.isToday?800:600,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</div>
+                </div>
+                {wt.map(t=>(<div key={t.id} onClick={()=>sSelTask(selTask===t.id?null:t.id)} style={{cursor:"pointer",padding:"4px 6px",marginBottom:3,borderRadius:6,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,borderLeft:"3px solid "+(TT[t.type]?.c||"#999"),overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{TT[t.type]?.i||"⭐"} {t.title}</div>))}
+                {wt.length===0&&<div style={{textAlign:"center",fontSize:8,color:"var(--tx3)",padding:"10px 0"}}>—</div>}
+              </div>);})}
           </div>
         </div>
 
