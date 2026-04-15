@@ -116,6 +116,9 @@ const INIT_USERS=[
   {id:5,name:"Javi",email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234"},
   {id:6,name:"Jose",email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234"},
   {id:7,name:"INMERSIA",email:"inmersiatours@gmail.com",gmail:"inmersiatours@gmail.com",role:"admin",avatar:"IN",color:"#c9a0ff",pass:"1234"},
+  {id:100,name:"Huemul",email:"huemul",role:"cliente",avatar:"HU",color:"#9d6bff",pass:"1234",companyName:"Huemul"},
+  {id:101,name:"Fauna",email:"fauna",role:"cliente",avatar:"FA",color:"#4ecdc4",pass:"1234",companyName:"Fauna"},
+  {id:102,name:"Antue",email:"antue",role:"cliente",avatar:"AN",color:"#ff6b6b",pass:"1234",companyName:"Antue"},
 ];
 
 const PLANS={
@@ -165,7 +168,8 @@ function Login({users:us,onLogin:ol}){
   const[er,sEr]=useState("");
 
   const go=()=>{
-    const u=us.find(u=>u.email===e&&u.pass===p);
+    const el=e.toLowerCase().trim();
+    const u=us.find(u=>(u.email.toLowerCase()===el||u.name.toLowerCase()===el||(u.gmail&&u.gmail.toLowerCase()===el))&&u.pass===p);
     u?ol(u):sEr("Credenciales incorrectas");
   };
 
@@ -182,10 +186,10 @@ function Login({users:us,onLogin:ol}){
         {er && <div style={{color:"red",marginBottom:10}}>{er}</div>}
 
         <input
-          type="email"
+          type="text"
           value={e}
           onChange={x=>{sE(x.target.value);sEr("")}}
-          placeholder="Email"
+          placeholder="Email o usuario"
         />
 
         <input
@@ -769,6 +773,114 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
   </div>);
 }
 
+// ═══ CLIENT PORTAL ══════════════════════════════════════════════
+function ClientView({user:cu,onLogout:ol}){
+  const[tasks,sT]=useState([]);const[cos,sCos]=useState([]);const[loaded,sLoaded]=useState(false);
+  const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
+  const[selTask,sSelTask]=useState(null);const[comment,sComment]=useState("");
+  const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
+  const myTasks=tasks.filter(t=>co&&String(t.companyId)===String(co.id));
+  const approval=myTasks.filter(t=>t.state==="en_aprobacion");
+  const scheduled=myTasks.filter(t=>t.date);
+
+  useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);sLoaded(true);});},[]);
+
+  const dIM=(y,m)=>new Date(y,m+1,0).getDate();
+  const fDay=(y,m)=>{const d=new Date(y,m,1).getDay();return d===0?6:d-1;};
+  const calC=useMemo(()=>{const f=fDay(cY,cM),d=dIM(cY,cM),c=[];for(let i=0;i<f;i++)c.push(null);for(let i=1;i<=d;i++)c.push(i);return c;},[cM,cY]);
+  const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return scheduled.filter(t=>t.date===ds);};
+
+  const approve=(taskId)=>{const up=tasks.map(t=>t.id===taskId?{...t,state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:["inmersiatours@gmail.com"],taskTitle:tasks.find(t=>t.id===taskId)?.title,company:cu.companyName,state:"Aprobado por cliente",date:tasks.find(t=>t.id===taskId)?.date});sSelTask(null);};
+  const reject=(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:["inmersiatours@gmail.com"],taskTitle:task?.title,company:cu.companyName,state:"Rechazado por cliente: "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
+  const addComment=(taskId)=>{if(!comment.trim())return;const up=tasks.map(t=>t.id===taskId?{...t,comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);sComment("");};
+
+  if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando...</div></div>);
+
+  return(
+    <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--tx)"}}>
+      {/* HEADER */}
+      <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--bg2)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:14,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div>
+          <div style={{height:16,width:1,background:"var(--border)"}}/>
+          <Av u={cu} sz={28}/>
+          <div><div style={{fontSize:13,fontWeight:700}}>{cu.companyName}</div><div style={{fontSize:9,color:"var(--tx2)"}}>Portal Cliente</div></div>
+        </div>
+        <button onClick={ol} style={{background:"var(--bg4)",color:"var(--tx2)",padding:"6px 14px",borderRadius:8,fontSize:11,border:"none",cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
+      </header>
+
+      <div style={{maxWidth:900,margin:"0 auto",padding:16}}>
+
+        {/* PENDIENTES DE APROBACIÓN */}
+        {approval.length>0&&(<div style={{marginBottom:20}}>
+          <h2 style={{fontSize:15,fontWeight:700,marginBottom:10,color:"var(--gold)"}}>⏳ Pendientes de tu aprobación ({approval.length})</h2>
+          {approval.map(t=>(<div key={t.id} className="cd" style={{marginBottom:8,borderLeft:"3px solid var(--gold)"}}>
+            <div style={{padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700}}>{TT[t.type]?.i||"⭐"} {t.title}</div>
+                  <div style={{fontSize:10,color:"var(--tx2)"}}>Fecha: {t.date||"Sin fecha"} · Estado: {SS[t.state]?.l}</div>
+                </div>
+              </div>
+              {t.description&&<div style={{fontSize:11,color:"var(--tx2)",marginBottom:8,background:"var(--bg3)",padding:8,borderRadius:6}}>{t.description}</div>}
+              {(t.comments||[]).length>0&&<div style={{marginBottom:8}}>{t.comments.map((c,i)=><div key={i} style={{fontSize:10,padding:"3px 6px",marginBottom:2,background:"var(--bg3)",borderRadius:4}}><b style={{color:"var(--accent)"}}>{c.user}:</b> {c.text}</div>)}</div>}
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <input value={selTask===t.id?comment:""} onFocus={()=>sSelTask(t.id)} onChange={e=>sComment(e.target.value)} placeholder="Comentario (requerido para rechazar)..." style={{flex:1,fontSize:11,padding:"7px 10px",minWidth:150}}/>
+                <Bt v="p" onClick={()=>approve(t.id)} style={{padding:"7px 16px",fontSize:11}}>✅ Aprobar</Bt>
+                <Bt v="d" onClick={()=>{sSelTask(t.id);reject(t.id);}} style={{padding:"7px 16px",fontSize:11}}>✗ Rechazar</Bt>
+              </div>
+            </div>
+          </div>))}
+        </div>)}
+
+        {/* CALENDARIO */}
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <h2 style={{fontSize:15,fontWeight:700,margin:0}}>📅 Planificación</h2>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <Bt v="g" onClick={()=>{if(cM===0){sCM(11);sCY(cY-1)}else sCM(cM-1)}}>&lt;</Bt>
+              <span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center",fontFamily:"'Space Mono',monospace"}}>{MO[cM]} {cY}</span>
+              <Bt v="g" onClick={()=>{if(cM===11){sCM(0);sCY(cY+1)}else sCM(cM+1)}}>&gt;</Bt>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:8,overflow:"hidden"}}>
+            {WD.map(d=><div key={d} style={{background:"var(--bg3)",padding:"6px 0",textAlign:"center",fontSize:10,fontWeight:700,color:"var(--tx2)"}}>{d}</div>)}
+            {calC.map((day,i)=>{const dt2=dTk(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;
+              return(<div key={i} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:80,padding:4,opacity:day?1:.3}}>
+                {day&&(<><div style={{fontSize:11,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"2px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
+                  {dt2.map(t=>(<div key={t.id} onClick={()=>sSelTask(selTask===t.id?null:t.id)} style={{cursor:"pointer",padding:"3px 6px",marginBottom:2,borderRadius:5,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"3px solid "+(TT[t.type]?.c||"#999")}}>{TT[t.type]?.i||"⭐"} {t.title}</div>))}
+                </>)}</div>);})}
+          </div>
+        </div>
+
+        {/* TODAS LAS TAREAS */}
+        <div>
+          <h2 style={{fontSize:15,fontWeight:700,marginBottom:10}}>📋 Todas las tareas</h2>
+          {myTasks.length===0?<div style={{color:"var(--tx3)",textAlign:"center",padding:20}}>No hay tareas</div>:
+          myTasks.map(t=>(<div key={t.id} className="cd" style={{marginBottom:6,borderLeft:"3px solid "+(SS[t.state]?.c||"#666")}}>
+            <div style={{padding:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div>
+                <div style={{fontSize:9,color:"var(--tx2)"}}>{t.date||"Sin fecha"}</div>
+              </div>
+              <Bg color={SS[t.state]?.c} b={SS[t.state]?.b}>{SS[t.state]?.l}</Bg>
+            </div>
+            {selTask===t.id&&(<div style={{padding:"0 10px 10px",borderTop:"1px solid var(--border)"}}>
+              {t.description&&<div style={{fontSize:10,color:"var(--tx2)",margin:"6px 0",background:"var(--bg3)",padding:6,borderRadius:4}}>{t.description}</div>}
+              {(t.comments||[]).map((c,i)=><div key={i} style={{fontSize:10,padding:"3px 6px",marginBottom:2,background:"var(--bg3)",borderRadius:4}}><b style={{color:"var(--accent)"}}>{c.user}:</b> {c.text}</div>)}
+              <div style={{display:"flex",gap:4,marginTop:6}}>
+                <input value={comment} onChange={e=>sComment(e.target.value)} placeholder="Agregar comentario..." style={{flex:1,fontSize:10,padding:"6px 8px"}}/>
+                <Bt v="p" onClick={()=>addComment(t.id)} style={{fontSize:10,padding:"5px 10px"}}>Enviar</Bt>
+              </div>
+            </div>)}
+          </div>))}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 function App(){
   const [u,sU]=useState(null);
   const [us,sUs]=useState(INIT_USERS);
@@ -806,13 +918,15 @@ useEffect(() => {
   // 🔄 mantener sesión
   const saved = localStorage.getItem("userEmail");
   if (saved && !u) {
-    const found = us.find(x => x.email === saved || x.gmail === saved);
+    const sl=saved.toLowerCase();
+    const found = us.find(x => x.email.toLowerCase()===sl || x.name.toLowerCase()===sl || (x.gmail&&x.gmail.toLowerCase()===sl));
     sU(found || { id:99, name: saved.split("@")[0], email: saved, role: "admin", avatar: saved.slice(0,2).toUpperCase(), color: "#9d6bff" });
   }
 
 }, []);
 
   if(!u) return <Login users={us} onLogin={x=>{localStorage.setItem("userEmail",x.email);sU(x);}}/>;
+  if(u.role==="cliente") return <ClientView user={u} onLogout={()=>{localStorage.removeItem("userEmail");sU(null);}}/>;
   return <Main user={u} users={us} onLogout={()=>{localStorage.removeItem("userEmail");sU(null);}} setUsers={sUs}/>;
 }
 
