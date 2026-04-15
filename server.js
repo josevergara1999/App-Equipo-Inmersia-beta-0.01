@@ -300,7 +300,7 @@ app.get("/api/auth/google-login", (req, res) => {
 });
 
 app.get("/api/auth/google", (req, res) => {
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar&state=gcal&access_type=offline&prompt=consent`);
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar openid email profile&state=gcal&access_type=offline&prompt=consent`);
 });
 
 app.get("/api/auth/callback/google", async (req, res) => {
