@@ -22,7 +22,7 @@ async function sendEmail(to, subject, html) {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "INMERSIA <notificaciones@inmersiaperformance.cl>",
+        from: "INMERSIA <onboarding@resend.dev>",
         to: Array.isArray(to) ? to : [to],
         subject,
         html
