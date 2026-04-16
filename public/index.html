@@ -260,29 +260,33 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     }).catch(()=>sDbLoaded(true));
   },[]);
 
-  // Save to Supabase on changes
-  useEffect(()=>{if(dbLoaded)dbSave("companies",cos);},[cos,dbLoaded]);
-  useEffect(()=>{if(dbLoaded&&!calDirty)dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
-  useEffect(()=>{if(dbLoaded)dbSave("extras",extras);},[extras,dbLoaded]);
-  useEffect(()=>{if(dbLoaded)dbSave("meetings",meets);},[meets,dbLoaded]);
+  // Save to Supabase on changes — skip initial empty state save, never save empty if we had data
+  const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);
+  const hadData=useRef({cos:false,tasks:false});
+  useEffect(()=>{if(cos.length>0)hadData.current.cos=true;},[cos]);
+  useEffect(()=>{if(tasks.length>0)hadData.current.tasks=true;},[tasks]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0&&hadData.current.cos){console.warn("Skipping save: would erase companies");return;}dbSave("companies",cos);},[cos,dbLoaded]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackT.current){initTrackT.current=true;return;}if(calDirty)return;if(tasks.length===0&&hadData.current.tasks){console.warn("Skipping save: would erase tasks");return;}dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
 
 
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
 
   const genTasks=(co)=>{const p=PLANS[co.plan];if(!p)return[];const o=[];
-    Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:null,date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;};
+    Object.entries(p.tasks).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:[],date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;};
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
-  const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"&&t.state!=="en_aprobacion"?{votes:{}}:{})}));
-  const delT=id=>sT(p=>p.filter(t=>t.id!==id));
+  const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"?{votes:{},clientApproval:null}:{})}));
+  const delT=id=>sT(p=>p.map(t=>t.id!==id?t:{...t,date:null,description:"",responsable:[],state:"no_realizado",comments:[],votes:{},clientApproval:null,files:[],publishTime:null}));
   const vote=(tid,uid,ok)=>sT(p=>p.map(t=>{if(t.id!==tid)return t;const v={...t.votes,[uid]:ok};const team=users.filter(u=>u.role!=="cliente");const rej=Object.values(v).some(x=>!x);let ns=t.state;if(rej)ns="en_proceso";return{...t,votes:v,state:ns};}));
   const addEx=(exId,date,coId)=>{const ex=EXTRAS.find(e=>e.id===exId);const co=cos.find(c=>c.id===coId);if(!ex)return;sEx(p=>[...p,{id:ni(),extraId:exId,companyId:coId,company:co?.name||"",date,name:ex.name,price:ex.price,icon:ex.icon,color:ex.color}]);if(ex.price>0)addN("Extra: "+ex.name+" "+fP(ex.price));};
   const remEx=id=>sEx(p=>p.filter(e=>e.id!==id));
   const mBill=useMemo(()=>{const pfx=cY+"-"+String(cM+1).padStart(2,"0");const mE=extras.filter(e=>e.date?.startsWith(pfx));const by={};cos.forEach(c=>{const ce=mE.filter(e=>e.companyId===c.id);const pp=PLANS[c.plan]?.price||0;const et=ce.reduce((s,e)=>s+e.price,0);by[c.id]={company:c,planPrice:pp,extras:ce,extrasTotal:et,total:pp+et};});return by;},[extras,cos,cM,cY]);
   const totEx=useMemo(()=>Object.values(mBill).reduce((s,b)=>s+b.extrasTotal,0),[mBill]);
-  const stats=useMemo(()=>{const t=td();return{total:tasks.length,atr:tasks.filter(x=>x.date&&x.date<t&&!["aprobado","publicado"].includes(x.state)).length,apr:tasks.filter(x=>x.state==="en_aprobacion").length,hoy:tasks.filter(x=>x.date===t).length,pen:tasks.filter(x=>!x.date).length,byU:users.filter(u=>u.role!=="cliente").map(u=>({...u,tot:tasks.filter(x=>x.responsable===u.id).length,done:tasks.filter(x=>x.responsable===u.id&&["aprobado","publicado"].includes(x.state)).length}))};},[tasks,users]);
-  const myTd=useMemo(()=>tasks.filter(t=>t.date===td()&&t.responsable===cu.id),[tasks,cu]);
-  const myTm=useMemo(()=>tasks.filter(t=>t.date===tm()&&t.responsable===cu.id),[tasks,cu]);
+  const stats=useMemo(()=>{const t=td();return{total:tasks.length,atr:tasks.filter(x=>x.date&&x.date<t&&!["aprobado","publicado"].includes(x.state)).length,apr:tasks.filter(x=>x.state==="en_aprobacion").length,hoy:tasks.filter(x=>x.date===t).length,pen:tasks.filter(x=>!x.date).length,byU:users.filter(u=>u.role!=="cliente").map(u=>({...u,tot:tasks.filter(x=>(Array.isArray(x.responsable)?x.responsable.includes(u.id):x.responsable===u.id)).length,done:tasks.filter(x=>(Array.isArray(x.responsable)?x.responsable.includes(u.id):x.responsable===u.id)&&["aprobado","publicado"].includes(x.state)).length}))};},[tasks,users]);
+  const myTd=useMemo(()=>tasks.filter(t=>t.date===td()&&(Array.isArray(t.responsable)?t.responsable.includes(cu.id):t.responsable===cu.id)),[tasks,cu]);
+  const myTm=useMemo(()=>tasks.filter(t=>t.date===tm()&&(Array.isArray(t.responsable)?t.responsable.includes(cu.id):t.responsable===cu.id)),[tasks,cu]);
   const fT=useMemo(()=>fCo==="all"?tasks:tasks.filter(t=>String(t.companyId)===String(fCo)),[tasks,fCo]);
   const pend=useMemo(()=>fT.filter(t=>!t.date),[fT]);const sched=useMemo(()=>fT.filter(t=>t.date),[fT]);
   const dIM=(y,m)=>new Date(y,m+1,0).getDate();const fDay=(y,m)=>{const d=new Date(y,m,1).getDay();return d===0?6:d-1;};
@@ -302,7 +306,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return sched.filter(t=>t.date===ds);};
   const dEx=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return extras.filter(e=>e.date===ds&&(fCo==="all"||String(e.companyId)===String(fCo)));};
 
-  const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);sCalDirty(true);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:null,date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
+  const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);sCalDirty(true);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:[],date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:null});}};
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
   const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
@@ -335,7 +339,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     const sys=`Eres CUMBRE AI de INMERSIA. Empresas: ${cos.map(c=>c.name+" ("+c.plan+")").join(", ")}. Usuarios: ${users.map(u=>u.name).join(", ")}. Tipos: post,historia,reel,video_pro,visita,custom,repost. Si piden CREAR tareas: {"action":"create_tasks","tasks":[{"title":"...","type":"post","company":"Fauna","responsable":"Tiago","date":"2026-04-10"}]}. Hoy: ${td()}.`;
     try{const txt=await API.generate(sys+"\nUsuario: "+msg);
       try{const c=txt.replace(/```json\n?/g,"").replace(/```/g,"").trim();const p=JSON.parse(c);
-        if(p.action==="create_tasks"&&p.tasks){const nw=p.tasks.map(t=>{const co=cos.find(c2=>c2.name.toLowerCase()===t.company?.toLowerCase());const rp=users.find(u=>u.name.toLowerCase()===t.responsable?.toLowerCase());return{id:ni(),title:t.title||"Tarea",company:co?.name||"",companyId:co?.id||0,type:t.type||"custom",description:"",responsable:rp?.id||null,date:t.date||null,state:"no_realizado",comments:[],votes:{},files:[]};});
+        if(p.action==="create_tasks"&&p.tasks){const nw=p.tasks.map(t=>{const co=cos.find(c2=>c2.name.toLowerCase()===t.company?.toLowerCase());const rp=users.find(u=>u.name.toLowerCase()===t.responsable?.toLowerCase());return{id:ni(),title:t.title||"Tarea",company:co?.name||"",companyId:co?.id||0,type:t.type||"custom",description:"",responsable:rp?[rp.id]:[],date:t.date||null,state:"no_realizado",comments:[],votes:{},files:[]};});
           sT(p2=>[...p2,...nw]);sAM(p2=>[...p2,{r:"a",t:"Cree "+nw.length+" tarea(s)"}]);}else throw 0;}
       catch{sAM(p2=>[...p2,{r:"a",t:txt}]);}
     }catch(e){sAM(p2=>[...p2,{r:"a",t:"Error: "+e.message}]);}
@@ -347,7 +351,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     mr.onstop=async()=>{const blob=new Blob(chunks,{type:"audio/webm"});const url=URL.createObjectURL(blob);sRecing(false);addN("Procesando con Gemini AI...");
       try{const result=await API.generateActa(blob,mCo||"General",users.map(u=>u.name).join(", "));
         sMeets(p=>[{id:ni(),date:td(),company:mCo||"General",acta:result.acta,transcript:result.transcript,audioUrl:url},...p]);
-        if(result.tasks?.length){const nw=result.tasks.map(t=>{const rp=users.find(u=>u.name.toLowerCase().includes(t.responsable?.toLowerCase()||""));return{id:ni(),title:t.title,company:mCo||"General",companyId:0,type:"custom",description:"Reunion "+td(),responsable:rp?.id||null,date:null,state:"no_realizado",comments:[],votes:{},files:[]};});
+        if(result.tasks?.length){const nw=result.tasks.map(t=>{const rp=users.find(u=>u.name.toLowerCase().includes(t.responsable?.toLowerCase()||""));return{id:ni(),title:t.title,company:mCo||"General",companyId:0,type:"custom",description:"Reunion "+td(),responsable:rp?[rp.id]:[],date:null,state:"no_realizado",comments:[],votes:{},files:[]};});
           sT(p2=>[...p2,...nw]);addN(nw.length+" tareas desde reunion");}
       }catch(e){addN("Error: "+e.message);}};
     mr.start();sMRec(mr);sRecing(true);}catch(e){addN("Error mic: "+e.message);}};
@@ -507,13 +511,13 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <div style={{padding:"8px 10px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:4}}><div style={{width:7,height:7,borderRadius:"50%",background:sv.c}}/><span style={{fontSize:11,fontWeight:700}}>{sv.l}</span><span style={{fontSize:9,color:"var(--tx2)",marginLeft:"auto"}}>{st.length}</span></div>
             <div style={{padding:4,maxHeight:"65vh",overflow:"auto"}}>{st.slice(0,25).map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",padding:7,marginBottom:3,borderRadius:7,background:"var(--bg3)",borderLeft:"3px solid "+(TT[t.type]?.c||"#999")}}>
               <div style={{fontSize:10,fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:3}}>{t.responsable?<Av u={users.find(u=>u.id===t.responsable)} sz={14}/>:<span style={{fontSize:7,color:"var(--tx3)"}}>--</span>}{t.files?.length>0&&<Bg color="var(--info)" style={{fontSize:7,padding:"1px 4px"}}>📎{t.files.length}</Bg>}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:3}}>{(Array.isArray(t.responsable)?t.responsable:[t.responsable]).filter(Boolean).length>0?<div style={{display:"flex",gap:-4}}>{(Array.isArray(t.responsable)?t.responsable:[t.responsable]).filter(Boolean).slice(0,3).map(rid=><Av key={rid} u={users.find(u=>u.id===rid)} sz={14}/>)}</div>:<span style={{fontSize:7,color:"var(--tx3)"}}>--</span>}{t.files?.length>0&&<Bg color="var(--info)" style={{fontSize:7,padding:"1px 4px"}}>📎{t.files.length}</Bg>}</div>
             </div>))}</div></div>);})}
         </div>)}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="fi" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
-          {users.filter(u=>u.role!=="cliente").map(u=>{const ut=tasks.filter(t=>t.responsable===u.id);const dn=ut.filter(t=>["aprobado","publicado"].includes(t.state)).length;const myPays=teamPay[u.id]||[];
+          {users.filter(u=>u.role!=="cliente").map(u=>{const ut=tasks.filter(t=>(Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id));const dn=ut.filter(t=>["aprobado","publicado"].includes(t.state)).length;const myPays=teamPay[u.id]||[];
             return(<div key={u.id} className="cd" style={{padding:16,textAlign:"center",position:"relative"}}><div style={{position:"absolute",top:0,left:0,right:0,height:3,background:u.color}}/>
               <Av u={u} sz={44}/><div style={{marginTop:6,fontWeight:800,fontSize:13}}>{u.name}</div>
               {isA?<select value={u.role} onChange={e=>chRole(u.id,e.target.value)} style={{marginTop:4,fontSize:10,padding:"3px 6px",width:"auto"}}><option value="admin">admin</option><option value="editor">editor</option><option value="visualizador">visualizador</option></select>:<Bg style={{marginTop:4}}>{u.role}</Bg>}
@@ -574,7 +578,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable&&u.responsable!==modal.responsable){const ru=users.find(x=>x.id===u.responsable);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable){const newIds=Array.isArray(u.responsable)?u.responsable:[];const oldIds=Array.isArray(modal.responsable)?modal.responsable:[];const added=newIds.filter(id=>!oldIds.includes(id));added.forEach(rid=>{const ru=users.find(x=>x.id===rid);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
@@ -743,11 +747,11 @@ function TeamPayPg({users,teamPay,sTP,addN}){
 }
 
 // ═══ FORMS ══════════════════════════════════════════════════════
-function TskForm({cos,users,onSave}){const[f,sF]=useState({title:"",type:"post",company:"",companyId:0,responsable:null,date:"",description:""});return(<div>
+function TskForm({cos,users,onSave}){const[f,sF]=useState({title:"",type:"post",company:"",companyId:0,responsable:[],date:"",description:""});const teamUsers=users.filter(u=>u.role!=="cliente");return(<div>
   <Fd label="Titulo"><input value={f.title} onChange={e=>sF({...f,title:e.target.value})} placeholder="Nombre"/></Fd>
   <Fd label="Tipo"><select value={f.type} onChange={e=>sF({...f,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
   <Fd label="Empresa"><select value={f.companyId} onChange={e=>{const co=cos.find(c=>c.id===parseInt(e.target.value));sF({...f,companyId:parseInt(e.target.value),company:co?.name||""});}}><option value={0}>--</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
-  <Fd label="Responsable"><select value={f.responsable||""} onChange={e=>sF({...f,responsable:parseInt(e.target.value)||null})}><option value="">--</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Fd>
+  <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{teamUsers.map(u=>{const sel=f.responsable.includes(u.id);return(<button key={u.id} onClick={()=>sF({...f,responsable:sel?f.responsable.filter(id=>id!==u.id):[...f.responsable,u.id]})} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,fontSize:9,fontWeight:sel?700:400,background:sel?u.color+"25":"var(--bg4)",border:"1px solid "+(sel?u.color:"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={14}/>{u.name}</button>);})}</div></Fd>
   <Fd label="Fecha"><input type="date" value={f.date} onChange={e=>sF({...f,date:e.target.value})}/></Fd>
   <Bt v="p" disabled={!f.title||!f.companyId} onClick={()=>onSave(f)} style={{width:"100%"}}>Crear</Bt></div>);}
 function CoForm({onSave}){const[n,sN]=useState("");const[p,sP]=useState("society");const cols=["#4ecdc4","#9d6bff","#ff6b6b","#6bcbff","#ffd93d","#ff9ff3"];const[c,sC]=useState(cols[0]);return(<div>
@@ -761,10 +765,11 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
   const teamUsers=users.filter(u=>u.role!=="cliente");
   return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
     <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}><Bg color={TT[t.type]?.c}>{TT[t.type]?.i} {TT[t.type]?.l||t.type}</Bg><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b}>{SS[t.state]?.l}</Bg><Bg>{t.company}</Bg>
-      <div style={{marginLeft:"auto",display:"flex",gap:3}}>{t.date&&<Bt v="g" onClick={onUns} style={{fontSize:9,color:"var(--warn)"}}>↩</Bt>}{t.date&&hasGcal&&<Bt v="g" onClick={onSync} style={{fontSize:9,color:"var(--info)"}}>📅</Bt>}<Bt v="g" onClick={onDel} style={{fontSize:9,color:"var(--danger)"}}>🗑</Bt></div></div>
+      <div style={{marginLeft:"auto",display:"flex",gap:3}}>{t.date&&<Bt v="g" onClick={onUns} style={{fontSize:9,color:"var(--warn)"}}>↩</Bt>}{t.date&&hasGcal&&<Bt v="g" onClick={onSync} style={{fontSize:9,color:"var(--info)"}}>📅</Bt>}<Bt v="g" onClick={onDel} style={{fontSize:9,color:"var(--danger)"}}>🔄 Reset</Bt></div></div>
     <Fd label="Estado"><div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{sts.map(s=><button key={s} onClick={()=>onUp({state:s})} style={{padding:"4px 9px",borderRadius:6,fontSize:9,fontWeight:600,background:t.state===s?SS[s].c+"cc":"var(--bg4)",color:t.state===s?"#fff":"var(--tx2)",fontFamily:"inherit"}}>{SS[s].l}</button>)}</div></Fd>
-    <Fd label="Responsable"><select value={t.responsable||""} onChange={e=>onUp({responsable:parseInt(e.target.value)||null})}><option value="">--</option>{teamUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Fd>
+    <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{teamUsers.map(u=>{const sel=Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id;return(<button key={u.id} onClick={()=>{const cur=Array.isArray(t.responsable)?[...t.responsable]:(t.responsable?[t.responsable]:[]);const nw=sel?cur.filter(id=>id!==u.id):[...cur,u.id];onUp({responsable:nw});}} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,fontSize:9,fontWeight:sel?700:400,background:sel?u.color+"25":"var(--bg4)",border:"1px solid "+(sel?u.color:"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={14}/>{u.name}</button>);})}</div></Fd>
     <Fd label="Fecha"><input type="date" value={t.date||""} onChange={e=>onUp({date:e.target.value||null})}/></Fd>
+    {t.state==="publicado"&&(<Fd label="Hora de publicación"><input type="time" value={t.publishTime||""} onChange={e=>onUp({publishTime:e.target.value||null})} style={{fontSize:12}}/></Fd>)}
     <Fd label="Descripcion"><textarea value={desc} onChange={e=>sD(e.target.value)} onBlur={()=>onUp({description:desc})} rows={2} placeholder="..."/></Fd>
     {(t.state==="en_aprobacion"||t.state==="en_proceso")&&(<div style={{background:"var(--bg3)",borderRadius:8,padding:8}}>
       <div style={{fontSize:10,fontWeight:600,marginBottom:4}}>📎 Archivos ({t.files?.length||0})</div>
@@ -818,9 +823,27 @@ function ClientView({user:cu,onLogout:ol}){
   },[wkOff]);
   const wTasks=day=>myTasks.filter(t=>t.date===day);
 
-  const approve=(taskId)=>{const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:task?.date});sSelTask(null);};
-  const reject=(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);const up=tasks.map(t=>t.id===taskId?{...t,state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
-  const addComment=(taskId)=>{if(!comment.trim())return;const up=tasks.map(t=>t.id===taskId?{...t,comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]}:t);sT(up);DB.save("tasks",up);sComment("");};
+  // Safe save: always load fresh from DB, modify only the target task, then save
+  const safeSaveTask=async(taskId,updates)=>{
+    try{
+      const fresh=await DB.loadAll();
+      const freshTasks=fresh.tasks||[];
+      const updated=freshTasks.map(t=>t.id===taskId?{...t,...updates}:t);
+      await DB.save("tasks",updated);
+      sT(updated);
+      return updated;
+    }catch(e){console.error("Safe save error:",e);return null;}
+  };
+
+  const approve=async(taskId)=>{const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
+    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:task?.date});sSelTask(null);};
+  const reject=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
+    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
+  const addComment=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
+    sComment("");};
 
   if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando...</div></div>);
 
