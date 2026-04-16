@@ -578,7 +578,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable){const newIds=Array.isArray(u.responsable)?u.responsable:[];const oldIds=Array.isArray(modal.responsable)?modal.responsable:[];const added=newIds.filter(id=>!oldIds.includes(id));added.forEach(rid=>{const ru=users.find(x=>x.id===rid);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable){const newIds=Array.isArray(u.responsable)?u.responsable:[];const oldIds=Array.isArray(modal.responsable)?modal.responsable:[];const added=newIds.filter(id=>!oldIds.includes(id));added.forEach(rid=>{const ru=users.find(x=>x.id===rid);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)} onSave={()=>{DB.save("tasks",tasks);DB.save("extras",extras);addN("✅ Tarea guardada");}}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
@@ -759,7 +759,7 @@ function CoForm({onSave}){const[n,sN]=useState("");const[p,sP]=useState("society
   <Fd label="Plan"><select value={p} onChange={e=>sP(e.target.value)}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>
   <Fd label="Color"><div style={{display:"flex",gap:5}}>{cols.map(co=><div key={co} onClick={()=>sC(co)} style={{width:26,height:26,borderRadius:"50%",background:co,cursor:"pointer",border:c===co?"3px solid #fff":"3px solid transparent"}}/>)}</div></Fd>
   <Bt v="p" disabled={!n.trim()} onClick={()=>onSave({name:n.trim(),plan:p,color:c})} style={{width:"100%"}}>Crear</Bt></div>);}
-function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
+function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave}){
   const[desc,sD]=useState(t.description||"");const[com,sC]=useState("");const fR=useRef(null);
   const sts=["no_realizado","en_proceso","en_aprobacion","aprobado","publicado"];
   const teamUsers=users.filter(u=>u.role!=="cliente");
@@ -794,6 +794,7 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile}){
       <div style={{display:"flex",gap:3,marginTop:3}}><input value={com} onChange={e=>sC(e.target.value)} placeholder="..." style={{flex:1,fontSize:9,padding:"4px 6px"}} onKeyDown={e=>{if(e.key==="Enter"&&com.trim()){onUp({comments:[...(t.comments||[]),{user:cu.name,text:com.trim()}]});sC("");}}}/>
         <Bt v="s" onClick={()=>{if(com.trim()){onUp({comments:[...(t.comments||[]),{user:cu.name,text:com.trim()}]});sC("");}}} style={{fontSize:9,padding:"3px 6px"}}>→</Bt></div>
     </div>
+    <button onClick={onSave} style={{width:"100%",padding:"10px",marginTop:8,background:"linear-gradient(135deg,var(--accent3),var(--accent2))",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>💾 Guardar cambios</button>
   </div>);
 }
 
