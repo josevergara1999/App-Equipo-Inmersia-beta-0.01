@@ -229,7 +229,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
-  const[planners,sPlanners]=useState([]);
+  const[planners,sPlanners]=useState([]);const[pDrafts,sPDrafts]=useState([]);
   // GCal
   const[gcalTokens,sGCT]=useState(JSON.parse(localStorage.getItem("inm_gcal_tokens")||"{}"));
   const myGcal=gcalTokens[cu.id]||"";const[shGcal,sShGcal]=useState(false);
@@ -258,6 +258,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.extras?.length)sEx(d.extras);
       if(d.meetings?.length)sMeets(d.meetings);
       if(d.planners?.length)sPlanners(d.planners);
+      if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
       if(d.teamPay)sTP(d.teamPay);
       if(d.billRcpts)sBR(d.billRcpts);
       sDbLoaded(true);
@@ -415,6 +416,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {t.clientApproval.comment&&<div style={{fontSize:10,color:"var(--tx2)",background:"var(--bg3)",padding:6,borderRadius:4,marginTop:4}}>"{t.clientApproval.comment}"</div>}
             </div>))}
           </div>)}
+          {/* PENDING PLANNER DRAFTS */}
+          {pDrafts.filter(d=>d.status==="pending").length>0&&(<div style={{marginBottom:14}}>
+            {pDrafts.filter(d=>d.status==="pending").map(d=>(<div key={d.id} onClick={()=>sPg("planner")} style={{cursor:"pointer",background:"linear-gradient(135deg,rgba(240,192,64,.1),rgba(240,192,64,.03))",border:"1px solid rgba(240,192,64,.3)",borderRadius:10,padding:12,marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                <span style={{fontSize:16}}>📝</span>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--gold)"}}>Cambios pendientes de {d.companyName}</div>
+              </div>
+              <div style={{fontSize:10,color:"var(--tx2)"}}>Enviado por {d.clientName} · {new Date(d.date).toLocaleDateString()}</div>
+              <div style={{fontSize:10,color:"var(--accent)",marginTop:4,fontWeight:600}}>→ Click para revisar en Org Semanal</div>
+            </div>))}
+          </div>)}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
             <div className="cd" style={{padding:12}}><div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--success)"}}>📅 Hoy</div>{myTd.length===0?<div style={{fontSize:10,color:"var(--tx3)"}}>Nada</div>:myTd.map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:5,padding:"5px 7px",borderRadius:5,marginBottom:2,background:"var(--bg3)",fontSize:10}}><span>{TT[t.type]?.i||"⭐"}</span><span style={{flex:1}}>{t.title}</span><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b} style={{fontSize:8}}>{SS[t.state]?.l}</Bg></div>))}</div>
             <div className="cd" style={{padding:12}}><div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--info)"}}>📆 Mañana</div>{myTm.length===0?<div style={{fontSize:10,color:"var(--tx3)"}}>Nada</div>:myTm.map(t=>(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:5,padding:"5px 7px",borderRadius:5,marginBottom:2,background:"var(--bg3)",fontSize:10}}><span>{TT[t.type]?.i||"⭐"}</span><span style={{flex:1}}>{t.title}</span><Bg color={SS[t.state]?.c} bg={SS[t.state]?.b} style={{fontSize:8}}>{SS[t.state]?.l}</Bg></div>))}</div>
@@ -515,7 +527,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* TASKS */}
         {/* PLANNER */}
-        {pg==="planner"&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} fCo={fCo} addN={addN}/>}
+        {pg==="planner"&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} pDrafts={pDrafts} sPDrafts={sPDrafts} fCo={fCo} addN={addN}/>}
 
         {/* TASKS */}
         {pg==="tasks"&&(<div className="fi" style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:10}}>
@@ -769,7 +781,7 @@ function AutoTx({value,onChange,placeholder,style,...props}){
 }
 
 // ═══ WEEK PLANNER ══════════════════════════════════════════════
-function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,fCo,addN}){
+function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo,addN}){
   const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[dragOver,sDragOver]=useState(null);
   const[selCo,sSelCo]=useState(fCo!=="all"?fCo:cos[0]?.id||0);
   const co=cos.find(c=>String(c.id)===String(selCo));
@@ -870,6 +882,48 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,fCo,addN}){
         </div>);})}
       </div>
     </div>
+
+    {/* PENDING DRAFTS REVIEW */}
+    {(pDrafts||[]).filter(d=>d.status==="pending"&&d.weekKey===weekKey).map(draft=>(<div key={draft.id} style={{marginBottom:14,background:"linear-gradient(135deg,rgba(240,192,64,.08),rgba(240,192,64,.02))",border:"2px solid rgba(240,192,64,.4)",borderRadius:12,padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:800,color:"var(--gold)"}}>📝 Cambios propuestos por {draft.clientName}</div>
+          <div style={{fontSize:10,color:"var(--tx2)"}}>Enviado: {new Date(draft.date).toLocaleString()}</div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <Bt v="p" onClick={()=>{
+            // Approve: apply proposed items to planner
+            updatePlan(draft.proposed);
+            const newDrafts=(pDrafts||[]).map(d=>d.id===draft.id?{...d,status:"approved"}:d);
+            sPDrafts(newDrafts);DB.save("planner_drafts",newDrafts);
+            addN("✅ Cambios de "+draft.clientName+" aprobados");
+          }} style={{padding:"8px 16px",fontSize:11}}>✅ Aprobar cambios</Bt>
+          <Bt v="d" onClick={()=>{
+            const newDrafts=(pDrafts||[]).map(d=>d.id===draft.id?{...d,status:"rejected"}:d);
+            sPDrafts(newDrafts);DB.save("planner_drafts",newDrafts);
+            addN("✗ Cambios de "+draft.clientName+" rechazados");
+          }} style={{padding:"8px 16px",fontSize:11}}>✗ Rechazar</Bt>
+        </div>
+      </div>
+      {/* DIFF VIEW */}
+      {(draft.proposed||[]).map(prop=>{const orig=(draft.original||[]).find(o=>o.id===prop.id);if(!orig)return null;
+        const descChanged=orig.description!==prop.description;const stratChanged=orig.strategy!==prop.strategy;
+        if(!descChanged&&!stratChanged)return null;
+        return(<div key={prop.id} style={{background:"var(--bg2)",borderRadius:8,padding:10,marginBottom:6,borderLeft:"3px solid var(--gold)"}}>
+          <div style={{fontSize:11,fontWeight:700,marginBottom:4}}>{TT[prop.type]?.i} {prop.title} <span style={{color:"var(--tx3)",fontSize:9}}>({weekDays.find(w=>w.ds===prop.day)?.dayName})</span></div>
+          {descChanged&&(<div style={{marginBottom:6}}>
+            <div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>DESCRIPCIÓN:</div>
+            <div style={{fontSize:10,padding:6,background:"rgba(255,68,68,.06)",borderRadius:4,borderLeft:"3px solid rgba(255,68,68,.4)",color:"var(--danger)",textDecoration:"line-through",marginBottom:3}}>{orig.description}</div>
+            <div style={{fontSize:10,padding:6,background:"rgba(78,205,196,.06)",borderRadius:4,borderLeft:"3px solid rgba(78,205,196,.4)",color:"var(--success)"}}>{prop.description}</div>
+          </div>)}
+          {stratChanged&&(<div>
+            <div style={{fontSize:9,color:"var(--gold)",marginBottom:2}}>ESTRATEGIA:</div>
+            <div style={{fontSize:10,padding:6,background:"rgba(255,68,68,.06)",borderRadius:4,borderLeft:"3px solid rgba(255,68,68,.4)",color:"var(--danger)",textDecoration:"line-through",marginBottom:3}}>{orig.strategy}</div>
+            <div style={{fontSize:10,padding:6,background:"rgba(78,205,196,.06)",borderRadius:4,borderLeft:"3px solid rgba(78,205,196,.4)",color:"var(--success)"}}>{prop.strategy}</div>
+          </div>)}
+        </div>);
+      })}
+    </div>))}
 
     {/* VERTICAL DAY LIST */}
     {weekDays.map(wd=>{const di=dayItems(wd.ds);
@@ -1016,13 +1070,14 @@ function ClientView({user:cu,onLogout:ol}){
   const[tasks,sT]=useState([]);const[cos,sCos]=useState([]);const[loaded,sLoaded]=useState(false);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());
   const[selTask,sSelTask]=useState(null);const[comment,sComment]=useState("");const[wkOff,sWkOff]=useState(0);
+  const[planners,sPlanners]=useState([]);const[tab,sTab]=useState("plan");const[draftSaved,sDraftSaved]=useState(false);
   const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
   const myTasks=tasks.filter(t=>co&&String(t.companyId)===String(co.id));
   const approval=myTasks.filter(t=>t.state==="en_aprobacion");
   const scheduled=myTasks.filter(t=>t.date);
   const teamEmails=["contifellenberg@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
 
-  useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);sLoaded(true);});},[]);
+  useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);if(d.planners)sPlanners(d.planners);sLoaded(true);});},[]);
 
   const dIM=(y,m)=>new Date(y,m+1,0).getDate();
   const fDay=(y,m)=>{const d=new Date(y,m,1).getDay();return d===0?6:d-1;};
@@ -1059,6 +1114,45 @@ function ClientView({user:cu,onLogout:ol}){
     await safeSaveTask(taskId,{comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
     sComment("");};
 
+  // Planner week data for client
+  const pWkDays=useMemo(()=>{
+    const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
+    const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),month:MO[d.getMonth()],dayName:["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][i],dayShort:["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"][i],isToday:d.toDateString()===today.toDateString()});}
+    return days;
+  },[wkOff]);
+
+  const pWeekKey=co?(pWkDays[0]?.ds+"_"+String(co.id)):null;
+  const origPlan=planners.find(p=>p.weekKey===pWeekKey);
+  const origItems=origPlan?.items||[];
+
+  // Client's local edits (draft)
+  const[draftItems,sDraftItems]=useState(null);
+  useEffect(()=>{sDraftItems(null);sDraftSaved(false);},[pWeekKey]);
+  const editItems=draftItems||origItems;
+  const hasChanges=draftItems!==null;
+
+  const pDayItems=day=>editItems.filter(it=>it.day===day).sort((a,b)=>(a.order||0)-(b.order||0));
+  const pUpdateItem=(id,u)=>{sDraftItems(editItems.map(it=>it.id===id?{...it,...u}:it));sDraftSaved(false);};
+
+  // Check if a field was modified vs original
+  const isModified=(itemId,field)=>{if(!draftItems)return false;const orig=origItems.find(it=>it.id===itemId);const draft=draftItems.find(it=>it.id===itemId);if(!orig||!draft)return false;return orig[field]!==draft[field];};
+
+  // Submit draft changes
+  const submitDraft=async()=>{if(!draftItems||!pWeekKey)return;
+    try{
+      const fresh=await DB.loadAll();const existingDrafts=fresh.planner_drafts||[];
+      const draft={id:Date.now(),weekKey:pWeekKey,companyId:co?.id,companyName:cu.companyName,clientName:cu.name,date:new Date().toISOString(),
+        original:origItems,proposed:draftItems,status:"pending"};
+      const newDrafts=[...existingDrafts.filter(d=>d.weekKey!==pWeekKey||d.status!=="pending"),draft];
+      await DB.save("planner_drafts",newDrafts);
+      // Notify admins
+      const teamEmails=["contifellenberg@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
+      API.notify({type:"task_status",to:teamEmails,taskTitle:"Cambios en planificación semanal",company:cu.companyName,state:"📝 "+cu.companyName+" propuso cambios en Org Semanal",date:pWkDays[0]?.ds});
+      sDraftSaved(true);
+    }catch(e){console.error("Draft save error:",e);}
+  };
+
   if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando...</div></div>);
 
   return(
@@ -1076,7 +1170,12 @@ function ClientView({user:cu,onLogout:ol}){
 
       <div style={{maxWidth:900,margin:"0 auto",padding:16}}>
 
-        {/* PENDIENTES DE APROBACIÓN */}
+        {/* TABS */}
+        <div style={{display:"flex",gap:4,marginBottom:16,borderBottom:"1px solid var(--border)",paddingBottom:8}}>
+          {[["plan","📋 Planificación"],["calendar","📅 Calendario"],["tasks","📄 Tareas"]].map(([k,l])=>(<button key={k} onClick={()=>sTab(k)} style={{padding:"8px 16px",borderRadius:"8px 8px 0 0",fontSize:12,fontWeight:tab===k?700:400,background:tab===k?"rgba(157,107,255,.1)":"transparent",color:tab===k?"var(--accent)":"var(--tx2)",border:tab===k?"1px solid var(--accent2)":"1px solid transparent",borderBottom:"none",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
+        </div>
+
+        {/* PENDIENTES DE APROBACIÓN - always visible */}
         {approval.length>0&&(<div style={{marginBottom:20}}>
           <h2 style={{fontSize:15,fontWeight:700,marginBottom:10,color:"var(--gold)"}}>⏳ Pendientes de tu aprobación ({approval.length})</h2>
           {approval.map(t=>(<div key={t.id} className="cd" style={{marginBottom:8,borderLeft:"3px solid var(--gold)"}}>
@@ -1102,8 +1201,54 @@ function ClientView({user:cu,onLogout:ol}){
           </div>))}
         </div>)}
 
+        {/* PLANNER TAB */}
+        {tab==="plan"&&origItems.length>0&&(<div style={{marginBottom:20}}>
+          <div style={{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:900,color:co?.color}}>{co?.name?.toUpperCase()}</div>
+                <div style={{fontSize:10,color:"var(--tx2)"}}>Planificación semanal · INMERSIA SPA</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <Bt v="g" onClick={()=>sWkOff(w=>w-1)}>&lt;</Bt>
+                <span style={{fontSize:12,fontWeight:700,fontFamily:"'Space Mono',monospace"}}>Sem. {pWkDays[0]?.day}–{pWkDays[6]?.day} {pWkDays[0]?.month}</span>
+                {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:9,padding:"3px 8px"}}>Hoy</Bt>}
+                <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
+              </div>
+            </div>
+            {hasChanges&&!draftSaved&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(240,192,64,.1)",border:"1px solid rgba(240,192,64,.3)",borderRadius:8,fontSize:11,color:"var(--gold)"}}>⚠️ Tienes cambios sin enviar</div>}
+            {draftSaved&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(78,205,196,.1)",border:"1px solid rgba(78,205,196,.3)",borderRadius:8,fontSize:11,color:"var(--success)"}}>✅ Cambios enviados al equipo para revisión</div>}
+          </div>
+
+          {pWkDays.map(wd=>{const di=pDayItems(wd.ds);if(!di.length)return null;
+            return(<div key={wd.ds} style={{marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"2px solid "+(co?.color||"var(--border)")}}>
+                <div style={{width:44,textAlign:"center"}}>
+                  <div style={{fontSize:9,fontWeight:700,color:"var(--tx2)",letterSpacing:1}}>{wd.dayShort}</div>
+                  <div style={{fontSize:20,fontWeight:900,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</div>
+                </div>
+                <div style={{fontSize:12,fontWeight:700}}>{wd.dayName}</div>
+              </div>
+              {di.map(it=>(<div key={it.id} style={{margin:"6px 0",background:"var(--bg2)",border:"1px solid var(--border)",borderLeft:"4px solid "+(TT[it.type]?.c||"#999"),borderRadius:8,padding:12}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                  <Bg color={TT[it.type]?.c}>{TT[it.type]?.i} {TT[it.type]?.l}</Bg>
+                  <span style={{fontSize:12,fontWeight:700}}>{it.title}</span>
+                </div>
+                <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>DESCRIPCIÓN</div>
+                <AutoTx value={it.description} onChange={e=>pUpdateItem(it.id,{description:e.target.value})} placeholder="Descripción..." style={{fontSize:12,padding:"8px",width:"100%",boxSizing:"border-box",lineHeight:1.6,background:isModified(it.id,"description")?"rgba(255,68,68,.06)":"var(--bg3)",borderColor:isModified(it.id,"description")?"rgba(255,68,68,.4)":"var(--border)"}}/>
+                {it.strategy&&<>
+                  <div style={{fontSize:10,color:"var(--gold)",marginTop:8,marginBottom:4}}>ESTRATEGIA</div>
+                  <AutoTx value={it.strategy} onChange={e=>pUpdateItem(it.id,{strategy:e.target.value})} placeholder="Estrategia..." style={{fontSize:12,padding:"8px",width:"100%",boxSizing:"border-box",lineHeight:1.6,background:isModified(it.id,"strategy")?"rgba(255,68,68,.06)":"var(--bg3)",borderColor:isModified(it.id,"strategy")?"rgba(255,68,68,.4)":"var(--border)"}}/>
+                </>}
+              </div>))}
+            </div>);})}
+
+          {hasChanges&&!draftSaved&&<button onClick={submitDraft} style={{width:"100%",padding:"12px",marginTop:8,background:"linear-gradient(135deg,var(--gold),#e6a800)",color:"#000",border:"none",borderRadius:10,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Enviar cambios al equipo para revisión</button>}
+        </div>)}
+        {tab==="plan"&&origItems.length===0&&<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><div style={{fontSize:30,marginBottom:8}}>📋</div>No hay planificación semanal para esta semana</div>}
+
         {/* CALENDARIO */}
-        <div style={{marginBottom:20}}>
+        {tab==="calendar"&&(<div style={{marginBottom:20}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <h2 style={{fontSize:15,fontWeight:700,margin:0}}>📅 Planificación</h2>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1146,10 +1291,10 @@ function ClientView({user:cu,onLogout:ol}){
                 {wt.length===0&&<div style={{textAlign:"center",fontSize:8,color:"var(--tx3)",padding:"10px 0"}}>—</div>}
               </div>);})}
           </div>
-        </div>
+        </div>)}
 
         {/* TODAS LAS TAREAS */}
-        <div>
+        {tab==="tasks"&&(<div>
           <h2 style={{fontSize:15,fontWeight:700,marginBottom:10}}>📋 Todas las tareas</h2>
           {myTasks.length===0?<div style={{color:"var(--tx3)",textAlign:"center",padding:20}}>No hay tareas</div>:
           myTasks.map(t=>(<div key={t.id} className="cd" style={{marginBottom:6,borderLeft:"3px solid "+(SS[t.state]?.c||"#666")}}>
@@ -1169,7 +1314,7 @@ function ClientView({user:cu,onLogout:ol}){
               </div>
             </div>)}
           </div>))}
-        </div>
+        </div>)}
 
       </div>
     </div>
