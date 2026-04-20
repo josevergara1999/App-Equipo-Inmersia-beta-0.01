@@ -258,6 +258,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.extras?.length)sEx(d.extras);
       if(d.meetings?.length)sMeets(d.meetings);
       if(d.planners?.length)sPlanners(d.planners);
+      if(d.teamPay)sTP(d.teamPay);
+      if(d.billRcpts)sBR(d.billRcpts);
       sDbLoaded(true);
     }).catch(()=>sDbLoaded(true));
   },[]);
@@ -503,7 +505,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div></div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);addN("Empresa creada: "+nc.name);sNC(false);}}/></Md>
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa"><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);
+            // Auto-create client user for this company
+            const clientId=nId+1;const clientUser={id:clientId,name:nc.name,email:nc.name.toLowerCase().replace(/\s+/g,""),role:"cliente",avatar:nc.name.slice(0,2).toUpperCase(),color:nc.color||"#9d6bff",pass:"1234",companyName:nc.name};
+            sGU(prev=>[...prev,clientUser]);
+            addN("Empresa creada: "+nc.name+" (usuario: "+clientUser.email+" / 1234)");sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title="Editar Plan">{editCo&&<Fd label="Plan"><select defaultValue={editCo.plan} onChange={e=>{updCoP(editCo.id,e.target.value);sEC(null);}}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>}</Md>
         </div>)}
 
@@ -584,7 +590,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
       {/* MODALS */}
       <Md open={!!modal} onClose={()=>sMd2(null)} title={modal?.title||"Tarea"} width={560}>
-        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable){const newIds=Array.isArray(u.responsable)?u.responsable:[];const oldIds=Array.isArray(modal.responsable)?modal.responsable:[];const added=newIds.filter(id=>!oldIds.includes(id));added.forEach(rid=>{const ru=users.find(x=>x.id===rid);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)} onSave={()=>{DB.save("tasks",tasks);DB.save("extras",extras);addN("✅ Tarea guardada");}}/>}
+        {modal&&<TskDet t={modal} cu={cu} users={users} onUp={u=>{upT(modal.id,u);sMd2(m=>({...m,...u}));if(u.date)syncAllGCal({...modal,...u});if(u.state&&u.state!==modal.state){const ae=[...new Set(users.filter(x=>x.role!=="cliente").map(x=>x.gmail||x.email).filter(x=>x&&x.includes("@")))];if(u.state==="en_aprobacion")API.notify({type:"task_approval",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date});else if(u.state==="publicado")API.notify({type:"task_status",to:ae,taskTitle:modal.title,company:modal.company,date:modal.date,state:"Publicado ✅"});}if(u.responsable){const newIds=Array.isArray(u.responsable)?u.responsable:[];const oldIds=Array.isArray(modal.responsable)?modal.responsable:[];const added=newIds.filter(id=>!oldIds.includes(id));added.forEach(rid=>{const ru=users.find(x=>x.id===rid);if(ru)API.notify({type:"task_assigned",to:[ru.gmail||ru.email],taskTitle:modal.title,company:modal.company,assignee:ru.name,date:modal.date});});}}} onVote={(uid,ok)=>{vote(modal.id,uid,ok);setTimeout(()=>sT(ts=>{const f=ts.find(x=>x.id===modal.id);if(f)sMd2({...f});return ts;}),50);}} onDel={()=>{delT(modal.id);sMd2(null);}} onUns={()=>{upT(modal.id,{date:null});sMd2(m=>({...m,date:null}));}} onSync={()=>syncAllGCal(modal)} hasGcal={!!myGcal} onFile={f=>hFile(modal.id,f)} onSave={()=>{DB.save("tasks",tasks);DB.save("extras",extras);addN("✅ Tarea guardada");sMd2(null);}}/>}
       </Md>
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
@@ -727,6 +733,7 @@ function BillPg({cos,plans,billing,month,year,remEx,billRcpts,sBR,cM,cY}){
         </div>
       </div></div>);})}
     <div className="tb" style={{textAlign:"center"}}><div style={{fontSize:10,color:"var(--tx2)"}}>TOTAL {month} {year}</div><div style={{fontSize:24,fontWeight:900,fontFamily:"'Space Mono',monospace",color:"var(--gold)"}}>{fP(Object.values(billing).reduce((s,b)=>s+b.total,0))}</div></div>
+    <button onClick={()=>{DB.save("billRcpts",billRcpts);}} style={{width:"100%",padding:"10px",marginTop:10,background:"linear-gradient(135deg,var(--accent3),var(--accent2))",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>💾 Guardar facturación</button>
   </div>);
 }
 
@@ -749,6 +756,7 @@ function TeamPayPg({users,teamPay,sTP,addN}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}><div style={{display:"flex",alignItems:"center",gap:5}}><Av u={u} sz={20}/><b style={{fontSize:12}}>{u.name}</b></div><span style={{fontFamily:"'Space Mono',monospace",color:"var(--success)"}}>{fP(tot)}</span></div>
       {up.map(p=>(<div key={p.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 6px",fontSize:10,borderBottom:"1px solid var(--border)"}}>{p.img&&<img src={p.img} style={{width:24,height:24,borderRadius:4,objectFit:"cover"}}/>}<span style={{flex:1}}>{p.concept||"Pago"}</span><span style={{color:"var(--tx2)",fontSize:9}}>{p.date}</span><span style={{fontFamily:"'Space Mono',monospace",color:"var(--success)"}}>{fP(p.amount)}</span><button onClick={()=>sTP(pr=>({...pr,[u.id]:pr[u.id].filter(x=>x.id!==p.id)}))} style={{background:"none",color:"var(--danger)",fontSize:8,padding:0}}>X</button></div>))}
     </div></div>):null;})}
+    <button onClick={()=>{DB.save("teamPay",teamPay);addN("✅ Pagos guardados");}} style={{width:"100%",padding:"10px",marginTop:10,background:"linear-gradient(135deg,var(--accent3),var(--accent2))",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>💾 Guardar pagos</button>
   </div>);
 }
 
