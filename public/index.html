@@ -889,7 +889,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,fCo,addN}){
         {di.map(it=>(<div key={it.id} draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>{sDragItem(null);sDragOver(null);}}
           style={{margin:"6px 0",background:"var(--bg2)",border:"1px solid var(--border)",borderLeft:"4px solid "+(TT[it.type]?.c||"#999"),borderRadius:8}}>
 
-          <div style={{display:"flex",flexWrap:"wrap"}}>
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"flex-start"}}>
 
             {/* FORMATO */}
             <div style={{width:140,padding:12,borderRight:"1px solid var(--border)",flexShrink:0}}>
