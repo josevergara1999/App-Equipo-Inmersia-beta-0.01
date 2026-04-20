@@ -53,10 +53,10 @@ const DB={
   },
   async save(key,value){
     try{
-      await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${key}`,{
-        method:"PATCH",
-        headers:{...SB_HEADERS,"Prefer":"return=minimal"},
-        body:JSON.stringify({value,updated_at:new Date().toISOString()})
+      await fetch(`${SUPABASE_URL}/rest/v1/app_data`,{
+        method:"POST",
+        headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
+        body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
       });
     }catch(e){console.error("DB save error:",key,e);}
   },
@@ -217,7 +217,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
   const[pg,sPg]=useState("dashboard");
-  const visP={dashboard:["Dashboard","📊"],calendar:["Calendario","📅"],companies:["Empresas","🏢"],tasks:["Tareas","✅"],team:["Equipo","👥"],ai:["Cumbre AI","🤖"],loyalty:["Fidelización","💳"],meta:["Meta Ads","📣"],meetings:["Reuniones","🎙"],payments:["Pagos","💰"]};
+  const visP={dashboard:["Dashboard","📊"],calendar:["Calendario","📅"],planner:["Org Semanal","📋"],companies:["Empresas","🏢"],tasks:["Tareas","✅"],team:["Equipo","👥"],ai:["Cumbre AI","🤖"],loyalty:["Fidelización","💳"],meta:["Meta Ads","📣"],meetings:["Reuniones","🎙"],payments:["Pagos","💰"]};
   const[cos,sCos]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
@@ -229,6 +229,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
+  const[planners,sPlanners]=useState([]);
   // GCal
   const[gcalTokens,sGCT]=useState(JSON.parse(localStorage.getItem("inm_gcal_tokens")||"{}"));
   const myGcal=gcalTokens[cu.id]||"";const[shGcal,sShGcal]=useState(false);
@@ -256,6 +257,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.tasks?.length)sT(d.tasks);
       if(d.extras?.length)sEx(d.extras);
       if(d.meetings?.length)sMeets(d.meetings);
+      if(d.planners?.length)sPlanners(d.planners);
       sDbLoaded(true);
     }).catch(()=>sDbLoaded(true));
   },[]);
@@ -506,6 +508,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* TASKS */}
+        {/* PLANNER */}
+        {pg==="planner"&&<WeekPlanner tasks={tasks} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} fCo={fCo} addN={addN}/>}
+
+        {/* TASKS */}
         {pg==="tasks"&&(<div className="fi" style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:10}}>
           {Object.entries(SS).map(([sk,sv])=>{const st=fT.filter(t=>t.state===sk);return(<div key={sk} style={{minWidth:200,width:200,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,flexShrink:0}}>
             <div style={{padding:"8px 10px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:4}}><div style={{width:7,height:7,borderRadius:"50%",background:sv.c}}/><span style={{fontSize:11,fontWeight:700}}>{sv.l}</span><span style={{fontSize:9,color:"var(--tx2)",marginLeft:"auto"}}>{st.length}</span></div>
@@ -619,7 +625,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:56,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["loyalty","💳","Fidelización"],["meta","📣","Meta Ads"],["payments","💰","Pagos"],["team","👥","Equipo"],["meetings","🎙","Reuniones"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(157,107,255,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
+              {[["companies","🏢","Empresas"],["loyalty","💳","Fidelización"],["meta","📣","Meta Ads"],["payments","💰","Pagos"],["team","👥","Equipo"],["meetings","🎙","Reuniones"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(157,107,255,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
                 <span style={{fontSize:22}}>{ic}</span>{l}
               </button>))}
               <button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:myGcal?"rgba(78,205,196,.1)":"var(--bg3)",border:"1px solid "+(myGcal?"var(--success)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:myGcal?"var(--success)":"var(--tx2)",fontSize:10,fontFamily:"inherit"}}>
@@ -635,7 +641,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           </div>
         </div>}
         <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
-          {[["dashboard","📊"],["calendar","📅"],["tasks","✅"],["companies","🏢"],["ai","🤖"]].map(([k,ic])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+          {[["dashboard","📊"],["calendar","📅"],["planner","📋"],["tasks","✅"],["ai","🤖"]].map(([k,ic])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
             <span style={{fontSize:18}}>{ic}</span>
             <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
           </button>))}
@@ -747,6 +753,145 @@ function TeamPayPg({users,teamPay,sTP,addN}){
 }
 
 // ═══ FORMS ══════════════════════════════════════════════════════
+// ═══ WEEK PLANNER ══════════════════════════════════════════════
+function WeekPlanner({tasks,cos,users,planners,sPlanners,fCo,addN}){
+  const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[editId,sEditId]=useState(null);
+  const[selCo,sSelCo]=useState(fCo!=="all"?fCo:cos[0]?.id||0);
+  const co=cos.find(c=>String(c.id)===String(selCo));
+
+  // Week dates
+  const weekDays=useMemo(()=>{
+    const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
+    const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),month:MO[d.getMonth()],dayName:["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][i],dayShort:["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"][i],isToday:d.toDateString()===today.toDateString()});}
+    return days;
+  },[wkOff]);
+
+  const weekKey=weekDays[0]?.ds+"_"+String(selCo);
+  const plan=planners.find(p=>p.weekKey===weekKey)||{weekKey,companyId:selCo,items:[]};
+  const items=plan.items||[];
+
+  const dayItems=day=>items.filter(it=>it.day===day).sort((a,b)=>(a.order||0)-(b.order||0));
+
+  const updatePlan=(newItems)=>{
+    const np={...plan,items:newItems,weekKey,companyId:selCo,companyName:co?.name||""};
+    sPlanners(prev=>{const idx=prev.findIndex(p=>p.weekKey===weekKey);if(idx>=0){const u=[...prev];u[idx]=np;return u;}return[...prev,np];});
+  };
+
+  const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);sEditId(ni2.id);};
+  const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
+  const removeItem=(id)=>updatePlan(items.filter(it=>it.id!==id));
+  const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);};
+
+  const savePlan=()=>{const all=planners.some(p=>p.weekKey===weekKey)?planners.map(p=>p.weekKey===weekKey?{...plan,items}:p):[...planners,{...plan,items}];
+    DB.save("planners",all);sPlanners(all);addN("✅ Plan semanal guardado");};
+
+  const dupWeek=()=>{const nextOff=wkOff+1;const now2=new Date();now2.setDate(now2.getDate()+nextOff*7);const dow2=now2.getDay();const mon2=dow2===0?6:dow2-1;
+    const start2=new Date(now2);start2.setDate(start2.getDate()-mon2);const nDays=[];
+    for(let i=0;i<7;i++){const d2=new Date(start2);d2.setDate(start2.getDate()+i);nDays.push(d2.getFullYear()+"-"+String(d2.getMonth()+1).padStart(2,"0")+"-"+String(d2.getDate()).padStart(2,"0"));}
+    const newKey=nDays[0]+"_"+String(selCo);
+    const dayMap={};weekDays.forEach((wd,i)=>{dayMap[wd.ds]=nDays[i];});
+    const dupItems=items.map(it=>({...it,id:Date.now()+Math.random()*1000|0,day:dayMap[it.day]||it.day,state:"borrador"}));
+    const np={weekKey:newKey,companyId:selCo,companyName:co?.name||"",items:dupItems};
+    sPlanners(prev=>[...prev,np]);DB.save("planners",[...planners,np]);
+    sWkOff(nextOff);addN("📋 Semana duplicada");};
+
+  const STATES={borrador:{l:"Borrador",c:"#888"},aprobado:{l:"Aprobado",c:"#4ecdc4"},publicado:{l:"Publicado",c:"#9d6bff"}};
+
+  return(<div className="fi">
+    {/* HEADER */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:11,padding:"6px 10px"}}>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <Bg color={co?.color}>{co?.name||"—"}</Bg>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <Bt v="g" onClick={()=>sWkOff(w=>w-1)}>&lt;</Bt>
+        <div style={{textAlign:"center",minWidth:160}}>
+          <div style={{fontSize:12,fontWeight:700}}>Semana {weekDays[0]?.day} – {weekDays[6]?.day} {weekDays[0]?.month} {weekDays[0]?.date?.getFullYear()}</div>
+        </div>
+        {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:9,padding:"4px 8px"}}>Hoy</Bt>}
+        <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
+      </div>
+      <div style={{display:"flex",gap:4}}>
+        <Bt v="s" onClick={dupWeek} style={{fontSize:9,padding:"5px 10px"}}>📋 Duplicar →</Bt>
+        <Bt v="p" onClick={savePlan} style={{fontSize:10,padding:"6px 14px"}}>💾 Guardar</Bt>
+      </div>
+    </div>
+
+    {/* PLAN SUMMARY */}
+    <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+      {Object.entries(TT).filter(([k])=>items.some(it=>it.type===k)).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;return(<Bg key={k} color={v.c}>{v.i} {v.l} ×{c}</Bg>);})}
+      <Bg color="var(--tx3)">Total: {items.length}</Bg>
+    </div>
+
+    {/* WEEK GRID */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+      {weekDays.map(wd=>(
+        <div key={wd.ds} onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="rgba(157,107,255,.08)";}} onDragLeave={e=>{e.currentTarget.style.background="";}} onDrop={e=>{e.currentTarget.style.background="";if(dragItem)moveItem(dragItem,wd.ds);}}
+          style={{minHeight:200,background:wd.isToday?"rgba(157,107,255,.05)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+
+          {/* Day header */}
+          <div style={{padding:"8px 8px 4px",borderBottom:"1px solid var(--border)",background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg3)"}}>
+            <div style={{fontSize:8,fontWeight:700,color:wd.isToday?"var(--accent)":"var(--tx2)",letterSpacing:1}}>{wd.dayShort}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:16,fontWeight:800,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</span>
+              <span style={{fontSize:8,color:"var(--tx3)"}}>{wd.month}</span>
+            </div>
+          </div>
+
+          {/* Items */}
+          <div style={{flex:1,padding:4,display:"flex",flexDirection:"column",gap:4}}>
+            {dayItems(wd.ds).map(it=>(
+              <div key={it.id} draggable onDragStart={()=>sDragItem(it.id)} onClick={()=>sEditId(editId===it.id?null:it.id)}
+                style={{background:(TT[it.type]?.c||"#999")+"12",border:"1px solid "+(TT[it.type]?.c||"#999")+"33",borderLeft:"3px solid "+(TT[it.type]?.c||"#999"),borderRadius:6,padding:6,cursor:"pointer",fontSize:9}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                  <span style={{fontWeight:700,color:TT[it.type]?.c}}>{TT[it.type]?.i} {TT[it.type]?.l}</span>
+                  <Bg color={STATES[it.state]?.c} style={{fontSize:7,padding:"1px 4px"}}>{STATES[it.state]?.l}</Bg>
+                </div>
+                {it.title&&<div style={{fontWeight:600,marginBottom:2}}>{it.title}</div>}
+                {editId!==it.id&&it.description&&<div style={{color:"var(--tx2)",fontSize:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.description}</div>}
+
+                {/* EDIT MODE */}
+                {editId===it.id&&(<div onClick={e=>e.stopPropagation()} style={{marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
+                  <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{fontSize:9,padding:"3px 4px"}}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select>
+                  <input value={it.title} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título..." style={{fontSize:9,padding:"3px 5px"}}/>
+                  <textarea value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Descripción del contenido..." rows={2} style={{fontSize:8,padding:"3px 5px",resize:"vertical"}}/>
+                  <textarea value={it.strategy||""} onChange={e=>updateItem(it.id,{strategy:e.target.value})} placeholder="Estrategia / objetivo..." rows={1} style={{fontSize:8,padding:"3px 5px",resize:"vertical",borderColor:"var(--gold)"}}/>
+                  <div style={{fontSize:8,color:"var(--tx2)",fontWeight:600}}>Producción:</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:2}}>{users.map(u=>{const sel=(it.production||[]).includes(u.id);return(<button key={u.id} onClick={()=>updateItem(it.id,{production:sel?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})} style={{fontSize:7,padding:"2px 5px",borderRadius:4,background:sel?u.color+"30":"var(--bg4)",color:sel?u.color:"var(--tx3)",border:"1px solid "+(sel?u.color:"transparent"),cursor:"pointer",fontFamily:"inherit"}}>{u.name}</button>);})}</div>
+                  <select value={it.state} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:8,padding:"2px 4px"}}>{Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select>
+                  <button onClick={()=>{removeItem(it.id);sEditId(null);}} style={{fontSize:8,color:"var(--danger)",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",padding:2,fontFamily:"inherit"}}>✕ Eliminar bloque</button>
+                </div>)}
+
+                {/* Production avatars */}
+                {editId!==it.id&&(it.production||[]).length>0&&(<div style={{display:"flex",gap:2,marginTop:3}}>{(it.production||[]).map(uid=>{const u2=users.find(u=>u.id===uid);return u2?<Av key={uid} u={u2} sz={12}/>:null;})}</div>)}
+              </div>
+            ))}
+          </div>
+
+          {/* Add button */}
+          <button onClick={()=>addItem(wd.ds)} style={{margin:4,padding:"5px",background:"var(--bg4)",border:"1px dashed var(--border)",borderRadius:6,color:"var(--tx3)",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>+ Agregar</button>
+        </div>
+      ))}
+    </div>
+
+    {/* STRATEGY SUMMARY */}
+    {items.length>0&&(<div style={{marginTop:16,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:12}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>📊 Resumen Estratégico — {co?.name}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:8}}>
+        {weekDays.filter(wd=>dayItems(wd.ds).length>0).map(wd=>(<div key={wd.ds} style={{background:"var(--bg3)",borderRadius:8,padding:8}}>
+          <div style={{fontSize:9,fontWeight:700,color:"var(--accent)",marginBottom:4}}>{wd.dayName} {wd.day}</div>
+          {dayItems(wd.ds).map(it=>(<div key={it.id} style={{fontSize:8,marginBottom:4}}>
+            <span style={{color:TT[it.type]?.c,fontWeight:700}}>{TT[it.type]?.i} {TT[it.type]?.l}</span>
+            {it.strategy&&<div style={{color:"var(--tx2)",marginTop:1}}>{it.strategy}</div>}
+          </div>))}
+        </div>))}
+      </div>
+    </div>)}
+  </div>);
+}
+
 function TskForm({cos,users,onSave}){const[f,sF]=useState({title:"",type:"post",company:"",companyId:0,responsable:[],date:"",description:""});const teamUsers=users.filter(u=>u.role!=="cliente");return(<div>
   <Fd label="Titulo"><input value={f.title} onChange={e=>sF({...f,title:e.target.value})} placeholder="Nombre"/></Fd>
   <Fd label="Tipo"><select value={f.type} onChange={e=>sF({...f,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
