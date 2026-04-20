@@ -755,11 +755,10 @@ function TeamPayPg({users,teamPay,sTP,addN}){
 // ═══ FORMS ══════════════════════════════════════════════════════
 // ═══ WEEK PLANNER ══════════════════════════════════════════════
 function WeekPlanner({tasks,cos,users,planners,sPlanners,fCo,addN}){
-  const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[editId,sEditId]=useState(null);
+  const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[dragOver,sDragOver]=useState(null);
   const[selCo,sSelCo]=useState(fCo!=="all"?fCo:cos[0]?.id||0);
   const co=cos.find(c=>String(c.id)===String(selCo));
 
-  // Week dates
   const weekDays=useMemo(()=>{
     const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
     const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
@@ -770,7 +769,6 @@ function WeekPlanner({tasks,cos,users,planners,sPlanners,fCo,addN}){
   const weekKey=weekDays[0]?.ds+"_"+String(selCo);
   const plan=planners.find(p=>p.weekKey===weekKey)||{weekKey,companyId:selCo,items:[]};
   const items=plan.items||[];
-
   const dayItems=day=>items.filter(it=>it.day===day).sort((a,b)=>(a.order||0)-(b.order||0));
 
   const updatePlan=(newItems)=>{
@@ -778,10 +776,10 @@ function WeekPlanner({tasks,cos,users,planners,sPlanners,fCo,addN}){
     sPlanners(prev=>{const idx=prev.findIndex(p=>p.weekKey===weekKey);if(idx>=0){const u=[...prev];u[idx]=np;return u;}return[...prev,np];});
   };
 
-  const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);sEditId(ni2.id);};
+  const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
   const removeItem=(id)=>updatePlan(items.filter(it=>it.id!==id));
-  const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);};
+  const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);sDragOver(null);};
 
   const savePlan=()=>{const all=planners.some(p=>p.weekKey===weekKey)?planners.map(p=>p.weekKey===weekKey?{...plan,items}:p):[...planners,{...plan,items}];
     DB.save("planners",all);sPlanners(all);addN("✅ Plan semanal guardado");};
@@ -793,102 +791,138 @@ function WeekPlanner({tasks,cos,users,planners,sPlanners,fCo,addN}){
     const dayMap={};weekDays.forEach((wd,i)=>{dayMap[wd.ds]=nDays[i];});
     const dupItems=items.map(it=>({...it,id:Date.now()+Math.random()*1000|0,day:dayMap[it.day]||it.day,state:"borrador"}));
     const np={weekKey:newKey,companyId:selCo,companyName:co?.name||"",items:dupItems};
-    sPlanners(prev=>[...prev,np]);DB.save("planners",[...planners,np]);
+    const newAll=[...planners,np];
+    sPlanners(newAll);DB.save("planners",newAll);
     sWkOff(nextOff);addN("📋 Semana duplicada");};
 
-  const STATES={borrador:{l:"Borrador",c:"#888"},aprobado:{l:"Aprobado",c:"#4ecdc4"},publicado:{l:"Publicado",c:"#9d6bff"}};
+  const STATES={borrador:{l:"Borrador",c:"#888",b:"#88882a"},aprobado:{l:"Aprobado",c:"#4ecdc4",b:"#4ecdc42a"},publicado:{l:"Publicado",c:"#9d6bff",b:"#9d6bff2a"}};
 
   return(<div className="fi">
-    {/* HEADER */}
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
-        <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:11,padding:"6px 10px"}}>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        <Bg color={co?.color}>{co?.name||"—"}</Bg>
-      </div>
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <Bt v="g" onClick={()=>sWkOff(w=>w-1)}>&lt;</Bt>
-        <div style={{textAlign:"center",minWidth:160}}>
-          <div style={{fontSize:12,fontWeight:700}}>Semana {weekDays[0]?.day} – {weekDays[6]?.day} {weekDays[0]?.month} {weekDays[0]?.date?.getFullYear()}</div>
+    {/* HEADER - like PDF */}
+    <div style={{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1px solid var(--border)",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:900,color:co?.color||"var(--accent)",letterSpacing:1}}>{co?.name?.toUpperCase()||"EMPRESA"}</div>
+          <div style={{fontSize:11,color:"var(--tx2)",marginTop:2}}>INMERSIA SPA · MARKETING DIGITAL 2026</div>
         </div>
-        {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:9,padding:"4px 8px"}}>Hoy</Bt>}
-        <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
+        <div style={{textAlign:"right"}}>
+          <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:12,padding:"6px 12px",marginBottom:4}}>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        </div>
       </div>
-      <div style={{display:"flex",gap:4}}>
-        <Bt v="s" onClick={dupWeek} style={{fontSize:9,padding:"5px 10px"}}>📋 Duplicar →</Bt>
-        <Bt v="p" onClick={savePlan} style={{fontSize:10,padding:"6px 14px"}}>💾 Guardar</Bt>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10,flexWrap:"wrap"}}>
+        <Bt v="g" onClick={()=>sWkOff(w=>w-1)} style={{padding:"6px 12px"}}>&lt;</Bt>
+        <div style={{fontSize:15,fontWeight:700,fontFamily:"'Space Mono',monospace"}}>
+          SEMANA {weekDays[0]?.day} – {weekDays[6]?.day} {weekDays[0]?.month?.toUpperCase()} {weekDays[0]?.date?.getFullYear()}
+        </div>
+        {wkOff!==0&&<Bt v="s" onClick={()=>sWkOff(0)} style={{fontSize:10,padding:"4px 10px"}}>Hoy</Bt>}
+        <Bt v="g" onClick={()=>sWkOff(w=>w+1)} style={{padding:"6px 12px"}}>&gt;</Bt>
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <Bt v="s" onClick={dupWeek} style={{fontSize:10,padding:"6px 12px"}}>📋 Duplicar semana →</Bt>
+          <Bt v="p" onClick={savePlan} style={{fontSize:11,padding:"8px 18px"}}>💾 Guardar</Bt>
+        </div>
+      </div>
+      {/* Content summary like PDF */}
+      <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+        {Object.entries(TT).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;if(!c)return null;return(<div key={k} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",background:v.c+"15",border:"1px solid "+v.c+"33",borderRadius:8}}>
+          <span style={{fontSize:14}}>{v.i}</span><span style={{fontSize:12,fontWeight:700,color:v.c}}>{c} {v.l.toUpperCase()}{c>1?"S":""}</span>
+        </div>);})}
+        {items.length>0&&<div style={{padding:"6px 12px",background:"var(--bg4)",borderRadius:8,fontSize:11,fontWeight:600,color:"var(--tx2)"}}>Total: {items.length} contenidos</div>}
       </div>
     </div>
 
-    {/* PLAN SUMMARY */}
-    <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
-      {Object.entries(TT).filter(([k])=>items.some(it=>it.type===k)).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;return(<Bg key={k} color={v.c}>{v.i} {v.l} ×{c}</Bg>);})}
-      <Bg color="var(--tx3)">Total: {items.length}</Bg>
-    </div>
+    {/* VERTICAL DAY LIST */}
+    {weekDays.map(wd=>{const di=dayItems(wd.ds);
+      return(<div key={wd.ds}
+        onDragOver={e=>{e.preventDefault();sDragOver(wd.ds);}}
+        onDragLeave={()=>sDragOver(null)}
+        onDrop={()=>{if(dragItem)moveItem(dragItem,wd.ds);}}
+        style={{marginBottom:12,background:dragOver===wd.ds?"rgba(157,107,255,.06)":"transparent",borderRadius:12,transition:"background .2s"}}>
 
-    {/* WEEK GRID */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
-      {weekDays.map(wd=>(
-        <div key={wd.ds} onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="rgba(157,107,255,.08)";}} onDragLeave={e=>{e.currentTarget.style.background="";}} onDrop={e=>{e.currentTarget.style.background="";if(dragItem)moveItem(dragItem,wd.ds);}}
-          style={{minHeight:200,background:wd.isToday?"rgba(157,107,255,.05)":"var(--bg2)",border:"1px solid "+(wd.isToday?"var(--accent2)":"var(--border)"),borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-
-          {/* Day header */}
-          <div style={{padding:"8px 8px 4px",borderBottom:"1px solid var(--border)",background:wd.isToday?"rgba(157,107,255,.1)":"var(--bg3)"}}>
-            <div style={{fontSize:8,fontWeight:700,color:wd.isToday?"var(--accent)":"var(--tx2)",letterSpacing:1}}>{wd.dayShort}</div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:16,fontWeight:800,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</span>
-              <span style={{fontSize:8,color:"var(--tx3)"}}>{wd.month}</span>
-            </div>
+        {/* DAY HEADER */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 4px",borderBottom:"2px solid "+(wd.isToday?"var(--accent)":co?.color||"var(--border)")}}>
+          <div style={{width:50,textAlign:"center"}}>
+            <div style={{fontSize:10,fontWeight:700,color:wd.isToday?"var(--accent)":"var(--tx2)",letterSpacing:1}}>{wd.dayShort}</div>
+            <div style={{fontSize:22,fontWeight:900,color:wd.isToday?"var(--accent)":"var(--tx)",fontFamily:"'Space Mono',monospace"}}>{wd.day}</div>
           </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:wd.isToday?"var(--accent)":"var(--tx)"}}>{wd.dayName}</div>
+            <div style={{fontSize:10,color:"var(--tx3)"}}>{wd.month} {wd.date?.getFullYear()}</div>
+          </div>
+          <div style={{fontSize:10,color:"var(--tx3)"}}>{di.length} contenido{di.length!==1?"s":""}</div>
+        </div>
 
-          {/* Items */}
-          <div style={{flex:1,padding:4,display:"flex",flexDirection:"column",gap:4}}>
-            {dayItems(wd.ds).map(it=>(
-              <div key={it.id} draggable onDragStart={()=>sDragItem(it.id)} onClick={()=>sEditId(editId===it.id?null:it.id)}
-                style={{background:(TT[it.type]?.c||"#999")+"12",border:"1px solid "+(TT[it.type]?.c||"#999")+"33",borderLeft:"3px solid "+(TT[it.type]?.c||"#999"),borderRadius:6,padding:6,cursor:"pointer",fontSize:9}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-                  <span style={{fontWeight:700,color:TT[it.type]?.c}}>{TT[it.type]?.i} {TT[it.type]?.l}</span>
-                  <Bg color={STATES[it.state]?.c} style={{fontSize:7,padding:"1px 4px"}}>{STATES[it.state]?.l}</Bg>
-                </div>
-                {it.title&&<div style={{fontWeight:600,marginBottom:2}}>{it.title}</div>}
-                {editId!==it.id&&it.description&&<div style={{color:"var(--tx2)",fontSize:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.description}</div>}
+        {/* DAY ITEMS */}
+        {di.length===0&&!dragOver?(<div style={{padding:"12px 16px",color:"var(--tx3)",fontSize:11,fontStyle:"italic"}}>Sin contenido planificado</div>):null}
 
-                {/* EDIT MODE */}
-                {editId===it.id&&(<div onClick={e=>e.stopPropagation()} style={{marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
-                  <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{fontSize:9,padding:"3px 4px"}}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select>
-                  <input value={it.title} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título..." style={{fontSize:9,padding:"3px 5px"}}/>
-                  <textarea value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Descripción del contenido..." rows={2} style={{fontSize:8,padding:"3px 5px",resize:"vertical"}}/>
-                  <textarea value={it.strategy||""} onChange={e=>updateItem(it.id,{strategy:e.target.value})} placeholder="Estrategia / objetivo..." rows={1} style={{fontSize:8,padding:"3px 5px",resize:"vertical",borderColor:"var(--gold)"}}/>
-                  <div style={{fontSize:8,color:"var(--tx2)",fontWeight:600}}>Producción:</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:2}}>{users.map(u=>{const sel=(it.production||[]).includes(u.id);return(<button key={u.id} onClick={()=>updateItem(it.id,{production:sel?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})} style={{fontSize:7,padding:"2px 5px",borderRadius:4,background:sel?u.color+"30":"var(--bg4)",color:sel?u.color:"var(--tx3)",border:"1px solid "+(sel?u.color:"transparent"),cursor:"pointer",fontFamily:"inherit"}}>{u.name}</button>);})}</div>
-                  <select value={it.state} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:8,padding:"2px 4px"}}>{Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select>
-                  <button onClick={()=>{removeItem(it.id);sEditId(null);}} style={{fontSize:8,color:"var(--danger)",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",padding:2,fontFamily:"inherit"}}>✕ Eliminar bloque</button>
-                </div>)}
+        {di.map(it=>(<div key={it.id} draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>{sDragItem(null);sDragOver(null);}}
+          style={{margin:"6px 0",background:"var(--bg2)",border:"1px solid var(--border)",borderLeft:"4px solid "+(TT[it.type]?.c||"#999"),borderRadius:8,overflow:"hidden"}}>
 
-                {/* Production avatars */}
-                {editId!==it.id&&(it.production||[]).length>0&&(<div style={{display:"flex",gap:2,marginTop:3}}>{(it.production||[]).map(uid=>{const u2=users.find(u=>u.id===uid);return u2?<Av key={uid} u={u2} sz={12}/>:null;})}</div>)}
+          {/* Item row - like PDF table */}
+          <div style={{display:"flex",gap:0,flexWrap:"wrap"}}>
+
+            {/* FORMATO */}
+            <div style={{width:140,padding:"12px 14px",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1}}>FORMATO</div>
+              <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{fontSize:12,padding:"5px 6px",fontWeight:600}}>
+                {Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}
+              </select>
+              <div style={{marginTop:4}}>
+                <select value={it.state} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:10,padding:"3px 6px",width:"100%"}}>
+                  {Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
+                </select>
               </div>
-            ))}
+            </div>
+
+            {/* DESCRIPCIÓN */}
+            <div style={{flex:2,minWidth:200,padding:"12px 14px",borderRight:"1px solid var(--border)"}}>
+              <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:4}}>DESCRIPCIÓN DEL CONTENIDO</div>
+              <input value={it.title} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título del contenido..." style={{fontSize:13,fontWeight:700,padding:"6px 8px",marginBottom:6,width:"100%",boxSizing:"border-box"}}/>
+              <textarea value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Describe el contenido: qué se muestra, estilo, tono, elementos visuales..." rows={3} style={{fontSize:12,padding:"8px",width:"100%",boxSizing:"border-box",lineHeight:1.5,resize:"vertical"}}/>
+            </div>
+
+            {/* ESTRATEGIA */}
+            <div style={{flex:1,minWidth:180,padding:"12px 14px",borderRight:"1px solid var(--border)"}}>
+              <div style={{fontSize:9,color:"var(--gold)",fontWeight:600,letterSpacing:1,marginBottom:4}}>ESTRATEGIA / OBJETIVO</div>
+              <textarea value={it.strategy||""} onChange={e=>updateItem(it.id,{strategy:e.target.value})} placeholder="Objetivo de esta publicación, target, resultado esperado..." rows={4} style={{fontSize:12,padding:"8px",width:"100%",boxSizing:"border-box",lineHeight:1.5,resize:"vertical",borderColor:"rgba(240,192,64,.3)"}}/>
+            </div>
+
+            {/* PRODUCCIÓN */}
+            <div style={{width:150,padding:"12px 14px",display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:2}}>PRODUCCIÓN</div>
+              {users.map(u=>{const sel=(it.production||[]).includes(u.id);return(<button key={u.id} onClick={()=>updateItem(it.id,{production:sel?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:sel?700:400,background:sel?u.color+"20":"transparent",border:"1px solid "+(sel?u.color+"55":"var(--border)"),color:sel?u.color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left"}}>
+                <Av u={u} sz={16}/>{u.name}
+              </button>);})}
+              <button onClick={()=>removeItem(it.id)} style={{marginTop:6,fontSize:9,color:"var(--danger)",background:"transparent",border:"1px solid rgba(255,68,68,.2)",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontFamily:"inherit"}}>✕ Eliminar</button>
+            </div>
+
           </div>
+        </div>))}
 
-          {/* Add button */}
-          <button onClick={()=>addItem(wd.ds)} style={{margin:4,padding:"5px",background:"var(--bg4)",border:"1px dashed var(--border)",borderRadius:6,color:"var(--tx3)",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>+ Agregar</button>
-        </div>
-      ))}
-    </div>
+        {/* Add content button */}
+        <button onClick={()=>addItem(wd.ds)} style={{margin:"4px 0 8px",padding:"10px 16px",background:"transparent",border:"1px dashed var(--border)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left"}}> + Agregar contenido para {wd.dayName.toLowerCase()}</button>
+      </div>);
+    })}
 
-    {/* STRATEGY SUMMARY */}
-    {items.length>0&&(<div style={{marginTop:16,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,padding:12}}>
-      <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>📊 Resumen Estratégico — {co?.name}</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:8}}>
-        {weekDays.filter(wd=>dayItems(wd.ds).length>0).map(wd=>(<div key={wd.ds} style={{background:"var(--bg3)",borderRadius:8,padding:8}}>
-          <div style={{fontSize:9,fontWeight:700,color:"var(--accent)",marginBottom:4}}>{wd.dayName} {wd.day}</div>
-          {dayItems(wd.ds).map(it=>(<div key={it.id} style={{fontSize:8,marginBottom:4}}>
-            <span style={{color:TT[it.type]?.c,fontWeight:700}}>{TT[it.type]?.i} {TT[it.type]?.l}</span>
-            {it.strategy&&<div style={{color:"var(--tx2)",marginTop:1}}>{it.strategy}</div>}
+    {/* STRATEGY SUMMARY - like PDF bottom */}
+    {items.length>0&&(<div style={{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1px solid var(--border)",borderRadius:12,padding:16,marginTop:8}}>
+      <div style={{fontSize:14,fontWeight:800,marginBottom:12}}>📊 ESTRATEGIA SEMANAL — {co?.name?.toUpperCase()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10}}>
+        {weekDays.filter(wd=>dayItems(wd.ds).length>0).map(wd=>(<div key={wd.ds} style={{background:"var(--bg3)",borderRadius:8,padding:10,borderLeft:"3px solid "+(co?.color||"var(--accent)")}}>
+          <div style={{fontSize:11,fontWeight:700,color:co?.color||"var(--accent)",marginBottom:6}}>{wd.dayShort} {wd.day} {wd.month?.toUpperCase()}</div>
+          {dayItems(wd.ds).map(it=>(<div key={it.id} style={{marginBottom:6}}>
+            <div style={{fontSize:11,fontWeight:700,color:TT[it.type]?.c}}>{TT[it.type]?.i} {TT[it.type]?.l?.toUpperCase()}</div>
+            {it.strategy&&<div style={{fontSize:11,color:"var(--tx2)",lineHeight:1.4,marginTop:2}}>{it.strategy}</div>}
+            {(it.production||[]).length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginTop:2}}>{(it.production||[]).map(uid=>users.find(u=>u.id===uid)?.name).filter(Boolean).join(" · ")}</div>}
           </div>))}
         </div>))}
       </div>
     </div>)}
+
+    {/* FOOTER */}
+    <div style={{textAlign:"center",padding:"12px 0",fontSize:9,color:"var(--tx3)",marginTop:8}}>
+      Contenido planificado por {co?.name} · Inmersia SPA · Marketing Digital · {weekDays[0]?.date?.getFullYear()}
+    </div>
   </div>);
 }
 
