@@ -1084,37 +1084,7 @@ function ClientView({user:cu,onLogout:ol}){
   const calC=useMemo(()=>{const f=fDay(cY,cM),d=dIM(cY,cM),c=[];for(let i=0;i<f;i++)c.push(null);for(let i=1;i<=d;i++)c.push(i);return c;},[cM,cY]);
   const dTk=day=>{if(!day)return[];const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");return scheduled.filter(t=>t.date===ds);};
 
-  const weekDays=useMemo(()=>{
-    const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
-    const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
-    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push({date:d,ds:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),day:d.getDate(),month:MO[d.getMonth()],dayName:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"][i],isToday:d.toDateString()===today.toDateString()});}
-    return days;
-  },[wkOff]);
-  const wTasks=day=>myTasks.filter(t=>t.date===day);
-
-  // Safe save: always load fresh from DB, modify only the target task, then save
-  const safeSaveTask=async(taskId,updates)=>{
-    try{
-      const fresh=await DB.loadAll();
-      const freshTasks=fresh.tasks||[];
-      const updated=freshTasks.map(t=>t.id===taskId?{...t,...updates}:t);
-      await DB.save("tasks",updated);
-      sT(updated);
-      return updated;
-    }catch(e){console.error("Safe save error:",e);return null;}
-  };
-
-  const approve=async(taskId)=>{const task=tasks.find(t=>t.id===taskId);
-    await safeSaveTask(taskId,{state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
-    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:task?.date});sSelTask(null);};
-  const reject=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
-    await safeSaveTask(taskId,{state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
-    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
-  const addComment=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
-    await safeSaveTask(taskId,{comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
-    sComment("");};
-
-  // Planner week data for client
+  // Planner week
   const pWkDays=useMemo(()=>{
     const now=new Date();now.setDate(now.getDate()+wkOff*7);const dow=now.getDay();const mon=dow===0?6:dow-1;
     const start=new Date(now);start.setDate(start.getDate()-mon);const today=new Date();const days=[];
@@ -1126,19 +1096,29 @@ function ClientView({user:cu,onLogout:ol}){
   const origPlan=planners.find(p=>p.weekKey===pWeekKey);
   const origItems=origPlan?.items||[];
 
-  // Client's local edits (draft)
+  // Client draft edits
   const[draftItems,sDraftItems]=useState(null);
   useEffect(()=>{sDraftItems(null);sDraftSaved(false);},[pWeekKey]);
   const editItems=draftItems||origItems;
   const hasChanges=draftItems!==null;
 
   const pDayItems=day=>editItems.filter(it=>it.day===day).sort((a,b)=>(a.order||0)-(b.order||0));
-  const pUpdateItem=(id,u)=>{sDraftItems(editItems.map(it=>it.id===id?{...it,...u}:it));sDraftSaved(false);};
-
-  // Check if a field was modified vs original
+  const pUpdateItem=(id,u)=>{sDraftItems((draftItems||[...origItems]).map(it=>it.id===id?{...it,...u}:it));sDraftSaved(false);};
   const isModified=(itemId,field)=>{if(!draftItems)return false;const orig=origItems.find(it=>it.id===itemId);const draft=draftItems.find(it=>it.id===itemId);if(!orig||!draft)return false;return orig[field]!==draft[field];};
 
-  // Submit draft changes
+  // Warn before leaving with unsaved changes
+  useEffect(()=>{
+    const handler=e=>{if(hasChanges&&!draftSaved){e.preventDefault();e.returnValue="";}};
+    window.addEventListener("beforeunload",handler);
+    return()=>window.removeEventListener("beforeunload",handler);
+  },[hasChanges,draftSaved]);
+
+  const handleLogout=()=>{
+    if(hasChanges&&!draftSaved){if(!confirm("Tienes cambios sin enviar. ¿Seguro que quieres salir?"))return;}
+    ol();
+  };
+
+  // Submit draft
   const submitDraft=async()=>{if(!draftItems||!pWeekKey)return;
     try{
       const fresh=await DB.loadAll();const existingDrafts=fresh.planner_drafts||[];
@@ -1146,36 +1126,56 @@ function ClientView({user:cu,onLogout:ol}){
         original:origItems,proposed:draftItems,status:"pending"};
       const newDrafts=[...existingDrafts.filter(d=>d.weekKey!==pWeekKey||d.status!=="pending"),draft];
       await DB.save("planner_drafts",newDrafts);
-      // Notify admins
-      const teamEmails=["contifellenberg@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
       API.notify({type:"task_status",to:teamEmails,taskTitle:"Cambios en planificación semanal",company:cu.companyName,state:"📝 "+cu.companyName+" propuso cambios en Org Semanal",date:pWkDays[0]?.ds});
       sDraftSaved(true);
     }catch(e){console.error("Draft save error:",e);}
   };
+
+  // Safe task operations
+  const safeSaveTask=async(taskId,updates)=>{
+    try{const fresh=await DB.loadAll();const freshTasks=fresh.tasks||[];const updated=freshTasks.map(t=>t.id===taskId?{...t,...updates}:t);await DB.save("tasks",updated);sT(updated);return updated;}catch(e){console.error("Safe save error:",e);return null;}
+  };
+  const approve=async(taskId)=>{const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
+    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:task?.date});sSelTask(null);};
+  const reject=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:comment.trim()},comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});
+    API.notify({type:"task_status",to:teamEmails,taskTitle:task?.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+comment.trim(),date:task?.date});sComment("");sSelTask(null);};
+  const addComment=async(taskId)=>{if(!comment.trim())return;const task=tasks.find(t=>t.id===taskId);
+    await safeSaveTask(taskId,{comments:[...(task?.comments||[]),{user:"🏢 "+cu.name,text:comment.trim()}]});sComment("");};
 
   if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{fontSize:24,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div><div style={{color:"var(--tx2)",fontSize:12}}>Cargando...</div></div>);
 
   return(
     <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--tx)"}}>
       {/* HEADER */}
-      <header style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--bg2)"}}>
+      <header style={{position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--bg2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{fontSize:14,fontWeight:900,background:"linear-gradient(135deg,var(--accent),var(--gold))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>INMERSIA</div>
           <div style={{height:16,width:1,background:"var(--border)"}}/>
           <Av u={cu} sz={28}/>
           <div><div style={{fontSize:13,fontWeight:700}}>{cu.companyName}</div><div style={{fontSize:9,color:"var(--tx2)"}}>Portal Cliente</div></div>
         </div>
-        <button onClick={ol} style={{background:"var(--bg4)",color:"var(--tx2)",padding:"6px 14px",borderRadius:8,fontSize:11,border:"none",cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
+        <button onClick={handleLogout} style={{background:"var(--bg4)",color:"var(--tx2)",padding:"6px 14px",borderRadius:8,fontSize:11,border:"none",cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
       </header>
+
+      {/* STICKY SAVE BAR */}
+      {hasChanges&&!draftSaved&&(<div style={{position:"sticky",top:52,zIndex:99,padding:"8px 20px",background:"rgba(240,192,64,.12)",borderBottom:"1px solid rgba(240,192,64,.3)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:12,color:"var(--gold)",fontWeight:600}}>⚠️ Tienes cambios sin enviar</span>
+        <button onClick={submitDraft} style={{padding:"8px 20px",background:"linear-gradient(135deg,var(--gold),#e6a800)",color:"#000",border:"none",borderRadius:8,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Enviar cambios al equipo</button>
+      </div>)}
+      {draftSaved&&(<div style={{position:"sticky",top:52,zIndex:99,padding:"8px 20px",background:"rgba(78,205,196,.1)",borderBottom:"1px solid rgba(78,205,196,.3)",textAlign:"center"}}>
+        <span style={{fontSize:12,color:"var(--success)",fontWeight:600}}>✅ Cambios enviados al equipo para revisión</span>
+      </div>)}
 
       <div style={{maxWidth:900,margin:"0 auto",padding:16}}>
 
-        {/* TABS */}
+        {/* TABS - only plan and calendar */}
         <div style={{display:"flex",gap:4,marginBottom:16,borderBottom:"1px solid var(--border)",paddingBottom:8}}>
-          {[["plan","📋 Planificación"],["calendar","📅 Calendario"],["tasks","📄 Tareas"]].map(([k,l])=>(<button key={k} onClick={()=>sTab(k)} style={{padding:"8px 16px",borderRadius:"8px 8px 0 0",fontSize:12,fontWeight:tab===k?700:400,background:tab===k?"rgba(157,107,255,.1)":"transparent",color:tab===k?"var(--accent)":"var(--tx2)",border:tab===k?"1px solid var(--accent2)":"1px solid transparent",borderBottom:"none",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
+          {[["plan","📋 Planificación"],["calendar","📅 Calendario"]].map(([k,l])=>(<button key={k} onClick={()=>sTab(k)} style={{padding:"8px 16px",borderRadius:"8px 8px 0 0",fontSize:12,fontWeight:tab===k?700:400,background:tab===k?"rgba(157,107,255,.1)":"transparent",color:tab===k?"var(--accent)":"var(--tx2)",border:tab===k?"1px solid var(--accent2)":"1px solid transparent",borderBottom:"none",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
         </div>
 
-        {/* PENDIENTES DE APROBACIÓN - always visible */}
+        {/* APPROVAL SECTION - always visible */}
         {approval.length>0&&(<div style={{marginBottom:20}}>
           <h2 style={{fontSize:15,fontWeight:700,marginBottom:10,color:"var(--gold)"}}>⏳ Pendientes de tu aprobación ({approval.length})</h2>
           {approval.map(t=>(<div key={t.id} className="cd" style={{marginBottom:8,borderLeft:"3px solid var(--gold)"}}>
@@ -1202,7 +1202,7 @@ function ClientView({user:cu,onLogout:ol}){
         </div>)}
 
         {/* PLANNER TAB */}
-        {tab==="plan"&&origItems.length>0&&(<div style={{marginBottom:20}}>
+        {tab==="plan"&&(<div style={{marginBottom:20}}>
           <div style={{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
               <div>
@@ -1216,11 +1216,10 @@ function ClientView({user:cu,onLogout:ol}){
                 <Bt v="g" onClick={()=>sWkOff(w=>w+1)}>&gt;</Bt>
               </div>
             </div>
-            {hasChanges&&!draftSaved&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(240,192,64,.1)",border:"1px solid rgba(240,192,64,.3)",borderRadius:8,fontSize:11,color:"var(--gold)"}}>⚠️ Tienes cambios sin enviar</div>}
-            {draftSaved&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(78,205,196,.1)",border:"1px solid rgba(78,205,196,.3)",borderRadius:8,fontSize:11,color:"var(--success)"}}>✅ Cambios enviados al equipo para revisión</div>}
           </div>
 
-          {pWkDays.map(wd=>{const di=pDayItems(wd.ds);if(!di.length)return null;
+          {origItems.length===0?(<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><div style={{fontSize:30,marginBottom:8}}>📋</div>No hay planificación para esta semana</div>):(
+          pWkDays.map(wd=>{const di=pDayItems(wd.ds);if(!di.length)return null;
             return(<div key={wd.ds} style={{marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"2px solid "+(co?.color||"var(--border)")}}>
                 <div style={{width:44,textAlign:"center"}}>
@@ -1241,16 +1240,16 @@ function ClientView({user:cu,onLogout:ol}){
                   <AutoTx value={it.strategy} onChange={e=>pUpdateItem(it.id,{strategy:e.target.value})} placeholder="Estrategia..." style={{fontSize:12,padding:"8px",width:"100%",boxSizing:"border-box",lineHeight:1.6,background:isModified(it.id,"strategy")?"rgba(255,68,68,.06)":"var(--bg3)",borderColor:isModified(it.id,"strategy")?"rgba(255,68,68,.4)":"var(--border)"}}/>
                 </>}
               </div>))}
-            </div>);})}
+            </div>);
+          }))}
 
-          {hasChanges&&!draftSaved&&<button onClick={submitDraft} style={{width:"100%",padding:"12px",marginTop:8,background:"linear-gradient(135deg,var(--gold),#e6a800)",color:"#000",border:"none",borderRadius:10,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Enviar cambios al equipo para revisión</button>}
+          {hasChanges&&!draftSaved&&<button onClick={submitDraft} style={{width:"100%",padding:"14px",marginTop:12,background:"linear-gradient(135deg,var(--gold),#e6a800)",color:"#000",border:"none",borderRadius:10,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Enviar cambios al equipo para revisión</button>}
         </div>)}
-        {tab==="plan"&&origItems.length===0&&<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><div style={{fontSize:30,marginBottom:8}}>📋</div>No hay planificación semanal para esta semana</div>}
 
-        {/* CALENDARIO */}
+        {/* CALENDAR TAB */}
         {tab==="calendar"&&(<div style={{marginBottom:20}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <h2 style={{fontSize:15,fontWeight:700,margin:0}}>📅 Planificación</h2>
+            <h2 style={{fontSize:15,fontWeight:700,margin:0}}>📅 Calendario</h2>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <Bt v="g" onClick={()=>{if(cM===0){sCM(11);sCY(cY-1)}else sCM(cM-1)}}>&lt;</Bt>
               <span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center",fontFamily:"'Space Mono',monospace"}}>{MO[cM]} {cY}</span>
@@ -1262,32 +1261,9 @@ function ClientView({user:cu,onLogout:ol}){
             {calC.map((day,i)=>{const dt2=dTk(day);const isT=day&&new Date().getDate()===day&&new Date().getMonth()===cM&&new Date().getFullYear()===cY;
               return(<div key={i} style={{background:isT?"rgba(157,107,255,.08)":"var(--bg2)",minHeight:80,maxHeight:110,overflow:"hidden",padding:4,opacity:day?1:.3}}>
                 {day&&(<><div style={{fontSize:11,fontWeight:isT?800:500,color:isT?"var(--accent)":"var(--tx2)",padding:"2px 4px",borderRadius:4,display:"inline-block",background:isT?"rgba(157,107,255,.15)":"transparent"}}>{day}</div>
-                  {dt2.map(t=>(<div key={t.id} onClick={()=>sSelTask(selTask===t.id?null:t.id)} style={{cursor:"pointer",padding:"3px 6px",marginBottom:2,borderRadius:5,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"3px solid "+(TT[t.type]?.c||"#999")}}>{TT[t.type]?.i||"⭐"} {t.title}</div>))}
+                  {dt2.map(t=>(<div key={t.id} style={{padding:"3px 6px",marginBottom:2,borderRadius:5,fontSize:9,background:(TT[t.type]?.c||"#999")+"15",color:TT[t.type]?.c,fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"3px solid "+(TT[t.type]?.c||"#999")}}>{TT[t.type]?.i||"⭐"} {t.title}</div>))}
                 </>)}</div>);})}
           </div>
-        </div>)}
-
-        {/* TODAS LAS TAREAS */}
-        {tab==="tasks"&&(<div>
-          <h2 style={{fontSize:15,fontWeight:700,marginBottom:10}}>📋 Todas las tareas</h2>
-          {myTasks.length===0?<div style={{color:"var(--tx3)",textAlign:"center",padding:20}}>No hay tareas</div>:
-          myTasks.map(t=>(<div key={t.id} className="cd" style={{marginBottom:6,borderLeft:"3px solid "+(SS[t.state]?.c||"#666")}}>
-            <div style={{padding:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600}}>{TT[t.type]?.i||"⭐"} {t.title}</div>
-                <div style={{fontSize:9,color:"var(--tx2)"}}>{t.date||"Sin fecha"}</div>
-              </div>
-              <Bg color={SS[t.state]?.c} b={SS[t.state]?.b}>{SS[t.state]?.l}</Bg>
-            </div>
-            {selTask===t.id&&(<div style={{padding:"0 10px 10px",borderTop:"1px solid var(--border)"}}>
-              {t.description&&<div style={{fontSize:10,color:"var(--tx2)",margin:"6px 0",background:"var(--bg3)",padding:6,borderRadius:4}}>{t.description}</div>}
-              {(t.comments||[]).map((c,i)=><div key={i} style={{fontSize:10,padding:"3px 6px",marginBottom:2,background:"var(--bg3)",borderRadius:4}}><b style={{color:"var(--accent)"}}>{c.user}:</b> {c.text}</div>)}
-              <div style={{display:"flex",gap:4,marginTop:6}}>
-                <input value={comment} onChange={e=>sComment(e.target.value)} placeholder="Agregar comentario..." style={{flex:1,fontSize:10,padding:"6px 8px"}}/>
-                <Bt v="p" onClick={()=>addComment(t.id)} style={{fontSize:10,padding:"5px 10px"}}>Enviar</Bt>
-              </div>
-            </div>)}
-          </div>))}
         </div>)}
 
       </div>
