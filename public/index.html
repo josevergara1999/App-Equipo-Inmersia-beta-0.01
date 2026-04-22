@@ -343,8 +343,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   const[theme,sTheme]=useState(()=>localStorage.getItem("inm_theme")||"A");
   useEffect(()=>{document.body.setAttribute("data-variant",theme);localStorage.setItem("inm_theme",theme);},[theme]);
-  const[theme,sTheme]=useState(()=>localStorage.getItem("inm_theme")||"A");
-  useEffect(()=>{document.body.setAttribute("data-theme",theme);localStorage.setItem("inm_theme",theme);},[theme]);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   const[planners,sPlanners]=useState([]);const[pDrafts,sPDrafts]=useState([]);
