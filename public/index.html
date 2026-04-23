@@ -886,6 +886,12 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
 // ═══ SUB-PAGES ══════════════════════════════════════════════════
 // ═══ GUIONADO ═══════════════════════════════════════════════════
+function GInput({value,onChange,placeholder}){
+  const[local,sLocal]=useState(value);const ref=useRef(null);
+  useEffect(()=>{sLocal(value);},[value]);
+  useEffect(()=>{if(ref.current){ref.current.style.height="0";ref.current.style.height=Math.max(22,ref.current.scrollHeight)+"px";}});
+  return<textarea ref={ref} value={local} onChange={e=>sLocal(e.target.value)} onBlur={()=>{if(local!==value)onChange({target:{value:local}});}} placeholder={placeholder} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:12,lineHeight:1.5,resize:"none",outline:"none",fontFamily:"inherit",padding:0,minHeight:22,overflow:"hidden"}}/>;
+}
 function GuionadoPg({cos,users,addN}){
   const[guiones,sGuiones]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}});
   const[selCo,sSelCo]=useState("all");const[selG,sSelG]=useState(null);const[showNew,sShowNew]=useState(false);
@@ -903,13 +909,6 @@ function GuionadoPg({cos,users,addN}){
   const moveLine=(lineId,dir)=>{if(!selG)return;const ls=[...(selG.lines||[])];const i=ls.findIndex(l=>l.id===lineId);const j=i+dir;if(j<0||j>=ls.length)return;[ls[i],ls[j]]=[ls[j],ls[i]];saveG({...selG,lines:ls});};
 
   const BC={header:{c:"#c77dff",bg:"rgba(199,125,255,.06)",border:"rgba(199,125,255,.2)",label:"Header"},voz:{c:"#6fa8ff",bg:"rgba(111,168,255,.06)",border:"rgba(111,168,255,.2)",label:"Voz off"},escena:{c:"var(--accent)",bg:"rgba(168,226,107,.06)",border:"rgba(168,226,107,.2)",label:"Escena"}};
-
-  // Auto-resize input
-  const GInput=({value,onChange,placeholder,color,bg,border})=>{
-    const ref=useRef(null);
-    useEffect(()=>{if(ref.current){ref.current.style.height="0";ref.current.style.height=Math.max(22,ref.current.scrollHeight)+"px";}});
-    return<textarea ref={ref} value={value} onChange={onChange} placeholder={placeholder} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:12,lineHeight:1.5,resize:"none",outline:"none",fontFamily:"inherit",padding:0,minHeight:22,overflow:"hidden"}}/>;
-  };
 
   return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:10}}>
