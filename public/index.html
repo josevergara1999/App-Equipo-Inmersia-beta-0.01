@@ -897,101 +897,90 @@ function GuionadoPg({cos,users,addN}){
   const add=()=>{if(!nf.title||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const ng={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now(),createdAt:td(),status:"borrador",lines:[{id:Date.now()+1,header:"",voz:"",escena:""}]};saveAll([...guiones,ng]);sNf({title:"",companyId:0,type:"reel"});sShowNew(false);sSelG(ng);};
   const del=(id)=>{saveAll(guiones.filter(g=>g.id!==id));if(selG?.id===id)sSelG(null);};
   const filt=selCo==="all"?guiones:guiones.filter(g=>String(g.companyId)===selCo);
-
-  // Line operations
   const addLine=()=>{if(!selG)return;saveG({...selG,lines:[...(selG.lines||[]),{id:Date.now(),header:"",voz:"",escena:""}]});};
   const upLine=(lineId,field,val)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,[field]:val}:l)});};
   const delLine=(lineId)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).filter(l=>l.id!==lineId)});};
   const moveLine=(lineId,dir)=>{if(!selG)return;const ls=[...(selG.lines||[])];const i=ls.findIndex(l=>l.id===lineId);const j=i+dir;if(j<0||j>=ls.length)return;[ls[i],ls[j]]=[ls[j],ls[i]];saveG({...selG,lines:ls});};
 
-  // Colors for blocks
-  const BC={header:{c:"#c77dff",bg:"rgba(199,125,255,.08)",border:"rgba(199,125,255,.25)",label:"HEADER"},voz:{c:"#6fa8ff",bg:"rgba(111,168,255,.08)",border:"rgba(111,168,255,.25)",label:"VOZ EN OFF"},escena:{c:"var(--accent)",bg:"rgba(168,226,107,.08)",border:"rgba(168,226,107,.25)",label:"ESCENA"}};
+  const BC={header:{c:"#c77dff",bg:"rgba(199,125,255,.06)",border:"rgba(199,125,255,.2)",label:"Header"},voz:{c:"#6fa8ff",bg:"rgba(111,168,255,.06)",border:"rgba(111,168,255,.2)",label:"Voz off"},escena:{c:"var(--accent)",bg:"rgba(168,226,107,.06)",border:"rgba(168,226,107,.2)",label:"Escena"}};
+
+  // Auto-resize input
+  const GInput=({value,onChange,placeholder,color,bg,border})=>{
+    const ref=useRef(null);
+    useEffect(()=>{if(ref.current){ref.current.style.height="0";ref.current.style.height=Math.max(22,ref.current.scrollHeight)+"px";}});
+    return<textarea ref={ref} value={value} onChange={onChange} placeholder={placeholder} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:12,lineHeight:1.5,resize:"none",outline:"none",fontFamily:"inherit",padding:0,minHeight:22,overflow:"hidden"}}/>;
+  };
 
   return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
-      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Guionado</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{guiones.length} guiones · Editor por líneas</div></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Guionado</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{guiones.length} guiones</div></div>
       <div style={{display:"flex",gap:8}}>
         <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:13,padding:"8px 12px",width:"auto"}}><option value="all">Todas</option>{cos.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}</select>
         <Bt v="p" onClick={()=>sShowNew(true)} icon="plus">Nuevo guión</Bt>
       </div>
     </div>
 
-    <div style={{display:"grid",gridTemplateColumns:selG?"280px 1fr":"1fr",gap:16}}>
-      {/* LIST */}
-      <div style={{maxHeight:"80vh",overflow:"auto"}}>
-        {filt.length===0?<div style={{textAlign:"center",padding:48,color:"var(--tx3)"}}><Ic n="edit" s={28} c="var(--tx3)"/><div style={{marginTop:8,fontSize:15}}>No hay guiones</div></div>:
-        filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);return(<div key={g.id} onClick={()=>sSelG(g)} className="card" style={{padding:14,marginBottom:8,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),background:selG?.id===g.id?"var(--bg3)":"var(--bg2)"}}>
-          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><Bg color={TT[g.type]?.c}>{TT[g.type]?.i} {TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":g.status==="aprobado"?"var(--success)":"var(--info)"}>{g.status}</Bg></div>
-          <div style={{fontSize:14,fontWeight:600}}>{g.title}</div>
-          <div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{co?.name} · {(g.lines||[]).length} líneas · {g.createdAt}</div>
+    <div style={{display:"grid",gridTemplateColumns:selG?"240px 1fr":"1fr",gap:14}}>
+      <div style={{maxHeight:"82vh",overflow:"auto"}}>
+        {filt.length===0?<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><Ic n="edit" s={24} c="var(--tx3)"/><div style={{marginTop:6,fontSize:13}}>Sin guiones</div></div>:
+        filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);return(<div key={g.id} onClick={()=>sSelG(g)} style={{padding:"10px 12px",marginBottom:4,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),borderRadius:8,background:selG?.id===g.id?"var(--bg3)":"var(--bg2)",border:selG?.id===g.id?"1px solid var(--border2)":"1px solid var(--border)"}}>
+          <div style={{display:"flex",gap:4,marginBottom:3}}><Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"2px 6px"}}>{TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":"var(--success)"} style={{fontSize:9,padding:"2px 6px"}}>{g.status}</Bg></div>
+          <div style={{fontSize:13,fontWeight:600}}>{g.title}</div>
+          <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{co?.name} · {(g.lines||[]).length}L</div>
         </div>);})}
       </div>
 
-      {/* EDITOR */}
       {selG&&(<div>
-        {/* Editor header */}
-        <div className="card" style={{padding:16,marginBottom:12}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:34,height:34,borderRadius:9,background:cos.find(c=>c.id===selG.companyId)?.color||"#666",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:14}}>{selG.company?.[0]}</div>
-              <div>
-                <input value={selG.title} onChange={e=>saveG({...selG,title:e.target.value})} style={{fontSize:18,fontWeight:600,background:"transparent",border:"none",padding:0,letterSpacing:"-0.01em"}}/>
-                <div style={{fontSize:11,color:"var(--tx3)"}}>{selG.company} · {(selG.lines||[]).length} líneas</div>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <select value={selG.status} onChange={e=>saveG({...selG,status:e.target.value})} style={{width:"auto",fontSize:12,padding:"4px 8px"}}><option value="borrador">Borrador</option><option value="aprobado">Aprobado</option><option value="grabado">Grabado</option></select>
-              <Bt v="d" onClick={()=>del(selG.id)} icon="trash" style={{fontSize:11}}>Eliminar</Bt>
-            </div>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:28,height:28,borderRadius:7,background:cos.find(c=>c.id===selG.companyId)?.color||"#666",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:12}}>{selG.company?.[0]}</div>
+            <input value={selG.title} onChange={e=>saveG({...selG,title:e.target.value})} style={{fontSize:16,fontWeight:600,background:"transparent",border:"none",padding:0,letterSpacing:"-0.01em",width:200}}/>
+            <select value={selG.status} onChange={e=>saveG({...selG,status:e.target.value})} style={{width:"auto",fontSize:11,padding:"3px 6px"}}><option value="borrador">Borrador</option><option value="aprobado">Aprobado</option><option value="grabado">Grabado</option></select>
+          </div>
+          <div style={{display:"flex",gap:4}}>
+            <Bt v="d" onClick={()=>del(selG.id)} icon="trash" style={{fontSize:10,padding:"4px 8px"}}>Eliminar</Bt>
+            <Bt v="p" onClick={()=>{DB.save("guiones",guiones);addN("✅ Guardado");}} icon="save" style={{fontSize:10,padding:"4px 10px"}}>Guardar</Bt>
           </div>
         </div>
 
-        {/* Color legend */}
-        <div style={{display:"flex",gap:12,marginBottom:12,padding:"0 4px"}}>
-          {Object.entries(BC).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:10,height:10,borderRadius:3,background:v.c}}/><span style={{fontSize:11,color:"var(--tx3)",fontWeight:500}}>{v.label}</span></div>))}
+        {/* Column headers */}
+        <div style={{display:"grid",gridTemplateColumns:"32px 1fr 1fr 1fr 28px",gap:4,padding:"0 0 4px",marginBottom:2}}>
+          <div/>
+          {Object.entries(BC).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:v.c}}/><span style={{fontSize:10,fontWeight:600,color:v.c,letterSpacing:".06em",textTransform:"uppercase"}}>{v.label}</span></div>))}
+          <div/>
         </div>
 
         {/* Lines */}
-        {(selG.lines||[]).map((line,idx)=>(<div key={line.id} className="card" style={{marginBottom:10,overflow:"hidden"}}>
-          {/* Line header */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"var(--bg3)",borderBottom:"1px solid var(--border)"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div className="num" style={{width:28,height:28,borderRadius:7,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:600,color:"var(--tx)"}}>{idx+1}</div>
-              <span style={{fontSize:12,fontWeight:600,color:"var(--tx2)"}}>Línea {idx+1}</span>
-            </div>
-            <div style={{display:"flex",gap:3}}>
-              <button onClick={()=>moveLine(line.id,-1)} disabled={idx===0} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:5,padding:"3px 6px",color:idx===0?"var(--bg4)":"var(--tx3)",cursor:idx===0?"default":"pointer",fontSize:10}}>↑</button>
-              <button onClick={()=>moveLine(line.id,1)} disabled={idx===(selG.lines||[]).length-1} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:5,padding:"3px 6px",color:idx===(selG.lines||[]).length-1?"var(--bg4)":"var(--tx3)",cursor:idx===(selG.lines||[]).length-1?"default":"pointer",fontSize:10}}>↓</button>
-              <button onClick={()=>delLine(line.id)} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:5,padding:"3px 6px",color:"var(--danger)",cursor:"pointer"}}><Ic n="trash" s={12}/></button>
-            </div>
+        {(selG.lines||[]).map((line,idx)=>(<div key={line.id} style={{display:"grid",gridTemplateColumns:"32px 1fr 1fr 1fr 28px",gap:4,marginBottom:4,alignItems:"stretch"}}>
+          {/* Number */}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,paddingTop:6}}>
+            <div className="num" style={{fontSize:12,fontWeight:700,color:"var(--tx2)",width:24,height:24,borderRadius:6,background:"var(--bg3)",display:"flex",alignItems:"center",justifyContent:"center"}}>{idx+1}</div>
+            <button onClick={()=>moveLine(line.id,-1)} disabled={idx===0} style={{background:"none",border:"none",color:idx===0?"var(--bg4)":"var(--tx3)",cursor:idx===0?"default":"pointer",padding:0,fontSize:10,lineHeight:1}}>▲</button>
+            <button onClick={()=>moveLine(line.id,1)} disabled={idx===(selG.lines||[]).length-1} style={{background:"none",border:"none",color:idx===(selG.lines||[]).length-1?"var(--bg4)":"var(--tx3)",cursor:idx===(selG.lines||[]).length-1?"default":"pointer",padding:0,fontSize:10,lineHeight:1}}>▼</button>
           </div>
-
           {/* 3 blocks */}
-          <div style={{padding:14,display:"flex",flexDirection:"column",gap:10}}>
-            {Object.entries(BC).map(([field,v])=>(<div key={field} style={{background:v.bg,border:"1px solid "+v.border,borderRadius:10,padding:12,borderLeft:"4px solid "+v.c}}>
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:v.c,marginBottom:6}}>{v.label}</div>
-              <textarea value={line[field]||""} onChange={e=>upLine(line.id,field,e.target.value)} placeholder={field==="header"?"Hook visual / texto en pantalla...":field==="voz"?"Narración / voz en off...":"Descripción de la escena, indicaciones de cámara..."} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:13,lineHeight:1.6,resize:"none",outline:"none",fontFamily:"inherit",minHeight:field==="voz"?60:40,padding:0}}/>
-            </div>))}
+          {Object.entries(BC).map(([field,v])=>(<div key={field} style={{background:v.bg,border:"1px solid "+v.border,borderRadius:8,borderLeft:"3px solid "+v.c,padding:"6px 8px"}}>
+            <GInput value={line[field]||""} onChange={e=>upLine(line.id,field,e.target.value)} placeholder={field==="header"?"Texto pantalla...":field==="voz"?"Narración...":"Escena..."} color={v.c}/>
+          </div>))}
+          {/* Delete */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <button onClick={()=>delLine(line.id)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2,opacity:.5}}><Ic n="x" s={14}/></button>
           </div>
         </div>))}
 
-        {/* Add line button */}
-        <button onClick={addLine} style={{width:"100%",padding:"14px",background:"var(--bg3)",border:"2px dashed var(--border2)",borderRadius:12,color:"var(--tx2)",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .15s"}}>
-          <Ic n="plus" s={18} c="var(--accent)"/><span>Agregar línea</span>
+        {/* Add line */}
+        <button onClick={addLine} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",padding:8,background:"transparent",border:"1px dashed var(--border2)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+          <Ic n="plus" s={14} c="var(--accent)"/>Agregar línea
         </button>
-
-        <Bt v="p" onClick={()=>{DB.save("guiones",guiones);addN("✅ Guiones guardados");}} icon="save" style={{width:"100%",justifyContent:"center",marginTop:12}}>Guardar en nube</Bt>
       </div>)}
     </div>
 
-    <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Guión" width={480}>
+    <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Guión" width={420}>
       <Fd label="Título"><input value={nf.title} onChange={e=>sNf({...nf,title:e.target.value})} placeholder="Reel apertura temporada"/></Fd>
       <Fd label="Empresa"><select value={nf.companyId} onChange={e=>sNf({...nf,companyId:e.target.value})}><option value={0}>Seleccionar...</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
       <Fd label="Tipo"><select value={nf.type} onChange={e=>sNf({...nf,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
-      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
-        <Bt v="s" onClick={()=>sShowNew(false)}>Cancelar</Bt>
-        <Bt v="p" onClick={add} disabled={!nf.title||!nf.companyId} icon="plus">Crear guión</Bt>
-      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="s" onClick={()=>sShowNew(false)}>Cancelar</Bt><Bt v="p" onClick={add} disabled={!nf.title||!nf.companyId} icon="plus">Crear</Bt></div>
     </Md>
   </div>);
 }
