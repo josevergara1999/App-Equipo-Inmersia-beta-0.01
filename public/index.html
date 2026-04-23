@@ -1120,7 +1120,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
             <a href="#" onClick={e=>e.preventDefault()} style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,color:"var(--accent)",textDecoration:"none",fontWeight:500}}><Ic n="paperclip" s={12}/>comprobante_{r.co?.name?.toLowerCase()}...</a>
           </div>);
         })}
-      </div>)}
+      </div></div>)}
 
       <Bt v="p" onClick={()=>{DB.save("billRcpts",billRcpts);addN("✅ Facturación guardada");}} icon="save" style={{width:"100%",marginTop:12,justifyContent:"center"}}>Guardar facturación</Bt>
     </div>)}
