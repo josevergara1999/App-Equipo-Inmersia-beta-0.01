@@ -245,6 +245,10 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
     clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     inbox:<><path d="M3 12l3-8h12l3 8v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z"/><path d="M3 12h5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2h5"/></>,
     trend_up:<><path d="M3 17 9 11l4 4 8-8M14 5h7v7"/></>,
+    edit:<><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></>,
+    camera:<><path d="M3 8h3l2-3h8l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="4"/></>,
+    pin:<><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11Z"/></>,
+    money:<><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9"/></>,
   };
   if(!paths[n])return<svg {...p}><circle cx="12" cy="12" r="4"/></svg>;
   return<svg {...p}>{paths[n]}</svg>;
@@ -314,7 +318,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
   const[pg,sPg]=useState("dashboard");
-  const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],tasks:["Tareas","✅","tasks"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],loyalty:["Fidelización","💳","loyalty"],meta:["Meta Ads","📣","meta"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"]};
+  const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],grabacion:["Días Grabación","🎬","camera"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"]};
   const[cos,sCos]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
@@ -440,16 +444,21 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   // ─── CUMBRE AI — via backend ──────────────────────────────────
   const hAI=async()=>{if(!aiIn.trim())return;const msg=aiIn.trim();sAM(p=>[...p,{r:"u",t:msg}]);sAI("");sAL(true);
-    const sys=`Eres CUMBRE AI de INMERSIA. Empresas: ${cos.map(c=>c.name+" ("+c.plan+")").join(", ")}. Usuarios: ${users.map(u=>u.name).join(", ")}. Tipos: post,historia,reel,video_pro,visita,custom,repost. Si piden CREAR tareas: {"action":"create_tasks","tasks":[{"title":"...","type":"post","company":"Fauna","responsable":"Tiago","date":"2026-04-10"}]}. Hoy: ${td()}.`;
-    try{const txt=await API.generate(sys+"\nUsuario: "+msg);
-      try{const c=txt.replace(/```json\n?/g,"").replace(/```/g,"").trim();const p=JSON.parse(c);
+    const sys=`Eres CUMBRE AI de INMERSIA. Empresas: ${cos.map(c=>c.name+" ("+c.plan+")").join(", ")}. Usuarios: ${users.map(u=>u.name).join(", ")}. Tipos: post,historia,reel,video_pro,visita,custom,repost. Si piden CREAR tareas responde JSON: {"action":"create_tasks","tasks":[{"title":"...","type":"post","company":"Fauna","responsable":"Tiago","date":"2026-04-10"}]}. Hoy: ${td()}. Responde siempre en español.`;
+    try{
+      const controller=new AbortController();const tout=setTimeout(()=>controller.abort(),30000);
+      const r=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:sys+"\nUsuario: "+msg,temperature:0.7}),signal:controller.signal});
+      clearTimeout(tout);
+      if(!r.ok){const err=await r.text().catch(()=>"");throw new Error("Server "+r.status+(err?" - "+err.slice(0,100):""));}
+      const d=await r.json();if(d.error)throw new Error(d.error);const txt2=d.text;
+      try{const c=txt2.replace(/```json\n?/g,"").replace(/```/g,"").trim();const p=JSON.parse(c);
         if(p.action==="create_tasks"&&p.tasks){const nw=p.tasks.map(t=>{const co=cos.find(c2=>c2.name.toLowerCase()===t.company?.toLowerCase());const rp=users.find(u=>u.name.toLowerCase()===t.responsable?.toLowerCase());return{id:ni(),title:t.title||"Tarea",company:co?.name||"",companyId:co?.id||0,type:t.type||"custom",description:"",responsable:rp?[rp.id]:[],date:t.date||null,state:"no_realizado",comments:[],votes:{},files:[]};});
-          sT(p2=>[...p2,...nw]);sAM(p2=>[...p2,{r:"a",t:"Cree "+nw.length+" tarea(s)"}]);}else throw 0;}
-      catch{sAM(p2=>[...p2,{r:"a",t:txt}]);}
-    }catch(e){sAM(p2=>[...p2,{r:"a",t:"Error: "+e.message}]);}
+          sT(p2=>[...p2,...nw]);sAM(p2=>[...p2,{r:"a",t:"✅ Creé "+nw.length+" tarea(s):\n"+nw.map(t=>"• "+t.title+" ("+t.company+")").join("\n")}]);}else throw 0;}
+      catch{sAM(p2=>[...p2,{r:"a",t:txt2}]);}
+    }catch(e){const msg2=e.name==="AbortError"?"⏱ Timeout — la AI tardó demasiado. Intenta de nuevo.":"❌ "+e.message;sAM(p2=>[...p2,{r:"a",t:msg2}]);}
     sAL(false);};
 
-  // ─── MEETINGS — via backend ───────────────────────────────────
+// ─── MEETINGS — via backend ───────────────────────────────────
   const startRec=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(stream);const chunks=[];
     mr.ondataavailable=e=>chunks.push(e.data);
     mr.onstop=async()=>{const blob=new Blob(chunks,{type:"audio/webm"});const url=URL.createObjectURL(blob);sRecing(false);addN("Procesando con Gemini AI...");
@@ -726,27 +735,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="planner"&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} pDrafts={pDrafts} sPDrafts={sPDrafts} fCo={fCo} addN={addN}/>}
 
         {/* TASKS */}
-        {pg==="tasks"&&(<div className="fi" style={{maxWidth:1400,margin:"0 auto"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
-            <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Tareas</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{fT.length} tareas · {fT.filter(t=>!t.date).length} sin agendar</div></div>
-          </div>
-          <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:10}}>
-          {Object.entries(SS).map(([sk,sv])=>{const st=fT.filter(t=>t.state===sk);return(<div key={sk} className="card" style={{minWidth:240,width:240,flexShrink:0,overflow:"hidden"}}>
-            <div style={{padding:"12px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:6}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:sv.c}}/>
-              <span style={{fontSize:13,fontWeight:600,flex:1}}>{sv.l}</span>
-              <Bg color="var(--tx3)" style={{fontSize:10}}>{st.length}</Bg>
-            </div>
-            <div style={{padding:8,maxHeight:"65vh",overflow:"auto"}}>{st.slice(0,25).map(t=>{const tCo=cos.find(c=>String(c.id)===String(t.companyId));return(<div key={t.id} onClick={()=>sMd2(t)} style={{cursor:"pointer",padding:10,marginBottom:6,borderRadius:8,background:"var(--bg3)",borderLeft:"3px solid "+(tCo?.color||"#999")}}>
-              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
-                <Bg color={TT[t.type]?.c} style={{fontSize:10,padding:"2px 6px"}}>{TT[t.type]?.l}</Bg>
-                <span style={{fontSize:11,color:"var(--tx3)"}}>{tCo?.name}</span>
-              </div>
-              <div style={{fontSize:13,fontWeight:500,letterSpacing:"-0.005em",marginBottom:6}}>{t.title}</div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>{(Array.isArray(t.responsable)?t.responsable:[t.responsable]).filter(Boolean).length>0?<div style={{display:"flex"}}>{(Array.isArray(t.responsable)?t.responsable:[t.responsable]).filter(Boolean).slice(0,3).map(rid=><div key={rid} style={{marginLeft:-6,border:"2px solid var(--bg3)",borderRadius:"50%"}}><Av u={users.find(u=>u.id===rid)} sz={18}/></div>)}</div>:<span style={{fontSize:10,color:"var(--tx3)"}}>—</span>}{t.date&&<span className="num" style={{fontSize:10,color:"var(--tx3)"}}>{t.date.slice(5)}</span>}</div>
-            </div>);})}</div>
-          </div>);})}</div>
-        </div>)}
+        {/* GUIONADO */}
+        {pg==="guionado"&&<GuionadoPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
+
+        {/* DÍAS DE GRABACIÓN */}
+        {pg==="grabacion"&&<GrabacionPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
@@ -784,11 +777,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{display:"flex",gap:8}}><input value={aiIn} onChange={e=>sAI(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!aiL&&hAI()} placeholder="Escribe una instrucción..." style={{flex:1,padding:"10px 14px",borderRadius:10}}/><Bt v="p" onClick={hAI} disabled={aiL} icon="ai">Enviar</Bt></div>
         </div></div>)}
 
-        {/* LOYALTY */}
-        {pg==="loyalty"&&(<div className="fi"><LoyPg cos={cos} loyDb={loyDb} sLoyDb={sLoyDb} addN={addN}/></div>)}
-
-        {/* META */}
-        {pg==="meta"&&(<div className="fi"><MetPg cos={cos} camps={camps} sCamps={sCamps}/></div>)}
 
         {/* MEETINGS */}
         {pg==="meetings"&&(<div className="fi" style={{maxWidth:800,margin:"0 auto"}}>
@@ -866,7 +854,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:56,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["companies","🏢","Empresas"],["loyalty","💳","Fidelización"],["meta","📣","Meta Ads"],["payments","💰","Pagos"],["team","👥","Equipo"],["meetings","🎙","Reuniones"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
+              {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["grabacion","🎬","Grabación"],["payments","💰","Pagos"],["team","👥","Equipo"],["meetings","🎙","Reuniones"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
                 <span style={{fontSize:22}}>{ic}</span>{l}
               </button>))}
               <button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:myGcal?"rgba(78,205,196,.1)":"var(--bg3)",border:"1px solid "+(myGcal?"var(--success)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:myGcal?"var(--success)":"var(--tx2)",fontSize:10,fontFamily:"inherit"}}>
@@ -882,7 +870,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           </div>
         </div>}
         <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
-          {[["dashboard","dashboard"],["calendar","calendar"],["planner","planner"],["tasks","tasks"],["ai","ai"]].map(([k,icn])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+          {[["dashboard","dashboard"],["calendar","calendar"],["planner","planner"],["guionado","edit"],["ai","ai"]].map(([k,icn])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
             <Ic n={icn} s={20}/>
             <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
           </button>))}
@@ -897,57 +885,144 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 }
 
 // ═══ SUB-PAGES ══════════════════════════════════════════════════
-function LoyPg({cos,loyDb,sLoyDb,addN}){
-  const lCos=cos.filter(c=>c.hasLoyalty);const[sel,sSel]=useState(lCos[0]?.id||0);
-  const[nc,sNc]=useState({name:"",email:"",birthday:""});const[msg,sMsg]=useState("");const[res,sRes]=useState("");const[ld,sLd]=useState(false);
-  const cls=loyDb[sel]||[];
-  const addCl=()=>{if(!nc.name)return;sLoyDb(p=>({...p,[sel]:[...(p[sel]||[]),{...nc,id:ni()}]}));sNc({name:"",email:"",birthday:""});};
-  const genMsg=async()=>{sLd(true);try{const r=await API.loyaltyPush(cos.find(c=>c.id===sel)?.name||"empresa",msg||"promocion");sRes(r);}catch(e){sRes("Error: "+e.message);}sLd(false);};
-  if(!lCos.length)return<div style={{textAlign:"center",padding:30,color:"var(--tx3)"}}>💳 Activa fidelizacion en Empresas</div>;
-  return(<div>
-    <div style={{display:"flex",gap:6,marginBottom:12}}>{lCos.map(c=><button key={c.id} onClick={()=>sSel(c.id)} style={{padding:"6px 14px",borderRadius:7,fontSize:11,fontWeight:sel===c.id?700:400,background:sel===c.id?"var(--accent)":"var(--bg3)",color:sel===c.id?"#fff":"var(--tx2)",fontFamily:"inherit"}}>{c.name}</button>)}</div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-      <div className="cd" style={{padding:12}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Clientes ({cls.length})</div>
-        <div style={{display:"flex",gap:3,marginBottom:6}}><input value={nc.name} onChange={e=>sNc({...nc,name:e.target.value})} placeholder="Nombre" style={{flex:1,fontSize:10,padding:"5px"}}/><input value={nc.email} onChange={e=>sNc({...nc,email:e.target.value})} placeholder="Email" style={{flex:1,fontSize:10,padding:"5px"}}/><input type="date" value={nc.birthday} onChange={e=>sNc({...nc,birthday:e.target.value})} style={{width:95,fontSize:10,padding:"5px"}}/><Bt v="p" onClick={addCl} style={{padding:"3px 8px",fontSize:10}}>+</Bt></div>
-        <div style={{maxHeight:220,overflow:"auto"}}>{cls.map(c=>(<div key={c.id} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 6px",marginBottom:2,borderRadius:4,background:"var(--bg3)",fontSize:10}}><span style={{flex:1}}>{c.name}</span><span style={{color:"var(--tx3)",fontSize:9}}>{c.email}</span><button onClick={()=>sLoyDb(p=>({...p,[sel]:p[sel].filter(x=>x.id!==c.id)}))} style={{background:"none",color:"var(--danger)",fontSize:9,padding:0}}>x</button></div>))}</div>
-      </div>
-      <div className="cd" style={{padding:12}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>⛰ Push notification</div>
-        <Fd label="Tema"><input value={msg} onChange={e=>sMsg(e.target.value)} placeholder="Ej: 2x1 viernes"/></Fd>
-        <Bt v="p" onClick={genMsg} disabled={ld} style={{width:"100%",marginBottom:8}}>{ld?"...":"Generar push + horarios"}</Bt>
-        {res&&<pre style={{background:"var(--bg3)",padding:8,borderRadius:6,fontSize:10,whiteSpace:"pre-wrap",maxHeight:200,overflow:"auto"}}>{res}</pre>}
+// ═══ GUIONADO ═══════════════════════════════════════════════════
+function GuionadoPg({cos,users,addN}){
+  const[guiones,sGuiones]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}});
+  const[selCo,sSelCo]=useState("all");const[selG,sSelG]=useState(null);const[showNew,sShowNew]=useState(false);
+  const[nf,sNf]=useState({title:"",companyId:0,type:"reel",content:""});
+
+  const save=(g)=>{const nw=guiones.map(x=>x.id===g.id?g:x);sGuiones(nw);localStorage.setItem("inm_guiones",JSON.stringify(nw));};
+  const add=()=>{if(!nf.title||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const ng={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now(),createdAt:td(),status:"borrador"};const nw=[...guiones,ng];sGuiones(nw);localStorage.setItem("inm_guiones",JSON.stringify(nw));sNf({title:"",companyId:0,type:"reel",content:""});sShowNew(false);sSelG(ng);};
+  const del=(id)=>{const nw=guiones.filter(g=>g.id!==id);sGuiones(nw);localStorage.setItem("inm_guiones",JSON.stringify(nw));if(selG?.id===id)sSelG(null);};
+  const filt=selCo==="all"?guiones:guiones.filter(g=>String(g.companyId)===selCo);
+
+  return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
+      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Guionado</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{guiones.length} guiones · Multi-empresa</div></div>
+      <div style={{display:"flex",gap:8}}>
+        <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:13,padding:"8px 12px",width:"auto"}}><option value="all">Todas</option>{cos.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}</select>
+        <Bt v="p" onClick={()=>sShowNew(true)} icon="plus">Nuevo guión</Bt>
       </div>
     </div>
+
+    <div style={{display:"grid",gridTemplateColumns:selG?"1fr 1.5fr":"1fr",gap:16}}>
+      {/* LIST */}
+      <div>
+        {filt.length===0?<div style={{textAlign:"center",padding:48,color:"var(--tx3)"}}><Ic n="edit" s={28} c="var(--tx3)"/><div style={{marginTop:8,fontSize:15}}>No hay guiones</div></div>:
+        filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);return(<div key={g.id} onClick={()=>sSelG(g)} className="card" style={{padding:16,marginBottom:8,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),background:selG?.id===g.id?"var(--bg3)":"var(--bg2)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}><Bg color={TT[g.type]?.c}>{TT[g.type]?.i} {TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":"var(--success)"}>{g.status}</Bg></div>
+            <button onClick={e=>{e.stopPropagation();del(g.id);}} style={{background:"transparent",border:"none",color:"var(--tx3)",cursor:"pointer",padding:4}}><Ic n="trash" s={14}/></button>
+          </div>
+          <div style={{fontSize:15,fontWeight:600,letterSpacing:"-0.01em"}}>{g.title}</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginTop:4}}>{co?.name} · {g.createdAt}</div>
+        </div>);})}
+      </div>
+
+      {/* EDITOR */}
+      {selG&&(<div className="card" style={{padding:20,height:"fit-content",position:"sticky",top:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:18,fontWeight:600}}>{selG.title}</div>
+          <select value={selG.status} onChange={e=>save({...selG,status:e.target.value})} style={{width:"auto",fontSize:12,padding:"4px 8px"}}><option value="borrador">Borrador</option><option value="aprobado">Aprobado</option><option value="grabado">Grabado</option></select>
+        </div>
+        <Fd label="Título"><input value={selG.title} onChange={e=>save({...selG,title:e.target.value})}/></Fd>
+        <Fd label="Guión / Contenido"><textarea value={selG.content||""} onChange={e=>save({...selG,content:e.target.value})} rows={12} style={{resize:"vertical",lineHeight:1.7,fontSize:14}} placeholder="Escribe el guión, narración, indicaciones de cámara..."/></Fd>
+        <Fd label="Notas de producción"><textarea value={selG.notes||""} onChange={e=>save({...selG,notes:e.target.value})} rows={3} style={{resize:"vertical",lineHeight:1.5}} placeholder="Locación, props, referencias..."/></Fd>
+        <Bt v="p" onClick={()=>{DB.save("guiones",guiones);addN("✅ Guiones guardados");}} icon="save" style={{width:"100%",justifyContent:"center",marginTop:8}}>Guardar en nube</Bt>
+      </div>)}
+    </div>
+
+    <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Guión" width={480}>
+      <Fd label="Título"><input value={nf.title} onChange={e=>sNf({...nf,title:e.target.value})} placeholder="Reel apertura temporada"/></Fd>
+      <Fd label="Empresa"><select value={nf.companyId} onChange={e=>sNf({...nf,companyId:e.target.value})}><option value={0}>Seleccionar...</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
+      <Fd label="Tipo"><select value={nf.type} onChange={e=>sNf({...nf,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+        <Bt v="s" onClick={()=>sShowNew(false)}>Cancelar</Bt>
+        <Bt v="p" onClick={add} disabled={!nf.title||!nf.companyId} icon="plus">Crear guión</Bt>
+      </div>
+    </Md>
   </div>);
 }
 
-function MetPg({cos,camps,sCamps}){
-  const mCos=cos.filter(c=>c.hasMeta);const[sel,sSel]=useState(mCos[0]?.id||0);
-  const[nc,sNc]=useState({name:"",budget:50000,objective:"awareness"});const[q,sQ]=useState("");const[res,sRes]=useState("");const[ld,sLd]=useState(false);
-  const cc=camps.filter(c=>c.companyId===sel);const totB=cc.reduce((s,c)=>s+c.budget,0);
-  const addC=()=>{if(!nc.name)return;sCamps(p=>[...p,{...nc,id:ni(),companyId:sel,company:cos.find(c=>c.id===sel)?.name||"",status:"active",results:{reach:Math.floor(Math.random()*50000),clicks:Math.floor(Math.random()*2000),ctr:(Math.random()*5).toFixed(1)}}]);sNc({name:"",budget:50000,objective:"awareness"});};
-  const ask=async()=>{sLd(true);try{const r=await API.metaAdvisor(cos.find(c=>c.id===sel)?.name||"",cc.length,fP(totB),q);sRes(r);}catch(e){sRes("Error: "+e.message);}sLd(false);};
-  if(!mCos.length)return<div style={{textAlign:"center",padding:30,color:"var(--tx3)"}}>📣 Activa Meta Ads en Empresas</div>;
-  return(<div>
-    <div style={{display:"flex",gap:6,marginBottom:12}}>{mCos.map(c=><button key={c.id} onClick={()=>sSel(c.id)} style={{padding:"6px 14px",borderRadius:7,fontSize:11,fontWeight:sel===c.id?700:400,background:sel===c.id?"var(--accent)":"var(--bg3)",color:sel===c.id?"#fff":"var(--tx2)",fontFamily:"inherit"}}>{c.name}</button>)}</div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-      <div>
-        <div className="cd" style={{padding:12,marginBottom:10}}><div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Campanas ({cc.length}) — {fP(totB)}</div>
-          {cc.map(c=>(<div key={c.id} style={{padding:8,marginBottom:4,borderRadius:7,background:"var(--bg3)",borderLeft:"3px solid "+(c.status==="active"?"var(--success)":"var(--tx3)")}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><b>{c.name}</b><button onClick={()=>sCamps(p=>p.filter(x=>x.id!==c.id))} style={{background:"none",color:"var(--danger)",fontSize:9,padding:0}}>X</button></div>
-            <div style={{fontSize:9,color:"var(--tx2)"}}>{fP(c.budget)} | {c.results?.reach?.toLocaleString()} alcance</div>
-            <input type="range" min={10000} max={500000} step={5000} value={c.budget} onChange={e=>sCamps(p=>p.map(x=>x.id===c.id?{...x,budget:parseInt(e.target.value)}:x))} style={{width:"100%",padding:0,border:"none",height:4,marginTop:4}}/></div>))}
-        </div>
-        <div className="cd" style={{padding:12}}><Fd label="Nombre"><input value={nc.name} onChange={e=>sNc({...nc,name:e.target.value})} placeholder="Campana..." style={{fontSize:10}}/></Fd>
-          <Bt v="p" disabled={!nc.name} onClick={addC} style={{width:"100%",fontSize:11}}>Crear</Bt></div>
-      </div>
-      <div className="cd" style={{padding:12}}><div style={{fontSize:12,fontWeight:700,marginBottom:8}}>⛰ Advisor</div>
-        <Fd label="Pregunta"><textarea value={q} onChange={e=>sQ(e.target.value)} rows={2} placeholder="Como optimizar?"/></Fd>
-        <Bt v="p" onClick={ask} disabled={ld} style={{width:"100%",marginBottom:8}}>{ld?"...":"Consultar"}</Bt>
-        {res&&<pre style={{background:"var(--bg3)",padding:8,borderRadius:6,fontSize:10,whiteSpace:"pre-wrap",maxHeight:250,overflow:"auto"}}>{res}</pre>}
-      </div>
+// ═══ DÍAS DE GRABACIÓN ══════════════════════════════════════════
+function GrabacionPg({cos,users,addN}){
+  const[dias,sDias]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_grabacion")||"[]")}catch{return[]}});
+  const[showNew,sShowNew]=useState(false);const[selD,sSelD]=useState(null);
+  const[nf,sNf]=useState({date:"",location:"",responsable:[],companyId:0,items:[],notes:""});
+  const[newItem,sNewItem]=useState("");
+
+  const saveDias=(d)=>{sDias(d);localStorage.setItem("inm_grabacion",JSON.stringify(d));};
+  const add=()=>{if(!nf.date||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const nd={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now()};saveDias([...dias,nd]);sNf({date:"",location:"",responsable:[],companyId:0,items:[],notes:""});sShowNew(false);};
+  const upD=(id,u)=>{const nw=dias.map(d=>d.id===id?{...d,...u}:d);saveDias(nw);if(selD?.id===id)sSelD(p=>({...p,...u}));};
+  const del=(id)=>{saveDias(dias.filter(d=>d.id!==id));if(selD?.id===id)sSelD(null);};
+  const addItem=(dId)=>{if(!newItem.trim())return;const d=dias.find(x=>x.id===dId);upD(dId,{items:[...(d?.items||[]),{id:Date.now(),title:newItem.trim(),done:false}]});sNewItem("");};
+  const toggleItem=(dId,iId)=>{const d=dias.find(x=>x.id===dId);upD(dId,{items:(d?.items||[]).map(i=>i.id===iId?{...i,done:!i.done}:i)});};
+  const sorted=[...dias].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+
+  return(<div className="fi" style={{maxWidth:1000,margin:"0 auto"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
+      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Días de Grabación</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{dias.length} jornadas planificadas</div></div>
+      <Bt v="p" onClick={()=>sShowNew(true)} icon="plus">Nuevo día</Bt>
     </div>
+
+    {sorted.length===0?<div style={{textAlign:"center",padding:48,color:"var(--tx3)"}}><Ic n="camera" s={28} c="var(--tx3)"/><div style={{marginTop:8,fontSize:15}}>No hay días de grabación</div><div style={{fontSize:13,marginTop:4}}>Planifica tus jornadas de producción</div></div>:
+    sorted.map(d=>{const co=cos.find(c=>c.id===d.companyId);const resps=(d.responsable||[]).map(rid=>users.find(u=>u.id===rid)).filter(Boolean);const doneCount=(d.items||[]).filter(i=>i.done).length;
+      return(<div key={d.id} className="card" style={{marginBottom:12,overflow:"hidden"}}>
+        <div style={{height:3,background:co?.color||"var(--border)"}}/>
+        <div style={{padding:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{textAlign:"center",minWidth:50}}>
+                <div className="eyebrow" style={{fontSize:10}}>{d.date?new Date(d.date+"T12:00").toLocaleDateString("es",{weekday:"short"}).toUpperCase():""}</div>
+                <div className="num" style={{fontSize:24,fontWeight:600,color:co?.color}}>{d.date?new Date(d.date+"T12:00").getDate():""}</div>
+                <div style={{fontSize:11,color:"var(--tx3)"}}>{d.date?MO[new Date(d.date+"T12:00").getMonth()]?.slice(0,3):""}</div>
+              </div>
+              <div>
+                <div style={{fontSize:16,fontWeight:600}}>{co?.name}</div>
+                {d.location&&<div style={{fontSize:12,color:"var(--tx3)",display:"flex",alignItems:"center",gap:4,marginTop:2}}><Ic n="pin" s={12} c="var(--tx3)"/>{d.location}</div>}
+                {resps.length>0&&<div style={{display:"flex",gap:-4,marginTop:6}}>{resps.map(u=><div key={u.id} style={{marginLeft:-4,border:"2px solid var(--bg2)",borderRadius:"50%"}}><Av u={u} sz={22}/></div>)}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={()=>sSelD(selD?.id===d.id?null:d)} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx2)",cursor:"pointer"}}><Ic n="edit" s={14}/></button>
+              <button onClick={()=>del(d.id)} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx3)",cursor:"pointer"}}><Ic n="trash" s={14}/></button>
+            </div>
+          </div>
+
+          {/* Items checklist */}
+          {(d.items||[]).length>0&&(<div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:12,fontWeight:600}}>Contenidos a grabar</span>
+              <span className="num" style={{fontSize:11,color:"var(--tx3)"}}>{doneCount}/{d.items.length}</span>
+            </div>
+            <div style={{height:3,background:"var(--bg4)",borderRadius:2,overflow:"hidden",marginBottom:8}}><div style={{width:((d.items.length?doneCount/d.items.length*100:0))+"%",height:"100%",background:co?.color||"var(--accent)",transition:"width .3s"}}/></div>
+            {d.items.map(it=>(<div key={it.id} onClick={()=>toggleItem(d.id,it.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",cursor:"pointer",borderBottom:"1px solid var(--border)"}}>
+              <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(it.done?"var(--success)":"var(--border2)"),background:it.done?"var(--success)":"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{it.done&&<Ic n="check" s={12} c="var(--bg)" sw={2.5}/>}</div>
+              <span style={{fontSize:13,textDecoration:it.done?"line-through":"none",color:it.done?"var(--tx3)":"var(--tx)"}}>{it.title}</span>
+            </div>))}
+          </div>)}
+
+          {/* Quick add item */}
+          <div style={{display:"flex",gap:6,marginTop:8}}><input value={selD?.id===d.id?newItem:""} onFocus={()=>sSelD(d)} onChange={e=>sNewItem(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addItem(d.id);}} placeholder="+ Agregar contenido..." style={{flex:1,fontSize:12,padding:"6px 10px"}}/><Bt v="s" onClick={()=>addItem(d.id)} style={{fontSize:11}}>Agregar</Bt></div>
+
+          {d.notes&&<div style={{marginTop:10,padding:10,background:"var(--bg3)",borderRadius:8,fontSize:12,color:"var(--tx2)"}}>{d.notes}</div>}
+        </div>
+      </div>);
+    })}
+
+    <Bt v="p" onClick={()=>{DB.save("dias_grabacion",dias);addN("✅ Días de grabación guardados");}} icon="save" style={{width:"100%",justifyContent:"center",marginTop:8}}>Guardar en nube</Bt>
+
+    <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Día de Grabación" width={520}>
+      <Fd label="Fecha"><input type="date" value={nf.date} onChange={e=>sNf({...nf,date:e.target.value})}/></Fd>
+      <Fd label="Empresa"><select value={nf.companyId} onChange={e=>sNf({...nf,companyId:e.target.value})}><option value={0}>Seleccionar...</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
+      <Fd label="Locación"><input value={nf.location} onChange={e=>sNf({...nf,location:e.target.value})} placeholder="Valle Las Trancas, exterior cabañas..."/></Fd>
+      <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{users.map(u=>{const sel=nf.responsable.includes(u.id);return(<button key={u.id} onClick={()=>sNf({...nf,responsable:sel?nf.responsable.filter(id=>id!==u.id):[...nf.responsable,u.id]})} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+u.color+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+u.color+" 35%,transparent)":"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
+      <Fd label="Notas"><textarea value={nf.notes} onChange={e=>sNf({...nf,notes:e.target.value})} rows={2} placeholder="Equipo necesario, horario, etc..." style={{resize:"vertical"}}/></Fd>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+        <Bt v="s" onClick={()=>sShowNew(false)}>Cancelar</Bt>
+        <Bt v="p" onClick={add} disabled={!nf.date||!nf.companyId} icon="plus">Crear día</Bt>
+      </div>
+    </Md>
   </div>);
 }
 
