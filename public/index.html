@@ -637,7 +637,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     <div className="num" style={{fontSize:13,fontWeight:isT?700:500,color:isT?"var(--accent)":"var(--tx2)"}}>{day}</div>
                     {(dt2.length+de2.length)>0&&<Bg color="var(--tx3)" style={{fontSize:9,padding:"2px 6px"}}>{dt2.length+de2.length}</Bg>}
                   </div>
-                    {dt2.slice(0,maxShow).map(t=>{const tCo=cos.find(c=>String(c.id)===String(t.companyId));return(<div key={t.id} onClick={e=>{e.stopPropagation();sMd2(t);}} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:2,borderRadius:4,fontSize:isMob?9:11,fontWeight:600,background:"color-mix(in oklch,"+(tCo?.color||"#999")+" 28%, var(--bg4))",color:"var(--tx)",borderLeft:"2px solid "+(tCo?.color||"#999"),whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-0.005em"}}>{t.title}</div>);})}
+                    {dt2.slice(0,maxShow).map(t=>{const tCo=cos.find(c=>String(c.id)===String(t.companyId));return(<div key={t.id} onClick={e=>{e.stopPropagation();sMd2(t);}} draggable onDragStart={()=>sDr({tp:"task",id:t.id})} style={{cursor:"pointer",padding:"2px 4px",marginBottom:2,borderRadius:4,fontSize:isMob?9:11,fontWeight:600,background:"color-mix(in oklch,"+(tCo?.color||"#999")+" 28%, var(--bg4))",color:"var(--tx)",borderLeft:"2px solid "+(tCo?.color||"#999"),whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-0.005em"}}>{t.guionId?"📎 ":""}{t.title}</div>);})}
                     {de2.slice(0,2).map(e=>(<div key={e.id} style={{padding:"2px 4px",marginBottom:1,borderRadius:4,fontSize:isMob?7:8,background:"rgba(240,192,64,.08)",color:"var(--gold)",fontWeight:600,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",borderLeft:"2px solid var(--gold)",display:"flex",justifyContent:"space-between"}}><span>{e.icon}{e.name.slice(0,10)}</span><button onClick={()=>remEx(e.id)} style={{background:"none",color:"var(--danger)",fontSize:6,padding:0,borderRadius:0}}>x</button></div>))}
                     {hiddenCount>0&&(<div onClick={()=>{const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");sDayView({date:ds,day,tasks:dt2,extras:de2});}} style={{cursor:"pointer",padding:"2px 4px",borderRadius:4,fontSize:7,background:"rgba(168,226,107,.12)",color:"var(--accent)",fontWeight:700,textAlign:"center",marginTop:1}}>+{hiddenCount} más</div>)}
                   </>)}</div>);})}
@@ -736,7 +736,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* TASKS */}
         {/* GUIONADO */}
-        {pg==="guionado"&&<GuionadoPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
+        {pg==="guionado"&&<GuionadoPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN} tasks={tasks} sT={sT} planners={planners}/>}
 
         {/* DÍAS DE GRABACIÓN */}
         {pg==="grabacion"&&<GrabacionPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
@@ -892,21 +892,51 @@ function GInput({value,onChange,placeholder}){
   useEffect(()=>{if(ref.current){ref.current.style.height="0";ref.current.style.height=Math.max(22,ref.current.scrollHeight)+"px";}});
   return<textarea ref={ref} value={local} onChange={e=>sLocal(e.target.value)} onBlur={()=>{if(local!==value)onChange({target:{value:local}});}} placeholder={placeholder} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:12,lineHeight:1.5,resize:"none",outline:"none",fontFamily:"inherit",padding:0,minHeight:22,overflow:"hidden"}}/>;
 }
-function GuionadoPg({cos,users,addN}){
+function GuionadoPg({cos,users,addN,tasks,sT,planners}){
   const[guiones,sGuiones]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}});
   const[selCo,sSelCo]=useState("all");const[selG,sSelG]=useState(null);const[showNew,sShowNew]=useState(false);
+  const[showAttach,sShowAttach]=useState(false);const[attachFilter,sAttachFilter]=useState("all");
   const[nf,sNf]=useState({title:"",companyId:0,type:"reel"});
 
   const persist=(g)=>{localStorage.setItem("inm_guiones",JSON.stringify(g));};
   const saveAll=(g)=>{sGuiones(g);persist(g);};
   const saveG=(updated)=>{const nw=guiones.map(x=>x.id===updated.id?updated:x);saveAll(nw);sSelG(updated);};
-  const add=()=>{if(!nf.title||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const ng={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now(),createdAt:td(),status:"borrador",lines:[{id:Date.now()+1,header:"",voz:"",escena:""}]};saveAll([...guiones,ng]);sNf({title:"",companyId:0,type:"reel"});sShowNew(false);sSelG(ng);};
+  const add=()=>{if(!nf.title||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const ng={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now(),createdAt:td(),status:"borrador",lines:[{id:Date.now()+1,header:"",voz:"",escena:""}],taskId:null};saveAll([...guiones,ng]);sNf({title:"",companyId:0,type:"reel"});sShowNew(false);sSelG(ng);};
   const del=(id)=>{saveAll(guiones.filter(g=>g.id!==id));if(selG?.id===id)sSelG(null);};
   const filt=selCo==="all"?guiones:guiones.filter(g=>String(g.companyId)===selCo);
   const addLine=()=>{if(!selG)return;saveG({...selG,lines:[...(selG.lines||[]),{id:Date.now(),header:"",voz:"",escena:""}]});};
   const upLine=(lineId,field,val)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,[field]:val}:l)});};
   const delLine=(lineId)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).filter(l=>l.id!==lineId)});};
   const moveLine=(lineId,dir)=>{if(!selG)return;const ls=[...(selG.lines||[])];const i=ls.findIndex(l=>l.id===lineId);const j=i+dir;if(j<0||j>=ls.length)return;[ls[i],ls[j]]=[ls[j],ls[i]];saveG({...selG,lines:ls});};
+
+  // Save + attach flow
+  const handleSave=()=>{
+    DB.save("guiones",guiones);addN("✅ Guiones guardados");
+    if(selG&&!selG.taskId){sShowAttach(true);}
+  };
+  // Attach to task
+  const attachTo=(taskId)=>{
+    if(!selG)return;
+    const updated={...selG,taskId};saveG(updated);
+    // Also mark the task with guionId
+    if(taskId&&sT){sT(prev=>prev.map(t=>t.id===taskId?{...t,guionId:selG.id,guionTitle:selG.title}:t));}
+    sShowAttach(false);addN("📎 Guión vinculado");
+  };
+  const detach=()=>{
+    if(!selG)return;
+    const oldTaskId=selG.taskId;
+    saveG({...selG,taskId:null});
+    if(oldTaskId&&sT){sT(prev=>prev.map(t=>t.id===oldTaskId?{...t,guionId:null,guionTitle:null}:t));}
+    addN("Guión desvinculado");
+  };
+
+  // Tasks available for attachment (same company, or all)
+  const attachableTasks=tasks.filter(t=>{
+    if(selG&&String(t.companyId)!==String(selG.companyId))return false;
+    if(attachFilter!=="all"&&attachFilter!==t.state)return false;
+    return true;
+  });
+  const linkedTask=selG?.taskId?tasks.find(t=>t.id===selG.taskId):null;
 
   const BC={header:{c:"#c77dff",bg:"rgba(199,125,255,.06)",border:"rgba(199,125,255,.2)",label:"Header"},voz:{c:"#6fa8ff",bg:"rgba(111,168,255,.06)",border:"rgba(111,168,255,.2)",label:"Voz off"},escena:{c:"var(--accent)",bg:"rgba(168,226,107,.06)",border:"rgba(168,226,107,.2)",label:"Escena"}};
 
@@ -922,8 +952,8 @@ function GuionadoPg({cos,users,addN}){
     <div style={{display:"grid",gridTemplateColumns:selG?"240px 1fr":"1fr",gap:14}}>
       <div style={{maxHeight:"82vh",overflow:"auto"}}>
         {filt.length===0?<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><Ic n="edit" s={24} c="var(--tx3)"/><div style={{marginTop:6,fontSize:13}}>Sin guiones</div></div>:
-        filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);return(<div key={g.id} onClick={()=>sSelG(g)} style={{padding:"10px 12px",marginBottom:4,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),borderRadius:8,background:selG?.id===g.id?"var(--bg3)":"var(--bg2)",border:selG?.id===g.id?"1px solid var(--border2)":"1px solid var(--border)"}}>
-          <div style={{display:"flex",gap:4,marginBottom:3}}><Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"2px 6px"}}>{TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":"var(--success)"} style={{fontSize:9,padding:"2px 6px"}}>{g.status}</Bg></div>
+        filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);const hasLink=!!g.taskId;return(<div key={g.id} onClick={()=>sSelG(g)} style={{padding:"10px 12px",marginBottom:4,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),borderRadius:8,background:selG?.id===g.id?"var(--bg3)":"var(--bg2)",border:selG?.id===g.id?"1px solid var(--border2)":"1px solid var(--border)"}}>
+          <div style={{display:"flex",gap:4,marginBottom:3,alignItems:"center"}}><Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"2px 6px"}}>{TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":"var(--success)"} style={{fontSize:9,padding:"2px 6px"}}>{g.status}</Bg>{hasLink&&<Ic n="paperclip" s={11} c="var(--gold)"/>}</div>
           <div style={{fontSize:13,fontWeight:600}}>{g.title}</div>
           <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{co?.name} · {(g.lines||[]).length}L</div>
         </div>);})}
@@ -931,19 +961,31 @@ function GuionadoPg({cos,users,addN}){
 
       {selG&&(<div>
         {/* Header */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:28,height:28,borderRadius:7,background:cos.find(c=>c.id===selG.companyId)?.color||"#666",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:12}}>{selG.company?.[0]}</div>
             <input value={selG.title} onChange={e=>saveG({...selG,title:e.target.value})} style={{fontSize:16,fontWeight:600,background:"transparent",border:"none",padding:0,letterSpacing:"-0.01em",width:200}}/>
             <select value={selG.status} onChange={e=>saveG({...selG,status:e.target.value})} style={{width:"auto",fontSize:11,padding:"3px 6px"}}><option value="borrador">Borrador</option><option value="aprobado">Aprobado</option><option value="grabado">Grabado</option></select>
           </div>
           <div style={{display:"flex",gap:4}}>
+            <Bt v="s" onClick={()=>sShowAttach(true)} icon="paperclip" style={{fontSize:10,padding:"4px 8px"}}>{linkedTask?"Cambiar vínculo":"Vincular tarea"}</Bt>
             <Bt v="d" onClick={()=>del(selG.id)} icon="trash" style={{fontSize:10,padding:"4px 8px"}}>Eliminar</Bt>
-            <Bt v="p" onClick={()=>{DB.save("guiones",guiones);addN("✅ Guardado");}} icon="save" style={{fontSize:10,padding:"4px 10px"}}>Guardar</Bt>
+            <Bt v="p" onClick={handleSave} icon="save" style={{fontSize:10,padding:"4px 10px"}}>Guardar</Bt>
           </div>
         </div>
 
-        {/* Column headers */}
+        {/* Linked task badge */}
+        {linkedTask&&(<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"rgba(255,155,61,.06)",border:"1px solid rgba(255,155,61,.2)",borderRadius:8,marginBottom:8}}>
+          <Ic n="paperclip" s={14} c="var(--gold)"/>
+          <div style={{flex:1}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--gold)"}}>Vinculado a: </span>
+            <span style={{fontSize:12,color:"var(--tx)"}}>{linkedTask.title}</span>
+            <span style={{fontSize:10,color:"var(--tx3)",marginLeft:6}}>{linkedTask.date||"sin fecha"} · {SS[linkedTask.state]?.l}</span>
+          </div>
+          <button onClick={detach} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
+        </div>)}
+
+        {/* Color legend */}
         <div style={{display:"flex",gap:10,marginBottom:6,padding:"0 4px"}}>
           {Object.entries(BC).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:v.c}}/><span style={{fontSize:10,fontWeight:600,color:v.c}}>{v.label}</span></div>))}
         </div>
@@ -966,18 +1008,44 @@ function GuionadoPg({cos,users,addN}){
           </div>
         </div>))}
 
-        {/* Add line */}
         <button onClick={addLine} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",padding:8,background:"transparent",border:"1px dashed var(--border2)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
           <Ic n="plus" s={14} c="var(--accent)"/>Agregar línea
         </button>
       </div>)}
     </div>
 
+    {/* NEW GUION MODAL */}
     <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Guión" width={420}>
       <Fd label="Título"><input value={nf.title} onChange={e=>sNf({...nf,title:e.target.value})} placeholder="Reel apertura temporada"/></Fd>
       <Fd label="Empresa"><select value={nf.companyId} onChange={e=>sNf({...nf,companyId:e.target.value})}><option value={0}>Seleccionar...</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
       <Fd label="Tipo"><select value={nf.type} onChange={e=>sNf({...nf,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="s" onClick={()=>sShowNew(false)}>Cancelar</Bt><Bt v="p" onClick={add} disabled={!nf.title||!nf.companyId} icon="plus">Crear</Bt></div>
+    </Md>
+
+    {/* ATTACH MODAL */}
+    <Md open={showAttach} onClose={()=>sShowAttach(false)} title="Vincular guión a tarea" width={520}>
+      <div style={{fontSize:13,color:"var(--tx2)",marginBottom:12}}>Selecciona la tarea del calendario u Org Semanal a la que pertenece <b>"{selG?.title}"</b></div>
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        {[["all","Todas"],["no_realizado","Por hacer"],["en_proceso","En proceso"],["en_aprobacion","Aprobación"]].map(([k,l])=>(<button key={k} onClick={()=>sAttachFilter(k)} style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:attachFilter===k?600:400,background:attachFilter===k?"var(--bg4)":"transparent",color:attachFilter===k?"var(--tx)":"var(--tx3)",border:"1px solid "+(attachFilter===k?"var(--border2)":"var(--border)"),cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
+      </div>
+      <div style={{maxHeight:360,overflow:"auto"}}>
+        {/* None option */}
+        <div onClick={()=>attachTo(null)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,cursor:"pointer",marginBottom:4,background:!selG?.taskId?"rgba(168,226,107,.08)":"var(--bg3)",border:"1px solid "+((!selG?.taskId)?"var(--accent)":"var(--border)")}}>
+          <div style={{width:28,height:28,borderRadius:7,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="x" s={14} c="var(--tx3)"/></div>
+          <div><div style={{fontSize:13,fontWeight:500}}>Ninguna — sin vincular</div><div style={{fontSize:11,color:"var(--tx3)"}}>El guión queda independiente</div></div>
+        </div>
+        {attachableTasks.map(t=>{const co=cos.find(c=>String(c.id)===String(t.companyId));const isLinked=selG?.taskId===t.id;
+          return(<div key={t.id} onClick={()=>attachTo(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,cursor:"pointer",marginBottom:4,background:isLinked?"rgba(255,155,61,.08)":"var(--bg3)",border:"1px solid "+(isLinked?"var(--gold)":"var(--border)")}}>
+            <div style={{width:28,height:28,borderRadius:7,background:co?.color||"#666",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:11}}>{co?.name?.[0]}</div>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}><Bg color={TT[t.type]?.c} style={{fontSize:9,padding:"2px 5px"}}>{TT[t.type]?.l}</Bg><span style={{fontSize:13,fontWeight:500}}>{t.title}</span></div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>{t.date||"sin fecha"} · {SS[t.state]?.l}</div>
+            </div>
+            {isLinked&&<Ic n="check" s={16} c="var(--gold)"/>}
+          </div>);
+        })}
+        {attachableTasks.length===0&&<div style={{textAlign:"center",padding:20,color:"var(--tx3)",fontSize:13}}>No hay tareas para {selG?.company}</div>}
+      </div>
     </Md>
   </div>);
 }
@@ -1567,6 +1635,11 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave
         <Bt v="s" onClick={()=>{if(com.trim()){onUp({comments:[...(t.comments||[]),{user:cu.name,text:com.trim()}]});sC("");}}} icon="check" style={{fontSize:12}}>Enviar</Bt>
       </div>
     </div>
+    {/* Linked guión */}
+    {t.guionId&&(<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"rgba(255,155,61,.06)",border:"1px solid rgba(255,155,61,.2)",borderRadius:8}}>
+      <Ic n="paperclip" s={14} c="var(--gold)"/>
+      <div style={{flex:1}}><span style={{fontSize:12,fontWeight:600,color:"var(--gold)"}}>Guión: </span><span style={{fontSize:12}}>{t.guionTitle||"Vinculado"}</span></div>
+    </div>)}
     <Bt v="p" onClick={onSave} icon="save" style={{width:"100%",justifyContent:"center"}}>Guardar cambios</Bt>
   </div>);
 }
