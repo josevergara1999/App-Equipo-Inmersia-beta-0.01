@@ -1250,14 +1250,16 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   const cuotas=cos.map(c=>{const pl=plans[c.plan];const basePrice=getPrice(c);const ovr=getOvr(c.id);
     const hasMeta=ovr.meta||false;const hasFidel=ovr.fidel||false;
     const metaVal=hasMeta?getMetaVal(c):0;const fidelVal=hasFidel?getFidelVal(c):0;
-    const price=basePrice+metaVal+fidelVal;const half=Math.round(price/2);
+    const price=basePrice+metaVal+fidelVal;
+    const cuota1=ovr.cuota1!==undefined&&ovr.cuota1!==""?parseInt(ovr.cuota1):Math.round(price/2);
+    const cuota2=price-cuota1;
     const rc=(billRcpts[c.id]||[]).filter(r=>r.month===cM&&r.year===cY);
     const h1=rc.some(r=>r.type==="50_1");const h2=rc.some(r=>r.type==="50_2");
-    const paid=(h1?half:0)+(h2?half:0);const pct=price?Math.round(paid/price*100):0;
+    const paid=(h1?cuota1:0)+(h2?cuota2:0);const pct=price?Math.round(paid/price*100):0;
     const coIva=Math.round(price*ivaRate/100);
     const invKey=c.id+"_"+cM+"_"+cY;const hasInvoice=!!invoiceFiles[invKey];
     const reqFactura=invoiceCfg[c.id]?.requiere||false;
-    return{co:c,pl,price,basePrice,half,h1,h2,paid,pending:price-paid,pct,iva:coIva,totalIva:price+coIva,
+    return{co:c,pl,price,basePrice,cuota1,cuota2,h1,h2,paid,pending:price-paid,pct,iva:coIva,totalIva:price+coIva,
       hasMeta,hasFidel,metaVal,fidelVal,
       inv1:"F-"+year+"-"+String(cM+1).padStart(2,"0")+"-"+c.id+"A",
       inv2:"F-"+year+"-"+String(cM+1).padStart(2,"0")+"-"+c.id+"B",
@@ -1404,11 +1406,11 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
             </div>
             {/* Cuota rows */}
             <div style={{background:"var(--bg3)",padding:"0 20px"}}>
-              {[[1,"50_1","1ra quincena",q.inv1,q.due1,q.h1],[2,"50_2","2da quincena",q.inv2,q.due2,q.h2]].map(([n,tp,desc,inv,due,paid])=>(<div key={tp} style={{display:"flex",flexWrap:"wrap",padding:"12px 0",borderTop:"1px solid var(--border)",alignItems:"center",gap:10}}>
+              {[[1,"50_1","1ra quincena",q.inv1,q.due1,q.h1,q.cuota1],[2,"50_2","2da quincena",q.inv2,q.due2,q.h2,q.cuota2]].map(([n,tp,desc,inv,due,paid,amt])=>(<div key={tp} style={{display:"flex",flexWrap:"wrap",padding:"12px 0",borderTop:"1px solid var(--border)",alignItems:"center",gap:10}}>
                 <Bg color={n===1?"var(--info)":"var(--accent)"} style={{fontSize:11,minWidth:70}}>Cuota {n}/2</Bg>
                 <div style={{minWidth:140}}><div style={{fontSize:12,fontWeight:500}}>{desc} · {month} {year}</div><div className="num" style={{fontSize:11,color:"var(--tx3)"}}>{inv}</div></div>
                 <div style={{minWidth:80}}><div style={{fontSize:10,color:"var(--tx3)"}}>Vence</div><div className="num" style={{fontSize:12,color:"var(--tx2)"}}>{due}</div></div>
-                <div className="num" style={{fontSize:13,fontWeight:600,minWidth:80}}>{fP(q.half)}</div>
+                <div style={{minWidth:100}}>{n===1?(<div style={{display:"flex",alignItems:"center",gap:2}}><span style={{fontSize:10,color:"var(--tx3)"}}>$</span><input type="number" value={getOvr(c.id).cuota1!==undefined?getOvr(c.id).cuota1:q.cuota1} onChange={e=>setOvr(c.id,"cuota1",e.target.value)} style={{width:80,fontSize:13,fontWeight:600,padding:"3px 5px",textAlign:"right"}}/></div>):(<div className="num" style={{fontSize:13,fontWeight:600,color:q.cuota2<0?"var(--danger)":"var(--tx)"}}>{fP(amt)}</div>)}</div>
                 <div style={{flex:1}}>{paid?(<span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"color-mix(in oklch,var(--success) 12%,var(--bg2))",border:"1px solid color-mix(in oklch,var(--success) 30%,transparent)",borderRadius:6,color:"var(--success)",fontSize:11}}><Ic n="paperclip" s={12}/>comprobante</span>):(<label style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"var(--bg2)",border:"1px dashed var(--border2)",borderRadius:6,color:"var(--tx3)",fontSize:11,cursor:"pointer"}}><Ic n="paperclip" s={12}/>Subir<input type="file" accept="image/*" onChange={e=>hUp(c.id,tp,e)} style={{display:"none"}}/></label>)}</div>
                 <Bg color={paid?"var(--success)":"var(--gold)"} style={{fontSize:11}}>{paid?"pagado":"pendiente"}</Bg>
               </div>))}
