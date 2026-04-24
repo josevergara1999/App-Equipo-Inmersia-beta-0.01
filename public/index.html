@@ -183,6 +183,7 @@ const PLANS={
   basic:{name:"Basic",price:495000,color:"#6bcbff",tasks:{post:8,historia:8,reel:2,video_pro:1,visita:1}},
   medium:{name:"Medium",price:690000,color:"#9d6bff",tasks:{post:12,historia:12,reel:2,video_pro:2,visita:2}},
   full:{name:"Full",price:930000,color:"#ff9ff3",tasks:{post:16,historia:16,reel:2,video_pro:3,visita:2}},
+  custom:{name:"Personalizado",price:0,color:"#aab4af",tasks:{}},
 };
 
 const EXTRAS=[
@@ -1218,6 +1219,15 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   const[invoiceFiles,sInvFiles]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_invoices")||"{}")}catch{return{}}});
   const setReqFactura=(coId,v)=>{const nw={...invoiceCfg,[coId]:{...(invoiceCfg[coId]||{}),requiere:v}};sInvCfg(nw);localStorage.setItem("inm_invoice_cfg",JSON.stringify(nw));};
   const uploadFactura=(coId,e)=>{const fl=e.target.files[0];if(!fl)return;const r=new FileReader();r.onload=ev=>{const nw={...invoiceFiles,[coId+"_"+cM+"_"+cY]:{name:fl.name,data:ev.target.result,date:td()}};sInvFiles(nw);localStorage.setItem("inm_invoices",JSON.stringify(nw));addN("📄 Factura subida para "+cos.find(c=>c.id===parseInt(coId))?.name);};r.readAsDataURL(fl);};
+  // Billing overrides (editable prices, extras)
+  const META_DEFAULT=150000;const FIDEL_DEFAULT=80000;
+  const[billOvr,sBillOvr]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_bill_overrides")||"{}")}catch{return{}}});
+  const saveBillOvr=(nw)=>{sBillOvr(nw);localStorage.setItem("inm_bill_overrides",JSON.stringify(nw));};
+  const getOvr=(coId)=>billOvr[coId]||{};
+  const setOvr=(coId,field,val)=>{saveBillOvr({...billOvr,[coId]:{...getOvr(coId),[field]:val}});};
+  const getPrice=(c)=>{const ovr=getOvr(c.id);if(ovr.price!==undefined&&ovr.price!=="")return parseInt(ovr.price);if(c.customPrice)return c.customPrice;return plans[c.plan]?.price||0;};
+  const getMetaVal=(c)=>{const ovr=getOvr(c.id);return ovr.metaVal!==undefined?parseInt(ovr.metaVal):META_DEFAULT;};
+  const getFidelVal=(c)=>{const ovr=getOvr(c.id);return ovr.fidelVal!==undefined?parseInt(ovr.fidelVal):FIDEL_DEFAULT;};
 
   const add=()=>{if(!f.amount)return;const u=users.find(u2=>u2.id===parseInt(f.userId));sTP(p=>({...p,[f.userId]:[...(p[f.userId]||[]),{id:ni(),amount:parseInt(f.amount),concept:f.concept,date:f.date,img:pImg,status:"pagado"}]}));addN("Pago: "+fP(parseInt(f.amount))+" para "+u?.name,parseInt(f.userId));sF({...f,amount:"",concept:""});sPImg(null);sShowReg(false);};
   const hImg=e=>{const fl=e.target.files[0];if(!fl)return;const r=new FileReader();r.onload=ev=>sPImg(ev.target.result);r.readAsDataURL(fl);};
@@ -1226,9 +1236,9 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   // Calculations
   const allPays=Object.entries(teamPay).flatMap(([uid,arr])=>arr.map(p=>({...p,userId:parseInt(uid)})));
   const egresos=allPays.reduce((s,p)=>s+p.amount,0);
-  const totalBill=Object.values(billing).reduce((s,b)=>s+(b?.total||0),0);
-  const ingresos=totalBill;const margen=ingresos-egresos;
-  const mrr=cos.reduce((s,c)=>s+(plans[c.plan]?.price||0),0);
+  const ingresos=cos.reduce((s,c)=>{const ovr=getOvr(c.id);const base=getPrice(c);const meta=(ovr.meta?getMetaVal(c):0);const fidel=(ovr.fidel?getFidelVal(c):0);return s+base+meta+fidel;},0);
+  const margen=ingresos-egresos;
+  const mrr=ingresos;
   const pagado=allPays.filter(p=>!p.status||p.status==="pagado").reduce((s,p)=>s+p.amount,0);
   const pendiente=allPays.filter(p=>p.status==="pendiente").reduce((s,p)=>s+p.amount,0);
 
@@ -1237,14 +1247,18 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   const totalConIva=ingresos+ivaMes;
 
   // Cuotas
-  const cuotas=cos.map(c=>{const pl=plans[c.plan];const price=pl?.price||0;const half=Math.round(price/2);
+  const cuotas=cos.map(c=>{const pl=plans[c.plan];const basePrice=getPrice(c);const ovr=getOvr(c.id);
+    const hasMeta=ovr.meta||false;const hasFidel=ovr.fidel||false;
+    const metaVal=hasMeta?getMetaVal(c):0;const fidelVal=hasFidel?getFidelVal(c):0;
+    const price=basePrice+metaVal+fidelVal;const half=Math.round(price/2);
     const rc=(billRcpts[c.id]||[]).filter(r=>r.month===cM&&r.year===cY);
     const h1=rc.some(r=>r.type==="50_1");const h2=rc.some(r=>r.type==="50_2");
     const paid=(h1?half:0)+(h2?half:0);const pct=price?Math.round(paid/price*100):0;
     const coIva=Math.round(price*ivaRate/100);
     const invKey=c.id+"_"+cM+"_"+cY;const hasInvoice=!!invoiceFiles[invKey];
     const reqFactura=invoiceCfg[c.id]?.requiere||false;
-    return{co:c,pl,price,half,h1,h2,paid,pending:price-paid,pct,iva:coIva,totalIva:price+coIva,
+    return{co:c,pl,price,basePrice,half,h1,h2,paid,pending:price-paid,pct,iva:coIva,totalIva:price+coIva,
+      hasMeta,hasFidel,metaVal,fidelVal,
       inv1:"F-"+year+"-"+String(cM+1).padStart(2,"0")+"-"+c.id+"A",
       inv2:"F-"+year+"-"+String(cM+1).padStart(2,"0")+"-"+c.id+"B",
       due1:year+"-"+String(cM+1).padStart(2,"0")+"-05",
@@ -1349,26 +1363,43 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
         {cuotas.map(q=>{const c=q.co;
           return(<div key={c.id} style={{borderBottom:"1px solid var(--border)"}}>
-            <div style={{padding:"16px 20px",display:"flex",flexWrap:"wrap",gap:14,alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12,minWidth:180}}>
-                <div style={{width:34,height:34,borderRadius:9,background:c.color,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:14}}>{c.name[0]}</div>
-                <div><div style={{fontSize:14,fontWeight:600}}>{c.name}</div><div style={{fontSize:11,color:"var(--tx3)"}}>{q.pl?.name} · {fP(q.price)}/mes</div></div>
+            <div style={{padding:"14px 20px"}}>
+              {/* Row 1: Company + price editor */}
+              <div style={{display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:160}}>
+                  <div style={{width:34,height:34,borderRadius:9,background:c.color,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:14}}>{c.name[0]}</div>
+                  <div><div style={{fontSize:14,fontWeight:600}}>{c.name}</div><div style={{fontSize:11,color:"var(--tx3)"}}>{q.pl?.name||"Custom"}</div></div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"var(--tx3)"}}>Plan $</span><input type="number" value={getOvr(c.id).price!==undefined?getOvr(c.id).price:q.basePrice} onChange={e=>setOvr(c.id,"price",e.target.value)} style={{width:90,fontSize:12,padding:"4px 6px",textAlign:"right"}}/></div>
+                {/* Meta switch */}
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <div onClick={()=>setOvr(c.id,"meta",!q.hasMeta)} style={{width:28,height:16,borderRadius:8,background:q.hasMeta?"var(--info)":"var(--bg4)",cursor:"pointer",position:"relative",transition:"background .2s"}}><div style={{width:12,height:12,borderRadius:6,background:"var(--tx)",position:"absolute",top:2,left:q.hasMeta?14:2,transition:"left .2s"}}/></div>
+                  <span style={{fontSize:10,color:q.hasMeta?"var(--info)":"var(--tx3)"}}>Meta</span>
+                  {q.hasMeta&&<input type="number" value={getOvr(c.id).metaVal!==undefined?getOvr(c.id).metaVal:META_DEFAULT} onChange={e=>setOvr(c.id,"metaVal",e.target.value)} style={{width:70,fontSize:11,padding:"3px 5px",textAlign:"right"}}/>}
+                </div>
+                {/* Fidel switch */}
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <div onClick={()=>setOvr(c.id,"fidel",!q.hasFidel)} style={{width:28,height:16,borderRadius:8,background:q.hasFidel?"var(--success)":"var(--bg4)",cursor:"pointer",position:"relative",transition:"background .2s"}}><div style={{width:12,height:12,borderRadius:6,background:"var(--tx)",position:"absolute",top:2,left:q.hasFidel?14:2,transition:"left .2s"}}/></div>
+                  <span style={{fontSize:10,color:q.hasFidel?"var(--success)":"var(--tx3)"}}>Fidel</span>
+                  {q.hasFidel&&<input type="number" value={getOvr(c.id).fidelVal!==undefined?getOvr(c.id).fidelVal:FIDEL_DEFAULT} onChange={e=>setOvr(c.id,"fidelVal",e.target.value)} style={{width:70,fontSize:11,padding:"3px 5px",textAlign:"right"}}/>}
+                </div>
+                {/* Toggle factura */}
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <div onClick={()=>setReqFactura(c.id,!q.reqFactura)} style={{width:28,height:16,borderRadius:8,background:q.reqFactura?"var(--gold)":"var(--bg4)",cursor:"pointer",position:"relative",transition:"background .2s"}}><div style={{width:12,height:12,borderRadius:6,background:"var(--tx)",position:"absolute",top:2,left:q.reqFactura?14:2,transition:"left .2s"}}/></div>
+                  <span style={{fontSize:10,color:q.reqFactura?"var(--gold)":"var(--tx3)"}}>Factura</span>
+                </div>
               </div>
-              <div><div style={{fontSize:11,color:"var(--tx3)"}}>Neto</div><div className="num" style={{fontSize:13,fontWeight:600}}>{fP(q.price)}</div></div>
-              <div><div style={{fontSize:11,color:"var(--gold)"}}>IVA</div><div className="num" style={{fontSize:13,fontWeight:600,color:"var(--gold)"}}>{fP(q.iva)}</div></div>
-              <div><div style={{fontSize:11,color:"var(--success)"}}>Total</div><div className="num" style={{fontSize:13,fontWeight:600,color:"var(--success)"}}>{fP(q.totalIva)}</div></div>
-              <div style={{flex:1,minWidth:100}}>
-                <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden",marginBottom:4}}><div style={{width:q.pct+"%",height:"100%",background:c.color,transition:"width .4s"}}/></div>
-                <div className="num" style={{fontSize:11,color:"var(--tx3)"}}>{q.pct}%</div>
-              </div>
-              {/* Toggle factura */}
-              <div style={{display:"flex",alignItems:"center",gap:4}}>
-                <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:11,color:q.reqFactura?"var(--info)":"var(--tx3)"}}>
-                  <div onClick={()=>setReqFactura(c.id,!q.reqFactura)} style={{width:32,height:18,borderRadius:9,background:q.reqFactura?"var(--info)":"var(--bg4)",cursor:"pointer",position:"relative",transition:"background .2s"}}>
-                    <div style={{width:14,height:14,borderRadius:7,background:"var(--tx)",position:"absolute",top:2,left:q.reqFactura?16:2,transition:"left .2s"}}/>
-                  </div>
-                  Factura
-                </label>
+              {/* Row 2: Totals */}
+              <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+                <div><div style={{fontSize:10,color:"var(--tx3)"}}>Neto</div><div className="num" style={{fontSize:14,fontWeight:600}}>{fP(q.price)}</div></div>
+                {q.hasMeta&&<div style={{fontSize:10,color:"var(--info)"}}>(+{fP(q.metaVal)} Meta)</div>}
+                {q.hasFidel&&<div style={{fontSize:10,color:"var(--success)"}}>(+{fP(q.fidelVal)} Fidel)</div>}
+                <div><div style={{fontSize:10,color:"var(--gold)"}}>IVA</div><div className="num" style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>{fP(q.iva)}</div></div>
+                <div><div style={{fontSize:10,color:"var(--success)"}}>Total</div><div className="num" style={{fontSize:14,fontWeight:600,color:"var(--success)"}}>{fP(q.totalIva)}</div></div>
+                <div style={{flex:1,minWidth:80}}>
+                  <div style={{height:5,background:"var(--bg4)",borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{width:q.pct+"%",height:"100%",background:c.color,transition:"width .4s"}}/></div>
+                  <div className="num" style={{fontSize:10,color:"var(--tx3)"}}>{q.pct}%</div>
+                </div>
               </div>
             </div>
             {/* Cuota rows */}
@@ -1701,11 +1732,12 @@ function TskForm({cos,users,onSave}){const[f,sF]=useState({title:"",type:"post",
   <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=f.responsable.includes(u.id);return(<button key={u.id} onClick={()=>sF({...f,responsable:sel?f.responsable.filter(id=>id!==u.id):[...f.responsable,u.id]})} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+u.color+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+u.color+" 35%,transparent)":"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
   <Fd label="Fecha"><input type="date" value={f.date} onChange={e=>sF({...f,date:e.target.value})}/></Fd>
   <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="p" disabled={!f.title||!f.companyId} onClick={()=>onSave(f)} icon="plus">Crear tarea</Bt></div></div>);}
-function CoForm({onSave}){const[n,sN]=useState("");const[p,sP]=useState("society");const cols=["#a8e26b","#35d6a5","#ff7a6b","#6fa8ff","#ffc857","#c77dff"];const[c,sC]=useState(cols[0]);return(<div>
+function CoForm({onSave}){const[n,sN]=useState("");const[p,sP]=useState("society");const cols=["#a8e26b","#35d6a5","#ff7a6b","#6fa8ff","#ffc857","#c77dff"];const[c,sC]=useState(cols[0]);const[customPrice,sCP]=useState("");return(<div>
   <Fd label="Nombre"><input value={n} onChange={e=>sN(e.target.value)} placeholder="Ej: Fauna"/></Fd>
-  <Fd label="Plan"><select value={p} onChange={e=>sP(e.target.value)}>{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}</select></Fd>
+  <Fd label="Plan"><select value={p} onChange={e=>{sP(e.target.value);if(e.target.value!=="custom")sCP("");}} >{Object.entries(PLANS).map(([k,v])=><option key={k} value={k}>{v.name} - {fP(v.price)}</option>)}<option value="custom">Personalizado</option></select></Fd>
+  {p==="custom"&&<Fd label="Precio mensual personalizado" hint="Ingresa el valor neto mensual"><input type="number" value={customPrice} onChange={e=>sCP(e.target.value)} placeholder="750000"/></Fd>}
   <Fd label="Color"><div style={{display:"flex",gap:6}}>{cols.map(co=><div key={co} onClick={()=>sC(co)} style={{width:30,height:30,borderRadius:8,background:co,cursor:"pointer",border:c===co?"3px solid var(--tx)":"3px solid transparent"}}/>)}</div></Fd>
-  <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="p" disabled={!n.trim()} onClick={()=>onSave({name:n.trim(),plan:p,color:c})} icon="plus">Crear empresa</Bt></div></div>);}
+  <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="p" disabled={!n.trim()||(p==="custom"&&!customPrice)} onClick={()=>onSave({name:n.trim(),plan:p,color:c,customPrice:p==="custom"?parseInt(customPrice):null})} icon="plus">Crear empresa</Bt></div></div>);}
 function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave}){
   const[desc,sD]=useState(t.description||"");const[com,sC]=useState("");const fR=useRef(null);
   const sts=["no_realizado","en_proceso","en_aprobacion","aprobado","publicado"];
