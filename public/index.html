@@ -165,7 +165,7 @@ const API={
 
 // ═══ CONFIG ═════════════════════════════════════════════════════
 const INIT_USERS=[
-  {id:1,name:"Conti",email:"conti@inmersia.cl",gmail:"contifellenberg@gmail.com",role:"editor",avatar:"CO",color:"#9d6bff",pass:"1234"},
+  {id:1,name:"Consuelo",email:"consuelo@inmersia.cl",gmail:"cefuenzalidam@gmail.com",role:"editor",avatar:"CF",color:"#9d6bff",pass:"1234"},
   {id:2,name:"Cleme",email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234"},
   {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b",pass:"1234"},
   {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"visualizador",avatar:"GA",color:"#ffd93d",pass:"1234"},
@@ -1825,7 +1825,7 @@ function ClientView({user:cu,onLogout:ol}){
   const myTasks=tasks.filter(t=>co&&String(t.companyId)===String(co.id));
   const approval=myTasks.filter(t=>t.state==="en_aprobacion");
   const scheduled=myTasks.filter(t=>t.date);
-  const teamEmails=["contifellenberg@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
+  const teamEmails=["cefuenzalidam@gmail.com","clementeignacio19@gmail.com","gcastilloaguirre@gmail.com","j.agutoledo@gmail.com","jose.vergara.diaz.vr@gmail.com","inmersiatours@gmail.com"];
 
   useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);if(d.planners)sPlanners(d.planners);sLoaded(true);});},[]);
 
