@@ -935,23 +935,34 @@ function GInput({value,onChange,placeholder}){
   return<textarea ref={ref} value={local} onChange={e=>sLocal(e.target.value)} onBlur={()=>{if(local!==value)onChange({target:{value:local}});}} placeholder={placeholder} style={{width:"100%",background:"transparent",border:"none",color:"var(--tx)",fontSize:12,lineHeight:1.5,resize:"none",outline:"none",fontFamily:"inherit",padding:0,minHeight:22,overflow:"hidden"}}/>;
 }
 function GuionadoPg({cos,users,addN,tasks,sT,planners}){
-  const[guiones,sGuiones]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}});
+  const[guiones,sGuiones]=useState([]);const[loaded,sLoaded]=useState(false);
   const[selCo,sSelCo]=useState("all");const[selG,sSelG]=useState(null);const[showNew,sShowNew]=useState(false);
   const[showAttach,sShowAttach]=useState(false);const[attachFilter,sAttachFilter]=useState("all");
   const[nf,sNf]=useState({title:"",companyId:0,type:"reel"});
+  const isMob=window.innerWidth<768;
 
-  const persist=(g)=>{localStorage.setItem("inm_guiones",JSON.stringify(g));};
+  // Load from Supabase first, fallback localStorage
+  useEffect(()=>{
+    DB.loadAll().then(d=>{
+      if(d.guiones?.length){sGuiones(d.guiones);localStorage.setItem("inm_guiones",JSON.stringify(d.guiones));}
+      else{try{const loc=JSON.parse(localStorage.getItem("inm_guiones")||"[]");sGuiones(loc);}catch{sGuiones([]);}}
+      sLoaded(true);
+    }).catch(()=>{try{sGuiones(JSON.parse(localStorage.getItem("inm_guiones")||"[]"));}catch{sGuiones([]);}sLoaded(true);});
+  },[]);
+
+  // Auto-save to both localStorage + Supabase on changes
+  const persist=useCallback((g)=>{localStorage.setItem("inm_guiones",JSON.stringify(g));DB.save("guiones",g);},[]);
   const saveAll=(g)=>{sGuiones(g);persist(g);};
   const saveG=(updated)=>{const nw=guiones.map(x=>x.id===updated.id?updated:x);saveAll(nw);sSelG(updated);};
   const add=()=>{if(!nf.title||!nf.companyId)return;const co=cos.find(c=>c.id===parseInt(nf.companyId));const ng={...nf,companyId:parseInt(nf.companyId),company:co?.name,id:Date.now(),createdAt:td(),status:"borrador",lines:[{id:Date.now()+1,header:"",voz:"",escena:""}],taskId:null};saveAll([...guiones,ng]);sNf({title:"",companyId:0,type:"reel"});sShowNew(false);sSelG(ng);};
   const del=(id)=>{saveAll(guiones.filter(g=>g.id!==id));if(selG?.id===id)sSelG(null);};
   const filt=selCo==="all"?guiones:guiones.filter(g=>String(g.companyId)===selCo);
-  const addLine=()=>{if(!selG)return;saveG({...selG,lines:[...(selG.lines||[]),{id:Date.now(),header:"",voz:"",escena:"",movements:[]}]});};
+  const addLine=()=>{if(!selG)return;const nl={id:Date.now(),header:"",voz:"",escena:"",movements:[]};const upd={...selG,lines:[...(selG.lines||[]),nl]};saveG(upd);};
   const upLine=(lineId,field,val)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,[field]:val}:l)});};
   const delLine=(lineId)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).filter(l=>l.id!==lineId)});};
   const moveLine=(lineId,dir)=>{if(!selG)return;const ls=[...(selG.lines||[])];const i=ls.findIndex(l=>l.id===lineId);const j=i+dir;if(j<0||j>=ls.length)return;[ls[i],ls[j]]=[ls[j],ls[i]];saveG({...selG,lines:ls});};
   const addMov=(lineId,movId)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,movements:[...(l.movements||[]),movId]}:l)});};
-  const removeMov=(lineId,idx)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,movements:(l.movements||[]).filter((_,i)=>i!==idx)}:l)});};
+  const removeMov=(lineId,idx)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,movements:(l.movements||[]).filter((_,i2)=>i2!==idx)}:l)});};
   const[expMov,sExpMov]=useState(null);const[showPalette,sShowPalette]=useState(null);
 
   // Save + attach flow
@@ -994,17 +1005,20 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
       </div>
     </div>
 
-    <div style={{display:"grid",gridTemplateColumns:selG?"240px 1fr":"1fr",gap:14}}>
-      <div style={{maxHeight:"82vh",overflow:"auto"}}>
+    {!loaded?<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}>Cargando guiones...</div>:
+    <div style={{display:"grid",gridTemplateColumns:(!isMob&&selG)?"240px 1fr":"1fr",gap:14}}>
+      {/* LIST - hide on mobile when editing */}
+      {(!isMob||!selG)&&<div style={{maxHeight:isMob?"none":"82vh",overflow:"auto"}}>
         {filt.length===0?<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><Ic n="edit" s={24} c="var(--tx3)"/><div style={{marginTop:6,fontSize:13}}>Sin guiones</div></div>:
         filt.map(g=>{const co=cos.find(c=>c.id===g.companyId);const hasLink=!!g.taskId;return(<div key={g.id} onClick={()=>sSelG(g)} style={{padding:"10px 12px",marginBottom:4,cursor:"pointer",borderLeft:"3px solid "+(co?.color||"var(--border)"),borderRadius:8,background:selG?.id===g.id?"var(--bg3)":"var(--bg2)",border:selG?.id===g.id?"1px solid var(--border2)":"1px solid var(--border)"}}>
           <div style={{display:"flex",gap:4,marginBottom:3,alignItems:"center"}}><Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"2px 6px"}}>{TT[g.type]?.l}</Bg><Bg color={g.status==="borrador"?"var(--tx3)":"var(--success)"} style={{fontSize:9,padding:"2px 6px"}}>{g.status}</Bg>{hasLink&&<Ic n="paperclip" s={11} c="var(--gold)"/>}</div>
           <div style={{fontSize:13,fontWeight:600}}>{g.title}</div>
           <div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{co?.name} · {(g.lines||[]).length}L</div>
         </div>);})}
-      </div>
+      </div>}
 
       {selG&&(<div>
+        {isMob&&<button onClick={()=>sSelG(null)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 0",marginBottom:8,background:"none",border:"none",color:"var(--accent)",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}><Ic n="chev_l" s={16} c="var(--accent)"/>Volver a guiones</button>}
         {/* Header */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1086,7 +1100,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
           <Ic n="plus" s={14} c="var(--accent)"/>Agregar línea
         </button>
       </div>)}
-    </div>
+    </div>}
 
     {/* NEW GUION MODAL */}
     <Md open={showNew} onClose={()=>sShowNew(false)} title="Nuevo Guión" width={420}>
