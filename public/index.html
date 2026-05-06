@@ -964,6 +964,24 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
   const addMov=(lineId,movId)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,movements:[...(l.movements||[]),movId]}:l)});};
   const removeMov=(lineId,idx)=>{if(!selG)return;saveG({...selG,lines:(selG.lines||[]).map(l=>l.id===lineId?{...l,movements:(l.movements||[]).filter((_,i2)=>i2!==idx)}:l)});};
   const[expMov,sExpMov]=useState(null);const[showPalette,sShowPalette]=useState(null);
+  const[edTab,sEdTab]=useState("guion");
+
+  // Cronograma helpers
+  const BLOCK_TYPES={scene:{l:"Escena",c:"var(--accent)",ic:"camera"},setup:{l:"Setup",c:"var(--tx2)",ic:"settings"},break_:{l:"Break",c:"var(--gold)",ic:"clock"},travel:{l:"Traslado",c:"var(--info)",ic:"pin"},custom:{l:"Otro",c:"#c77dff",ic:"edit"}};
+  const addBlock=(type,lineIdx)=>{if(!selG)return;const sched=[...(selG.schedule||[])];
+    const last=sched.length>0?sched[sched.length-1]:null;
+    const lastEnd=last?(parseInt(last.start?.split(":")[0]||"8")*60+parseInt(last.start?.split(":")[1]||"0")+parseInt(last.dur||30)):480;
+    const h=String(Math.floor(lastEnd/60)).padStart(2,"0");const m=String(lastEnd%60).padStart(2,"0");
+    sched.push({id:Date.now(),type,lineIdx:lineIdx??null,start:h+":"+m,dur:type==="break_"?15:type==="travel"?20:30,note:""});
+    saveG({...selG,schedule:sched});};
+  const upBlock=(bId,u)=>{if(!selG)return;saveG({...selG,schedule:(selG.schedule||[]).map(b=>b.id===bId?{...b,...u}:b)});};
+  const delBlock=(bId)=>{if(!selG)return;saveG({...selG,schedule:(selG.schedule||[]).filter(b=>b.id!==bId)});};
+  const moveBlock=(bId,dir)=>{if(!selG)return;const s=[...(selG.schedule||[])];const i=s.findIndex(b=>b.id===bId);const j=i+dir;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];saveG({...selG,schedule:s});};
+  const autoTimes=()=>{if(!selG)return;const s=[...(selG.schedule||[])];const startH=parseInt(selG.scheduleStart?.split(":")[0]||"8");const startM=parseInt(selG.scheduleStart?.split(":")[1]||"0");
+    let cur=startH*60+startM;s.forEach(b=>{const h=String(Math.floor(cur/60)).padStart(2,"0");const m=String(cur%60).padStart(2,"0");b.start=h+":"+m;cur+=parseInt(b.dur||30);});
+    saveG({...selG,schedule:s});};
+  const totalDur=(selG?.schedule||[]).reduce((s,b)=>s+parseInt(b.dur||0),0);
+  const fmtDur=m=>{const h=Math.floor(m/60);const mi=m%60;return h>0?(h+"h"+( mi>0?" "+mi+"m":"")):(mi+"m");};
 
   // Save + attach flow
   const handleSave=()=>{
@@ -1044,6 +1062,13 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
           <button onClick={detach} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
         </div>)}
 
+        {/* EDITOR TABS */}
+        <div style={{display:"flex",gap:4,marginBottom:10,borderBottom:"2px solid var(--border)"}}>
+          {[["guion","Guión","edit"],["crono","Cronograma","clock"]].map(([k,l,ic])=>(<button key={k} onClick={()=>sEdTab(k)} style={{display:"flex",alignItems:"center",gap:5,padding:"8px 12px",background:"transparent",border:"none",borderBottom:edTab===k?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:edTab===k?600:400,color:edTab===k?"var(--tx)":"var(--tx3)"}}><Ic n={ic} s={14}/>{l}{k==="crono"&&(selG.schedule||[]).length>0&&<Bg color="var(--tx3)" style={{fontSize:9,padding:"1px 5px"}}>{(selG.schedule||[]).length}</Bg>}</button>))}
+        </div>
+
+        {/* === GUION TAB === */}
+        {edTab==="guion"&&<div>
         {/* Color legend */}
         <div style={{display:"flex",gap:10,marginBottom:6,padding:"0 4px"}}>
           {Object.entries(BC).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:v.c}}/><span style={{fontSize:10,fontWeight:600,color:v.c}}>{v.label}</span></div>))}
@@ -1099,6 +1124,79 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
         <button onClick={addLine} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",padding:8,background:"transparent",border:"1px dashed var(--border2)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
           <Ic n="plus" s={14} c="var(--accent)"/>Agregar línea
         </button>
+        </div>}
+
+        {/* === CRONOGRAMA TAB === */}
+        {edTab==="crono"&&<div>
+          {/* Schedule header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <Fd label="Inicio jornada"><input type="time" value={selG.scheduleStart||"08:00"} onChange={e=>saveG({...selG,scheduleStart:e.target.value})} style={{width:100,fontSize:13,padding:"4px 6px"}}/></Fd>
+              <Fd label="Fecha"><input type="date" value={selG.scheduleDate||""} onChange={e=>saveG({...selG,scheduleDate:e.target.value})} style={{width:130,fontSize:12,padding:"4px 6px"}}/></Fd>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:11,color:"var(--tx3)"}}>Duración total:</span>
+              <Bg color="var(--accent)" style={{fontSize:12}}>{fmtDur(totalDur)}</Bg>
+              <Bt v="s" onClick={autoTimes} style={{fontSize:10,padding:"4px 8px"}}>Recalcular horas</Bt>
+            </div>
+          </div>
+
+          {/* Quick add from lines */}
+          {(selG.lines||[]).length>0&&(selG.schedule||[]).length===0&&(<div className="card" style={{padding:14,marginBottom:10,borderLeft:"3px solid var(--accent)"}}>
+            <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>Agregar líneas del guión al cronograma</div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              <Bt v="p" onClick={()=>{(selG.lines||[]).forEach((_,i)=>setTimeout(()=>addBlock("scene",i),i*10));}} icon="plus" style={{fontSize:11,padding:"6px 10px"}}>Todas las líneas</Bt>
+              <Bt v="s" onClick={()=>addBlock("setup")} style={{fontSize:11,padding:"6px 10px"}}>+ Setup</Bt>
+              <Bt v="s" onClick={()=>addBlock("break_")} style={{fontSize:11,padding:"6px 10px"}}>+ Break</Bt>
+            </div>
+          </div>)}
+
+          {/* Timeline */}
+          {(selG.schedule||[]).map((block,bi)=>{const bt=BLOCK_TYPES[block.type]||BLOCK_TYPES.custom;
+            const linkedLine=block.type==="scene"&&block.lineIdx!==null?(selG.lines||[])[block.lineIdx]:null;
+            const endMin=parseInt(block.start?.split(":")[0]||"8")*60+parseInt(block.start?.split(":")[1]||"0")+parseInt(block.dur||30);
+            const endH=String(Math.floor(endMin/60)).padStart(2,"0");const endM=String(endMin%60).padStart(2,"0");
+            return(<div key={block.id} style={{display:"flex",gap:8,marginBottom:4,alignItems:"stretch"}}>
+              {/* Time column */}
+              <div style={{width:56,flexShrink:0,textAlign:"right",paddingTop:8}}>
+                <input type="time" value={block.start||"08:00"} onChange={e=>upBlock(block.id,{start:e.target.value})} style={{width:56,fontSize:11,padding:"2px 3px",textAlign:"center",background:"transparent",border:"1px solid var(--border)",borderRadius:4}}/>
+                <div style={{fontSize:9,color:"var(--tx3)",marginTop:2}}>{endH}:{endM}</div>
+              </div>
+              {/* Connector */}
+              <div style={{width:12,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:bt.c,border:"2px solid var(--bg2)",zIndex:1,flexShrink:0}}/>
+                {bi<(selG.schedule||[]).length-1&&<div style={{width:2,flex:1,background:"var(--border)"}}/>}
+              </div>
+              {/* Block card */}
+              <div style={{flex:1,borderRadius:8,border:"1px solid var(--border)",borderLeft:"3px solid "+bt.c,background:"var(--bg3)",padding:"8px 10px",marginBottom:2}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <Bg color={bt.c} style={{fontSize:10,padding:"2px 6px"}}>{bt.l}{block.type==="scene"&&block.lineIdx!==null?" #"+(block.lineIdx+1):""}</Bg>
+                    <div style={{display:"flex",alignItems:"center",gap:3}}><input type="number" value={block.dur} onChange={e=>upBlock(block.id,{dur:parseInt(e.target.value)||0})} style={{width:36,fontSize:11,padding:"2px 4px",textAlign:"center"}}/><span style={{fontSize:9,color:"var(--tx3)"}}>min</span></div>
+                  </div>
+                  <div style={{display:"flex",gap:2}}>
+                    <button onClick={()=>moveBlock(block.id,-1)} disabled={bi===0} style={{background:"none",border:"none",color:bi===0?"var(--bg4)":"var(--tx3)",cursor:bi===0?"default":"pointer",fontSize:9,padding:0}}>▲</button>
+                    <button onClick={()=>moveBlock(block.id,1)} disabled={bi===(selG.schedule||[]).length-1} style={{background:"none",border:"none",color:bi===(selG.schedule||[]).length-1?"var(--bg4)":"var(--tx3)",cursor:"pointer",fontSize:9,padding:0}}>▼</button>
+                    <button onClick={()=>delBlock(block.id)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:0,opacity:.5}}><Ic n="x" s={12}/></button>
+                  </div>
+                </div>
+                {linkedLine&&<div style={{fontSize:11,color:"var(--tx2)",marginTop:4}}>
+                  {linkedLine.header&&<span style={{color:"#c77dff",fontWeight:600}}>{linkedLine.header}</span>}
+                  {linkedLine.escena&&<span style={{color:"var(--tx3)",marginLeft:6}}> — {linkedLine.escena.slice(0,60)}{linkedLine.escena.length>60?"...":""}</span>}
+                </div>}
+                <input value={block.note||""} onChange={e=>upBlock(block.id,{note:e.target.value})} placeholder="Nota rápida..." style={{width:"100%",fontSize:11,padding:"3px 0",background:"transparent",border:"none",borderBottom:"1px solid var(--border)",marginTop:4,outline:"none",color:"var(--tx)"}}/>
+              </div>
+            </div>);
+          })}
+
+          {/* Add block buttons */}
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6,paddingLeft:76}}>
+            {Object.entries(BLOCK_TYPES).map(([k,v])=>(<button key={k} onClick={()=>addBlock(k,k==="scene"?(selG.schedule||[]).filter(b=>b.type==="scene").length:null)} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 10px",background:"var(--bg3)",border:"1px dashed var(--border2)",borderRadius:6,color:v.c,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+              <Ic n={v.ic} s={12} c={v.c}/>+ {v.l}
+            </button>))}
+          </div>
+        </div>}
+
       </div>)}
     </div>}
 
