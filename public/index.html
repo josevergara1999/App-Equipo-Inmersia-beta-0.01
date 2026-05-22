@@ -2,7 +2,15 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="INMERSIA">
+<meta name="theme-color" content="#0e1311">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <title>INMERSIA · Content Management Platform</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -1062,13 +1070,20 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
           <button onClick={detach} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
         </div>)}
 
-        {/* EDITOR TABS */}
-        <div style={{display:"flex",gap:4,marginBottom:10,borderBottom:"2px solid var(--border)"}}>
-          {[["guion","Guión","edit"],["crono","Cronograma","clock"]].map(([k,l,ic])=>(<button key={k} onClick={()=>sEdTab(k)} style={{display:"flex",alignItems:"center",gap:5,padding:"8px 12px",background:"transparent",border:"none",borderBottom:edTab===k?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:edTab===k?600:400,color:edTab===k?"var(--tx)":"var(--tx3)"}}><Ic n={ic} s={14}/>{l}{k==="crono"&&(selG.schedule||[]).length>0&&<Bg color="var(--tx3)" style={{fontSize:9,padding:"1px 5px"}}>{(selG.schedule||[]).length}</Bg>}</button>))}
+        {/* GUION TOGGLE + EDITOR TABS */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+          <div style={{display:"flex",gap:4,borderBottom:"2px solid var(--border)",flex:1}}>
+            {selG.hasScript!==false&&<button onClick={()=>sEdTab("guion")} style={{display:"flex",alignItems:"center",gap:5,padding:"8px 12px",background:"transparent",border:"none",borderBottom:edTab==="guion"?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:edTab==="guion"?600:400,color:edTab==="guion"?"var(--tx)":"var(--tx3)"}}><Ic n="edit" s={14}/>Guión</button>}
+            <button onClick={()=>sEdTab("crono")} style={{display:"flex",alignItems:"center",gap:5,padding:"8px 12px",background:"transparent",border:"none",borderBottom:edTab==="crono"?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:edTab==="crono"?600:400,color:edTab==="crono"?"var(--tx)":"var(--tx3)"}}><Ic n="clock" s={14}/>Cronograma{(selG.schedule||[]).length>0&&<Bg color="var(--tx3)" style={{fontSize:9,padding:"1px 5px"}}>{(selG.schedule||[]).length}</Bg>}</button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:10}}>
+            <div onClick={()=>{const nv=selG.hasScript===false?true:false;saveG({...selG,hasScript:nv});if(nv===false&&edTab==="guion")sEdTab("crono");}} style={{width:28,height:16,borderRadius:8,background:selG.hasScript!==false?"var(--accent)":"var(--bg4)",cursor:"pointer",position:"relative",transition:"background .2s"}}><div style={{width:12,height:12,borderRadius:6,background:"var(--tx)",position:"absolute",top:2,left:selG.hasScript!==false?14:2,transition:"left .2s"}}/></div>
+            <span style={{fontSize:10,color:selG.hasScript!==false?"var(--accent)":"var(--tx3)"}}>Guión</span>
+          </div>
         </div>
 
         {/* === GUION TAB === */}
-        {edTab==="guion"&&<div>
+        {edTab==="guion"&&selG.hasScript!==false&&<div>
         {/* Color legend */}
         <div style={{display:"flex",gap:10,marginBottom:6,padding:"0 4px"}}>
           {Object.entries(BC).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:v.c}}/><span style={{fontSize:10,fontWeight:600,color:v.c}}>{v.label}</span></div>))}
@@ -2183,6 +2198,9 @@ useEffect(() => {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 </script>
 </body>
 </html>
