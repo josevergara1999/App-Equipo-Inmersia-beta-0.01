@@ -1707,12 +1707,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   const guiones=useMemo(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}},[]);
   const[lightbox,sLightbox]=useState(null);
   const[showGrabPicker,sShowGrabPicker]=useState(null);
+  const[expandedGrab,sExpandedGrab]=useState({});// {dayGrabKey: "guion"|"crono"|null}
 
-  // Grabacion days linked to planner days
-  const addGrabToDay=(day)=>{sShowGrabPicker(day);};
-  const linkGrab=(day,grabId)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");links[day]=[...(links[day]||[]),grabId];localStorage.setItem(key,JSON.stringify(links));sShowGrabPicker(null);addN("🎬 Día de grabación vinculado");};
-  const unlinkGrab=(day,grabId)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");links[day]=(links[day]||[]).filter(id=>id!==grabId);localStorage.setItem(key,JSON.stringify(links));};
-  const dayGrabs=(day)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");return(links[day]||[]).map(id=>grabDias.find(d=>d.id===id)).filter(Boolean);};
+  // Grabación days linked per planner day — stores {id, guionId?}
+  const grabKey="grab_"+weekKey;
+  const getGrabLinks=()=>{try{return JSON.parse(localStorage.getItem(grabKey)||"{}")}catch{return{}}};
+  const linkGrab=(day,guionId)=>{const links=getGrabLinks();const entry={id:Date.now(),guionId:guionId||null};links[day]=[...(links[day]||[]),entry];localStorage.setItem(grabKey,JSON.stringify(links));sShowGrabPicker(null);addN("🎬 Día de grabación agregado");};
+  const unlinkGrab=(day,entryId)=>{const links=getGrabLinks();links[day]=(links[day]||[]).filter(e=>e.id!==entryId);localStorage.setItem(grabKey,JSON.stringify(links));};
+  const dayGrabEntries=(day)=>{const links=getGrabLinks();return(links[day]||[]).map(e=>({...e,guion:e.guionId?guiones.find(g=>g.id===e.guionId):null}));};
 
   return(<div className="fi">
     {/* HEADER */}
@@ -1881,36 +1883,78 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           </div>
         </div>))}
 
-        {/* Linked grabación days */}
-        {dayGrabs(wd.ds).map(gd=>{const gdGuion=guiones.find(g=>g.taskId&&tasks.find(t=>t.id===g.taskId)?.date===wd.ds)||guiones.find(g=>String(g.companyId)===String(selCo)&&g.scheduleDate===wd.ds);
-          return(<div key={gd.id} style={{margin:"4px 0",background:"rgba(168,226,107,.04)",border:"1px solid rgba(168,226,107,.2)",borderRadius:8,padding:"8px 12px"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+        {/* Linked grabación entries */}
+        {dayGrabEntries(wd.ds).map(entry=>{const g=entry.guion;const BC2={header:{c:"#c77dff",label:"Header"},voz:{c:"#6fa8ff",label:"Voz off"},escena:{c:"var(--accent)",label:"Escena"}};
+          const eKey=wd.ds+"_"+entry.id;const expG=expandedGrab[eKey];
+          return(<div key={entry.id} style={{margin:"4px 0",background:"rgba(168,226,107,.04)",border:"1px solid rgba(168,226,107,.2)",borderRadius:8,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",gap:6}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <Ic n="camera" s={16} c="var(--accent)"/>
-                <div><div style={{fontSize:12,fontWeight:600}}>🎬 Grabación — {gd.location||"Sin locación"}</div>
-                <div style={{fontSize:10,color:"var(--tx3)"}}>{(gd.responsable||[]).map(rid=>users.find(u=>u.id===rid)?.name).filter(Boolean).join(", ")||"Sin equipo"} · {(gd.items||[]).length} contenidos</div></div>
+                <div style={{fontSize:12,fontWeight:600}}>🎬 Día de Grabación{g?" — "+g.title:""}</div>
               </div>
-              <button onClick={()=>unlinkGrab(wd.ds,gd.id)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                {g&&g.hasScript!==false&&<button onClick={()=>sExpandedGrab(p=>({...p,[eKey]:p[eKey]==="guion"?null:"guion"}))} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:expG==="guion"?"rgba(199,125,255,.15)":"rgba(199,125,255,.06)",border:"1px solid rgba(199,125,255,.3)",borderRadius:6,color:"#c77dff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="edit" s={12} c="#c77dff"/>Guión</button>}
+                {g&&(g.schedule||[]).length>0&&<button onClick={()=>sExpandedGrab(p=>({...p,[eKey]:p[eKey]==="crono"?null:"crono"}))} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:expG==="crono"?"rgba(111,168,255,.15)":"rgba(111,168,255,.06)",border:"1px solid rgba(111,168,255,.3)",borderRadius:6,color:"var(--info)",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="clock" s={12} c="var(--info)"/>Cronograma</button>}
+                {!g&&<span style={{fontSize:10,color:"var(--tx3)",fontStyle:"italic"}}>Sin guión</span>}
+                <button onClick={()=>unlinkGrab(wd.ds,entry.id)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
+              </div>
             </div>
-            {/* Guion + Crono buttons */}
-            {gdGuion&&(<div style={{display:"flex",gap:6,marginTop:6}}>
-              {gdGuion.hasScript!==false&&<button onClick={()=>{/* Would navigate to guionado */addN("📝 Guión: "+gdGuion.title+" — ve a Guionado para editarlo");}} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(199,125,255,.08)",border:"1px solid rgba(199,125,255,.25)",borderRadius:6,color:"#c77dff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="edit" s={12} c="#c77dff"/>Guión: {gdGuion.title}</button>}
-              {(gdGuion.schedule||[]).length>0&&<button onClick={()=>addN("📅 Cronograma: "+(gdGuion.schedule||[]).length+" bloques — ve a Guionado para verlo")} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(111,168,255,.08)",border:"1px solid rgba(111,168,255,.25)",borderRadius:6,color:"var(--info)",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="clock" s={12} c="var(--info)"/>Cronograma ({(gdGuion.schedule||[]).length})</button>}
+
+            {/* Expanded: GUION */}
+            {expG==="guion"&&g&&(<div style={{padding:"8px 12px",borderTop:"1px solid rgba(199,125,255,.15)",background:"rgba(199,125,255,.03)",maxHeight:400,overflow:"auto"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#c77dff",marginBottom:6}}>GUIÓN — {g.title} ({(g.lines||[]).length} líneas)</div>
+              {(g.lines||[]).map((line,li)=>(<div key={line.id||li} style={{marginBottom:6,padding:"6px 8px",background:"var(--bg2)",borderRadius:6,borderLeft:"3px solid #c77dff"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"var(--tx2)",marginBottom:3}}>Línea {li+1}</div>
+                {Object.entries(BC2).map(([field,v])=>line[field]?(<div key={field} style={{display:"flex",gap:6,marginBottom:2}}><span style={{fontSize:9,fontWeight:700,color:v.c,minWidth:40}}>{v.label}</span><span style={{fontSize:11,color:"var(--tx2)"}}>{line[field]}</span></div>):null)}
+                {(line.movements||[]).length>0&&<div style={{display:"flex",gap:3,marginTop:3}}>{line.movements.map((movId,mi)=>{const mov=CAM_MOVES.find(m=>m.id===movId);return mov?<span key={mi} style={{fontSize:9,padding:"1px 5px",background:"rgba(168,226,107,.1)",borderRadius:4,color:"var(--accent)"}}>{mov.name}</span>:null;})}</div>}
+              </div>))}
             </div>)}
-          </div>);})}
+
+            {/* Expanded: CRONOGRAMA */}
+            {expG==="crono"&&g&&(<div style={{padding:"8px 12px",borderTop:"1px solid rgba(111,168,255,.15)",background:"rgba(111,168,255,.03)",maxHeight:400,overflow:"auto"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"var(--info)",marginBottom:6}}>CRONOGRAMA — {(g.schedule||[]).length} bloques · Inicio: {g.scheduleStart||"08:00"}</div>
+              {(g.schedule||[]).map((block,bi)=>{const BTYPES={scene:{l:"Escena",c:"var(--accent)"},setup:{l:"Setup",c:"var(--tx2)"},break_:{l:"Break",c:"var(--gold)"},travel:{l:"Traslado",c:"var(--info)"},custom:{l:"Otro",c:"#c77dff"}};const bt=BTYPES[block.type]||BTYPES.custom;
+                const linkedLine=block.type==="scene"&&block.lineIdx!==null?(g.lines||[])[block.lineIdx]:null;
+                return(<div key={block.id||bi} style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-start"}}>
+                  <div className="num" style={{fontSize:11,color:"var(--tx2)",minWidth:40,textAlign:"right"}}>{block.start||"--:--"}</div>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:bt.c,marginTop:4,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",gap:4,alignItems:"center"}}><Bg color={bt.c} style={{fontSize:9,padding:"1px 5px"}}>{bt.l}</Bg><span className="num" style={{fontSize:10,color:"var(--tx3)"}}>{block.dur}min</span></div>
+                    {linkedLine&&<div style={{fontSize:10,color:"var(--tx2)",marginTop:2}}>{linkedLine.header&&<span style={{color:"#c77dff",fontWeight:600}}>{linkedLine.header}</span>}{linkedLine.escena&&<span style={{color:"var(--tx3)"}}> — {linkedLine.escena.slice(0,50)}</span>}</div>}
+                    {block.note&&<div style={{fontSize:10,color:"var(--tx3)",marginTop:1}}>{block.note}</div>}
+                  </div>
+                </div>);
+              })}
+            </div>)}
+          </div>);
+        })}
 
         <div style={{display:"flex",gap:6,margin:"4px 0 8px"}}>
           <button onClick={()=>addItem(wd.ds)} style={{flex:1,padding:"10px 16px",background:"transparent",border:"1px dashed var(--border)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Agregar contenido</button>
-          <button onClick={()=>addGrabToDay(wd.ds)} style={{padding:"10px 16px",background:"transparent",border:"1px dashed rgba(168,226,107,.3)",borderRadius:8,color:"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}><Ic n="camera" s={14} c="var(--accent)"/>+ Día grabación</button>
+          <button onClick={()=>sShowGrabPicker(wd.ds)} style={{padding:"10px 16px",background:"transparent",border:"1px dashed rgba(168,226,107,.3)",borderRadius:8,color:"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}><Ic n="camera" s={14} c="var(--accent)"/>+ Día grabación</button>
         </div>
 
-        {/* Grab picker popup */}
+        {/* Grab picker */}
         {showGrabPicker===wd.ds&&(<div style={{margin:"0 0 8px",padding:12,background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:600}}>Vincular día de grabación</span><button onClick={()=>sShowGrabPicker(null)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer"}}><Ic n="x" s={14}/></button></div>
-          {grabDias.filter(d=>String(d.companyId)===String(selCo)).length===0?<div style={{fontSize:11,color:"var(--tx3)",padding:8}}>No hay días de grabación para {co?.name}. Crea uno en "Días Grabación".</div>:
-          grabDias.filter(d=>String(d.companyId)===String(selCo)).map(d=>(<button key={d.id} onClick={()=>linkGrab(wd.ds,d.id)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:4,textAlign:"left"}}>
-            <Ic n="camera" s={16} c="var(--accent)"/>
-            <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{d.date} — {d.location||"Sin locación"}</div><div style={{fontSize:10,color:"var(--tx3)"}}>{(d.items||[]).length} contenidos · {(d.responsable||[]).map(rid=>users.find(u=>u.id===rid)?.name).filter(Boolean).join(", ")}</div></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:600}}>Agregar día de grabación</span><button onClick={()=>sShowGrabPicker(null)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer"}}><Ic n="x" s={14}/></button></div>
+
+          {/* Sin guión */}
+          <button onClick={()=>linkGrab(wd.ds,null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:6,textAlign:"left"}}>
+            <div style={{width:28,height:28,borderRadius:7,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="camera" s={14} c="var(--accent)"/></div>
+            <div><div style={{fontSize:12,fontWeight:600}}>🎬 Sin guión</div><div style={{fontSize:10,color:"var(--tx3)"}}>Solo marcar día de grabación</div></div>
+          </button>
+
+          {/* Con guión */}
+          {guiones.filter(g=>String(g.companyId)===String(selCo)).length>0&&<div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,margin:"8px 0 4px",letterSpacing:".06em"}}>CON GUIÓN</div>}
+          {guiones.filter(g=>String(g.companyId)===String(selCo)).map(g=>(<button key={g.id} onClick={()=>linkGrab(wd.ds,g.id)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:4,textAlign:"left"}}>
+            <div style={{width:28,height:28,borderRadius:7,background:"#c77dff22",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="edit" s={14} c="#c77dff"/></div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:600}}>{g.title}</div>
+              <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2}}>
+                <Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"1px 5px"}}>{TT[g.type]?.l}</Bg>
+                <span style={{fontSize:10,color:"var(--tx3)"}}>{(g.lines||[]).length} líneas{(g.schedule||[]).length>0?" · "+g.schedule.length+" bloques crono":""}</span>
+              </div>
+            </div>
           </button>))}
         </div>)}
       </div>);
