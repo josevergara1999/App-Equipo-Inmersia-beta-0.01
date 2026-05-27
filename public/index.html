@@ -1703,8 +1703,20 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   const removeFile=(itemId,field,idx)=>{const it=items.find(x=>x.id===itemId);if(!it)return;updateItem(itemId,{[field]:(it[field]||[]).filter((_,i)=>i!==idx)});};
 
   // Grabacion days from localStorage
-  const grabDias=useMemo(()=>{try{return JSON.parse(localStorage.getItem("inm_grabacion")||"[]")}catch{return[]}},[]);
-  const guiones=useMemo(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}},[]);
+  const[grabDias,sGrabDias]=useState([]);
+  const[guiones,sGuionesLocal]=useState([]);
+  const[grabRefresh,sGrabRefresh]=useState(0);
+  useEffect(()=>{
+    DB.loadAll().then(d=>{
+      if(d.guiones?.length)sGuionesLocal(d.guiones);
+      else try{sGuionesLocal(JSON.parse(localStorage.getItem("inm_guiones")||"[]"));}catch{sGuionesLocal([]);}
+      if(d.dias_grabacion?.length)sGrabDias(d.dias_grabacion);
+      else try{sGrabDias(JSON.parse(localStorage.getItem("inm_grabacion")||"[]"));}catch{sGrabDias([]);}
+    }).catch(()=>{
+      try{sGuionesLocal(JSON.parse(localStorage.getItem("inm_guiones")||"[]"));}catch{sGuionesLocal([]);}
+      try{sGrabDias(JSON.parse(localStorage.getItem("inm_grabacion")||"[]"));}catch{sGrabDias([]);}
+    });
+  },[grabRefresh]);
   const[lightbox,sLightbox]=useState(null);
   const[showGrabPicker,sShowGrabPicker]=useState(null);
   const[expandedGrab,sExpandedGrab]=useState({});// {dayGrabKey: "guion"|"crono"|null}
@@ -1811,79 +1823,65 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         {di.length===0&&!dragOver?(<div style={{padding:"12px 16px",color:"var(--tx3)",fontSize:11,fontStyle:"italic"}}>Sin contenido planificado</div>):null}
 
         {di.map(it=>(<div key={it.id} draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>{sDragItem(null);sDragOver(null);}}
-          style={{margin:"6px 0",background:"var(--bg2)",border:"1px solid var(--border)",borderLeft:"4px solid "+(TT[it.type]?.c||"#999"),borderRadius:8,overflow:"hidden"}}>
+          style={{margin:"4px 0",background:"var(--bg2)",border:"1px solid var(--border)",borderLeft:"3px solid "+(TT[it.type]?.c||"#999"),borderRadius:8,overflow:"hidden"}}>
 
-          {/* ROW 1: Formato + Título + Estado + Delete */}
-          <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>
-            <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{fontSize:12,padding:"4px 6px",fontWeight:600,width:"auto"}}>
+          {/* Header */}
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:6,padding:"6px 10px",borderBottom:"1px solid var(--border)"}}>
+            <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{fontSize:11,padding:"3px 4px",fontWeight:600,width:"auto"}}>
               {Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}
             </select>
-            <input value={it.title} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título del contenido..." style={{flex:1,fontSize:14,fontWeight:700,padding:"4px 8px",minWidth:150}}/>
-            <select value={it.state||"borrador"} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:11,padding:"4px 6px",width:"auto",color:STATES[it.state||"borrador"]?.c,fontWeight:600}}>
+            <input value={it.title} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título..." style={{flex:1,fontSize:13,fontWeight:700,padding:"3px 6px",minWidth:120}}/>
+            <select value={it.state||"borrador"} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:10,padding:"3px 4px",width:"auto",color:STATES[it.state||"borrador"]?.c,fontWeight:600}}>
               {Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
             </select>
-            <button onClick={()=>removeItem(it.id)} style={{background:"transparent",border:"none",color:"var(--tx3)",cursor:"pointer",padding:4}}><Ic n="trash" s={14}/></button>
+            <button onClick={()=>removeItem(it.id)} style={{background:"transparent",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="trash" s={12}/></button>
           </div>
-
           <div style={{display:"flex",flexWrap:"wrap"}}>
-            {/* DESCRIPCIÓN + ESTRATEGIA */}
-            <div style={{flex:2,minWidth:250,padding:12,borderRight:"1px solid var(--border)"}}>
-              <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:4}}>DESCRIPCIÓN</div>
-              <AutoTx value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Describe el contenido..." style={{fontSize:12,padding:"6px 8px",width:"100%",boxSizing:"border-box",lineHeight:1.6}}/>
+            <div style={{flex:1,minWidth:180,padding:"6px 10px",borderRight:"1px solid var(--border)"}}>
+              <div style={{fontSize:8,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:2}}>DESCRIPCIÓN</div>
+              <AutoTx value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Describe el contenido..." style={{fontSize:11,padding:"4px 6px",width:"100%",boxSizing:"border-box",lineHeight:1.5}}/>
             </div>
-
-            {/* PRODUCCIÓN + DRIVE */}
-            <div style={{width:160,padding:12,flexShrink:0}}>
-              <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:4}}>PRODUCCIÓN</div>
-              {users.map(u=>{const sel=(it.production||[]).includes(u.id);return(<button key={u.id} onClick={()=>updateItem(it.id,{production:sel?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"3px 6px",borderRadius:6,fontSize:10,fontWeight:sel?700:400,background:sel?u.color+"20":"transparent",border:"1px solid "+(sel?u.color+"55":"var(--border)"),color:sel?u.color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left",marginBottom:2}}>
-                <Av u={u} sz={14}/>{u.name}
-              </button>);})}
-              {/* Drive link */}
-              <div style={{fontSize:9,color:"var(--info)",fontWeight:600,letterSpacing:1,marginTop:10,marginBottom:4}}>DRIVE</div>
-              <input value={it.driveLink||""} onChange={e=>updateItem(it.id,{driveLink:e.target.value})} placeholder="Pegar link de Drive..." style={{fontSize:10,padding:"4px 6px",width:"100%",boxSizing:"border-box"}}/>
-              {it.driveLink&&<a href={it.driveLink} target="_blank" rel="noopener" style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:4,padding:"4px 8px",background:"rgba(111,168,255,.1)",border:"1px solid rgba(111,168,255,.25)",borderRadius:6,fontSize:10,color:"var(--info)",textDecoration:"none",fontWeight:600,cursor:"pointer"}}><Ic n="external" s={12} c="var(--info)"/>Abrir Drive</a>}
+            <div style={{width:130,padding:"6px 10px",flexShrink:0}}>
+              <div style={{fontSize:8,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:2}}>PRODUCCIÓN</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:2}}>{users.map(u=>{const sel=(it.production||[]).includes(u.id);return(<button key={u.id} onClick={()=>updateItem(it.id,{production:sel?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
+                style={{display:"flex",alignItems:"center",gap:3,padding:"2px 5px",borderRadius:5,fontSize:9,fontWeight:sel?700:400,background:sel?u.color+"20":"transparent",border:"1px solid "+(sel?u.color+"55":"var(--border)"),color:sel?u.color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={12}/>{u.name}
+              </button>);})}</div>
+              <div style={{marginTop:4}}><input value={it.driveLink||""} onChange={e=>updateItem(it.id,{driveLink:e.target.value})} placeholder="Link Drive..." style={{fontSize:9,padding:"3px 4px",width:"100%",boxSizing:"border-box"}}/>
+              {it.driveLink&&<a href={it.driveLink} target="_blank" rel="noopener" style={{display:"inline-flex",alignItems:"center",gap:3,marginTop:2,padding:"2px 6px",background:"rgba(111,168,255,.1)",border:"1px solid rgba(111,168,255,.25)",borderRadius:5,fontSize:9,color:"var(--info)",textDecoration:"none",fontWeight:600}}><Ic n="external" s={10} c="var(--info)"/>Drive</a>}</div>
             </div>
           </div>
-
-          {/* ROW 3: Referencias + Aprobación */}
           <div style={{display:"flex",flexWrap:"wrap",borderTop:"1px solid var(--border)"}}>
-            {/* Concept/Reference images */}
-            <div style={{flex:1,minWidth:200,padding:12,borderRight:"1px solid var(--border)"}}>
-              <div style={{fontSize:9,color:"#c77dff",fontWeight:600,letterSpacing:1,marginBottom:6}}>REFERENCIAS / CONCEPTO</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                {(it.refImages||[]).map((f,fi)=>(<div key={fi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}} onClick={()=>sLightbox(f.data)}>
+            <div style={{flex:1,minWidth:140,padding:"6px 10px",borderRight:"1px solid var(--border)"}}>
+              <div style={{fontSize:8,color:"#c77dff",fontWeight:600,letterSpacing:1,marginBottom:3}}>REFERENCIAS</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                {(it.refImages||[]).map((f,fi)=>(<div key={fi} style={{position:"relative",width:44,height:44,borderRadius:4,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}} onClick={()=>sLightbox(f.data)}>
                   <img src={f.data} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"refImages",fi);}} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"refImages",fi);}} style={{position:"absolute",top:0,right:0,width:13,height:13,borderRadius:3,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:7,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 </div>))}
-                <label style={{width:56,height:56,borderRadius:6,border:"1px dashed var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--tx3)",flexDirection:"column",gap:2}}>
-                  <Ic n="plus" s={14} c="var(--tx3)"/><span style={{fontSize:7}}>Ref</span>
-                  <input type="file" accept="image/*" multiple onChange={e=>handleFiles(it.id,"refImages",e)} style={{display:"none"}}/>
-                </label>
+                <label style={{width:44,height:44,borderRadius:4,border:"1px dashed var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Ic n="plus" s={11} c="var(--tx3)"/><input type="file" accept="image/*" multiple onChange={e=>handleFiles(it.id,"refImages",e)} style={{display:"none"}}/></label>
               </div>
             </div>
-
-            {/* Approval content */}
-            <div style={{flex:1,minWidth:200,padding:12}}>
-              <div style={{fontSize:9,color:it.state==="aprobado"?"var(--success)":it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:6}}>CONTENIDO PARA APROBACIÓN</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                {(it.approvalFiles||[]).map((f,fi)=>(<div key={fi} onClick={()=>{if(f.type?.startsWith("video"))window.open(f.data,"_blank");else sLightbox(f.data);}} style={{position:"relative",borderRadius:6,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}}>
-                  {f.type?.startsWith("video")?(<div style={{width:80,height:56,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="camera" s={20} c="var(--tx3)"/><span style={{fontSize:8,color:"var(--tx3)",position:"absolute",bottom:2,left:4}}>{f.name?.slice(0,10)}</span></div>)
-                  :(<img src={f.data} style={{width:80,height:56,objectFit:"cover"}}/>)}
-                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"approvalFiles",fi);}} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            <div style={{flex:1,minWidth:140,padding:"6px 10px"}}>
+              <div style={{fontSize:8,color:it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:3}}>APROBACIÓN</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                {(it.approvalFiles||[]).map((f,fi)=>(<div key={fi} onClick={()=>{if(f.type?.startsWith("video"))window.open(f.data,"_blank");else sLightbox(f.data);}} style={{position:"relative",borderRadius:4,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}}>
+                  {f.type?.startsWith("video")?(<div style={{width:56,height:44,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="camera" s={14} c="var(--tx3)"/></div>)
+                  :(<img src={f.data} style={{width:56,height:44,objectFit:"cover"}}/>)}
+                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"approvalFiles",fi);}} style={{position:"absolute",top:0,right:0,width:13,height:13,borderRadius:3,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:7,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 </div>))}
-                <label style={{width:80,height:56,borderRadius:6,border:"1px dashed "+(it.state==="en_aprobacion"?"rgba(255,90,78,.4)":"var(--border2)"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--tx3)",flexDirection:"column",gap:2,background:it.state==="en_aprobacion"?"rgba(255,90,78,.04)":"transparent"}}>
-                  <Ic n="paperclip" s={14} c={it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)"}/><span style={{fontSize:8}}>Foto/Video</span>
+                <label style={{width:56,height:44,borderRadius:4,border:"1px dashed "+(it.state==="en_aprobacion"?"rgba(255,90,78,.4)":"var(--border2)"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexDirection:"column",gap:1}}>
+                  <Ic n="paperclip" s={11} c={it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)"}/><span style={{fontSize:7,color:"var(--tx3)"}}>Subir</span>
                   <input type="file" accept="image/*,video/*" multiple onChange={e=>handleFiles(it.id,"approvalFiles",e)} style={{display:"none"}}/>
                 </label>
               </div>
-              {it.state==="en_aprobacion"&&<div style={{fontSize:10,color:"var(--danger)",fontStyle:"italic"}}>⏳ Esperando aprobación</div>}
-              {it.state==="aprobado"&&<div style={{fontSize:10,color:"var(--success)"}}>✅ Contenido aprobado</div>}
+              {it.state==="en_aprobacion"&&<div style={{fontSize:8,color:"var(--danger)",marginTop:2}}>⏳ Esperando</div>}
+              {it.state==="aprobado"&&<div style={{fontSize:8,color:"var(--success)",marginTop:2}}>✅ Aprobado</div>}
             </div>
           </div>
         </div>))}
 
         {/* Linked grabación entries */}
+ grabación entries */}
         {dayGrabEntries(wd.ds).map(entry=>{const g=entry.guion;const BC2={header:{c:"#c77dff",label:"Header"},voz:{c:"#6fa8ff",label:"Voz off"},escena:{c:"var(--accent)",label:"Escena"}};
           const eKey=wd.ds+"_"+entry.id;const expG=expandedGrab[eKey];
           return(<div key={entry.id} style={{margin:"4px 0",background:"rgba(168,226,107,.04)",border:"1px solid rgba(168,226,107,.2)",borderRadius:8,overflow:"hidden"}}>
@@ -1931,7 +1929,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
         <div style={{display:"flex",gap:6,margin:"4px 0 8px"}}>
           <button onClick={()=>addItem(wd.ds)} style={{flex:1,padding:"10px 16px",background:"transparent",border:"1px dashed var(--border)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Agregar contenido</button>
-          <button onClick={()=>sShowGrabPicker(wd.ds)} style={{padding:"10px 16px",background:"transparent",border:"1px dashed rgba(168,226,107,.3)",borderRadius:8,color:"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}><Ic n="camera" s={14} c="var(--accent)"/>+ Día grabación</button>
+          <button onClick={()=>{sGrabRefresh(r=>r+1);sShowGrabPicker(wd.ds);}} style={{padding:"10px 16px",background:"transparent",border:"1px dashed rgba(168,226,107,.3)",borderRadius:8,color:"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}><Ic n="camera" s={14} c="var(--accent)"/>+ Día grabación</button>
         </div>
 
         {/* Grab picker */}
