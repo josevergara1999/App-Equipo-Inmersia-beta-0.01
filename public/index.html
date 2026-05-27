@@ -1704,6 +1704,15 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   // Grabacion days from localStorage
   const grabDias=useMemo(()=>{try{return JSON.parse(localStorage.getItem("inm_grabacion")||"[]")}catch{return[]}},[]);
+  const guiones=useMemo(()=>{try{return JSON.parse(localStorage.getItem("inm_guiones")||"[]")}catch{return[]}},[]);
+  const[lightbox,sLightbox]=useState(null);
+  const[showGrabPicker,sShowGrabPicker]=useState(null);
+
+  // Grabacion days linked to planner days
+  const addGrabToDay=(day)=>{sShowGrabPicker(day);};
+  const linkGrab=(day,grabId)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");links[day]=[...(links[day]||[]),grabId];localStorage.setItem(key,JSON.stringify(links));sShowGrabPicker(null);addN("🎬 Día de grabación vinculado");};
+  const unlinkGrab=(day,grabId)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");links[day]=(links[day]||[]).filter(id=>id!==grabId);localStorage.setItem(key,JSON.stringify(links));};
+  const dayGrabs=(day)=>{const key="grab_"+weekKey;const links=JSON.parse(localStorage.getItem(key)||"{}");return(links[day]||[]).map(id=>grabDias.find(d=>d.id===id)).filter(Boolean);};
 
   return(<div className="fi">
     {/* HEADER */}
@@ -1811,11 +1820,6 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <select value={it.state||"borrador"} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:11,padding:"4px 6px",width:"auto",color:STATES[it.state||"borrador"]?.c,fontWeight:600}}>
               {Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
             </select>
-            {/* Grabacion link */}
-            <select value={it.grabacionId||""} onChange={e=>updateItem(it.id,{grabacionId:e.target.value||null})} style={{fontSize:10,padding:"3px 6px",width:"auto",color:"var(--tx2)"}} title="Vincular día de grabación">
-              <option value="">🎬 Sin grab.</option>
-              {grabDias.filter(d=>String(d.companyId)===String(selCo)).map(d=><option key={d.id} value={d.id}>🎬 {d.date} {d.location||""}</option>)}
-            </select>
             <button onClick={()=>removeItem(it.id)} style={{background:"transparent",border:"none",color:"var(--tx3)",cursor:"pointer",padding:4}}><Ic n="trash" s={14}/></button>
           </div>
 
@@ -1824,8 +1828,6 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <div style={{flex:2,minWidth:250,padding:12,borderRight:"1px solid var(--border)"}}>
               <div style={{fontSize:9,color:"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:4}}>DESCRIPCIÓN</div>
               <AutoTx value={it.description} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Describe el contenido..." style={{fontSize:12,padding:"6px 8px",width:"100%",boxSizing:"border-box",lineHeight:1.6}}/>
-              <div style={{fontSize:9,color:"var(--gold)",fontWeight:600,letterSpacing:1,marginTop:10,marginBottom:4}}>ESTRATEGIA</div>
-              <AutoTx value={it.strategy} onChange={e=>updateItem(it.id,{strategy:e.target.value})} placeholder="Objetivo, target..." style={{fontSize:12,padding:"6px 8px",width:"100%",boxSizing:"border-box",lineHeight:1.6,borderColor:"rgba(240,192,64,.3)"}}/>
             </div>
 
             {/* PRODUCCIÓN + DRIVE */}
@@ -1848,9 +1850,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <div style={{flex:1,minWidth:200,padding:12,borderRight:"1px solid var(--border)"}}>
               <div style={{fontSize:9,color:"#c77dff",fontWeight:600,letterSpacing:1,marginBottom:6}}>REFERENCIAS / CONCEPTO</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                {(it.refImages||[]).map((f,fi)=>(<div key={fi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--border)"}}>
+                {(it.refImages||[]).map((f,fi)=>(<div key={fi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}} onClick={()=>sLightbox(f.data)}>
                   <img src={f.data} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  <button onClick={()=>removeFile(it.id,"refImages",fi)} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"refImages",fi);}} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 </div>))}
                 <label style={{width:56,height:56,borderRadius:6,border:"1px dashed var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--tx3)",flexDirection:"column",gap:2}}>
                   <Ic n="plus" s={14} c="var(--tx3)"/><span style={{fontSize:7}}>Ref</span>
@@ -1863,10 +1865,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <div style={{flex:1,minWidth:200,padding:12}}>
               <div style={{fontSize:9,color:it.state==="aprobado"?"var(--success)":it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)",fontWeight:600,letterSpacing:1,marginBottom:6}}>CONTENIDO PARA APROBACIÓN</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                {(it.approvalFiles||[]).map((f,fi)=>(<div key={fi} style={{position:"relative",borderRadius:6,overflow:"hidden",border:"1px solid var(--border)"}}>
+                {(it.approvalFiles||[]).map((f,fi)=>(<div key={fi} onClick={()=>{if(f.type?.startsWith("video"))window.open(f.data,"_blank");else sLightbox(f.data);}} style={{position:"relative",borderRadius:6,overflow:"hidden",border:"1px solid var(--border)",cursor:"pointer"}}>
                   {f.type?.startsWith("video")?(<div style={{width:80,height:56,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="camera" s={20} c="var(--tx3)"/><span style={{fontSize:8,color:"var(--tx3)",position:"absolute",bottom:2,left:4}}>{f.name?.slice(0,10)}</span></div>)
                   :(<img src={f.data} style={{width:80,height:56,objectFit:"cover"}}/>)}
-                  <button onClick={()=>removeFile(it.id,"approvalFiles",fi)} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  <button onClick={e=>{e.stopPropagation();removeFile(it.id,"approvalFiles",fi);}} style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:4,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 </div>))}
                 <label style={{width:80,height:56,borderRadius:6,border:"1px dashed "+(it.state==="en_aprobacion"?"rgba(255,90,78,.4)":"var(--border2)"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--tx3)",flexDirection:"column",gap:2,background:it.state==="en_aprobacion"?"rgba(255,90,78,.04)":"transparent"}}>
                   <Ic n="paperclip" s={14} c={it.state==="en_aprobacion"?"var(--danger)":"var(--tx3)"}/><span style={{fontSize:8}}>Foto/Video</span>
@@ -1879,28 +1881,50 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           </div>
         </div>))}
 
-        <button onClick={()=>addItem(wd.ds)} style={{margin:"4px 0 8px",padding:"10px 16px",background:"transparent",border:"1px dashed var(--border)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left"}}>+ Agregar contenido para {wd.dayName.toLowerCase()}</button>
+        {/* Linked grabación days */}
+        {dayGrabs(wd.ds).map(gd=>{const gdGuion=guiones.find(g=>g.taskId&&tasks.find(t=>t.id===g.taskId)?.date===wd.ds)||guiones.find(g=>String(g.companyId)===String(selCo)&&g.scheduleDate===wd.ds);
+          return(<div key={gd.id} style={{margin:"4px 0",background:"rgba(168,226,107,.04)",border:"1px solid rgba(168,226,107,.2)",borderRadius:8,padding:"8px 12px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <Ic n="camera" s={16} c="var(--accent)"/>
+                <div><div style={{fontSize:12,fontWeight:600}}>🎬 Grabación — {gd.location||"Sin locación"}</div>
+                <div style={{fontSize:10,color:"var(--tx3)"}}>{(gd.responsable||[]).map(rid=>users.find(u=>u.id===rid)?.name).filter(Boolean).join(", ")||"Sin equipo"} · {(gd.items||[]).length} contenidos</div></div>
+              </div>
+              <button onClick={()=>unlinkGrab(wd.ds,gd.id)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="x" s={14}/></button>
+            </div>
+            {/* Guion + Crono buttons */}
+            {gdGuion&&(<div style={{display:"flex",gap:6,marginTop:6}}>
+              {gdGuion.hasScript!==false&&<button onClick={()=>{/* Would navigate to guionado */addN("📝 Guión: "+gdGuion.title+" — ve a Guionado para editarlo");}} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(199,125,255,.08)",border:"1px solid rgba(199,125,255,.25)",borderRadius:6,color:"#c77dff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="edit" s={12} c="#c77dff"/>Guión: {gdGuion.title}</button>}
+              {(gdGuion.schedule||[]).length>0&&<button onClick={()=>addN("📅 Cronograma: "+(gdGuion.schedule||[]).length+" bloques — ve a Guionado para verlo")} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(111,168,255,.08)",border:"1px solid rgba(111,168,255,.25)",borderRadius:6,color:"var(--info)",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="clock" s={12} c="var(--info)"/>Cronograma ({(gdGuion.schedule||[]).length})</button>}
+            </div>)}
+          </div>);})}
+
+        <div style={{display:"flex",gap:6,margin:"4px 0 8px"}}>
+          <button onClick={()=>addItem(wd.ds)} style={{flex:1,padding:"10px 16px",background:"transparent",border:"1px dashed var(--border)",borderRadius:8,color:"var(--tx3)",fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Agregar contenido</button>
+          <button onClick={()=>addGrabToDay(wd.ds)} style={{padding:"10px 16px",background:"transparent",border:"1px dashed rgba(168,226,107,.3)",borderRadius:8,color:"var(--accent)",fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}><Ic n="camera" s={14} c="var(--accent)"/>+ Día grabación</button>
+        </div>
+
+        {/* Grab picker popup */}
+        {showGrabPicker===wd.ds&&(<div style={{margin:"0 0 8px",padding:12,background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:600}}>Vincular día de grabación</span><button onClick={()=>sShowGrabPicker(null)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer"}}><Ic n="x" s={14}/></button></div>
+          {grabDias.filter(d=>String(d.companyId)===String(selCo)).length===0?<div style={{fontSize:11,color:"var(--tx3)",padding:8}}>No hay días de grabación para {co?.name}. Crea uno en "Días Grabación".</div>:
+          grabDias.filter(d=>String(d.companyId)===String(selCo)).map(d=>(<button key={d.id} onClick={()=>linkGrab(wd.ds,d.id)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:4,textAlign:"left"}}>
+            <Ic n="camera" s={16} c="var(--accent)"/>
+            <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{d.date} — {d.location||"Sin locación"}</div><div style={{fontSize:10,color:"var(--tx3)"}}>{(d.items||[]).length} contenidos · {(d.responsable||[]).map(rid=>users.find(u=>u.id===rid)?.name).filter(Boolean).join(", ")}</div></div>
+          </button>))}
+        </div>)}
       </div>);
     })}
-
-    {/* STRATEGY SUMMARY */}
-    {items.length>0&&(<div style={{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1px solid var(--border)",borderRadius:12,padding:16,marginTop:8}}>
-      <div style={{fontSize:14,fontWeight:800,marginBottom:12}}>📊 ESTRATEGIA SEMANAL — {co?.name?.toUpperCase()}</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10}}>
-        {weekDays.filter(wd=>dayItems(wd.ds).length>0).map(wd=>(<div key={wd.ds} style={{background:"var(--bg3)",borderRadius:8,padding:10,borderLeft:"3px solid "+(co?.color||"var(--accent)")}}>
-          <div style={{fontSize:11,fontWeight:700,color:co?.color||"var(--accent)",marginBottom:6}}>{wd.dayShort} {wd.day} {wd.month?.toUpperCase()}</div>
-          {dayItems(wd.ds).map(it=>(<div key={it.id} style={{marginBottom:6}}>
-            <div style={{fontSize:11,fontWeight:700,color:TT[it.type]?.c}}>{TT[it.type]?.i} {TT[it.type]?.l?.toUpperCase()}</div>
-            {it.strategy&&<div style={{fontSize:11,color:"var(--tx2)",lineHeight:1.4,marginTop:2}}>{it.strategy}</div>}
-            {(it.production||[]).length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginTop:2}}>{(it.production||[]).map(uid=>users.find(u=>u.id===uid)?.name).filter(Boolean).join(" · ")}</div>}
-          </div>))}
-        </div>))}
-      </div>
-    </div>)}
 
     <div style={{textAlign:"center",padding:"12px 0",fontSize:9,color:"var(--tx3)",marginTop:8}}>
       Contenido planificado por {co?.name} · Inmersia SPA · Marketing Digital · {weekDays[0]?.date?.getFullYear()}
     </div>
+
+    {/* LIGHTBOX */}
+    {lightbox&&(<div onClick={()=>sLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",backdropFilter:"blur(8px)"}}>
+      <button onClick={()=>sLightbox(null)} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:36,height:36,borderRadius:18,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+      <img src={lightbox} onClick={e=>e.stopPropagation()} style={{maxWidth:"92vw",maxHeight:"90vh",objectFit:"contain",borderRadius:8,cursor:"default"}}/>
+    </div>)}
   </div>);
 }
 
