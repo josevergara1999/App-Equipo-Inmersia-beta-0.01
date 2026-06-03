@@ -1624,7 +1624,11 @@ function AutoTx({value,onChange,placeholder,style,...props}){
 // ═══ WEEK PLANNER ══════════════════════════════════════════════
 function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo,addN}){
   const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[dragOver,sDragOver]=useState(null);
-  const[selCo,sSelCo]=useState(fCo!=="all"?fCo:cos[0]?.id||0);
+  const[selCo,sSelCo]=useState(()=>fCo!=="all"?String(fCo):cos[0]?String(cos[0].id):"0");
+  // Sync with topbar filter
+  useEffect(()=>{if(fCo!=="all")sSelCo(String(fCo));},[fCo]);
+  // Ensure valid company when cos loads
+  useEffect(()=>{if(selCo==="0"&&cos.length>0)sSelCo(String(cos[0].id));},[cos,selCo]);
   const co=cos.find(c=>String(c.id)===String(selCo));
 
   const weekDays=useMemo(()=>{
@@ -1646,7 +1650,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
-  const removeItem=(id)=>updatePlan(items.filter(it=>it.id!==id));
+  const removeItem=(id)=>{if(!confirm("¿Eliminar este contenido?"))return;const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
+    // Auto-save to Supabase immediately
+    const all=planners.some(p=>p.weekKey===weekKey)?planners.map(p=>p.weekKey===weekKey?{...plan,items:newItems}:p):[...planners,{...plan,items:newItems}];
+    DB.save("planners",all);sPlanners(all);};
+  const clearWeek=()=>{if(!confirm("¿Limpiar TODA la semana de "+co?.name+"? Esto no se puede deshacer."))return;updatePlan([]);
+    const all=planners.map(p=>p.weekKey===weekKey?{...plan,items:[]}:p);
+    DB.save("planners",all);sPlanners(all);addN("🗑 Semana limpiada");};
   const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);sDragOver(null);};
 
   // Save planner AND sync to calendar
@@ -1736,7 +1746,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           <div style={{fontSize:22,fontWeight:900,color:co?.color||"var(--accent)",letterSpacing:1}}>{co?.name?.toUpperCase()||"EMPRESA"}</div>
           <div style={{fontSize:11,color:"var(--tx2)",marginTop:2}}>INMERSIA SPA · MARKETING DIGITAL 2026</div>
         </div>
-        <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:12,padding:"6px 12px"}}>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select value={selCo} onChange={e=>sSelCo(String(e.target.value))} style={{fontSize:12,padding:"6px 12px"}}>{cos.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}</select>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10,flexWrap:"wrap"}}>
         <Bt v="g" onClick={()=>sWkOff(w=>w-1)} style={{padding:"6px 12px"}}>&lt;</Bt>
@@ -1747,6 +1757,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         <Bt v="g" onClick={()=>sWkOff(w=>w+1)} style={{padding:"6px 12px"}}>&gt;</Bt>
         <div style={{marginLeft:"auto",display:"flex",gap:6}}>
           <Bt v="s" onClick={dupWeek} style={{fontSize:10,padding:"6px 12px"}}>📋 Duplicar →</Bt>
+          {items.length>0&&<Bt v="d" onClick={clearWeek} icon="trash" style={{fontSize:10,padding:"6px 12px"}}>Limpiar</Bt>}
           <Bt v="p" onClick={savePlan} style={{fontSize:11,padding:"8px 18px"}}>💾 Guardar y sincronizar</Bt>
         </div>
       </div>
@@ -1834,7 +1845,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <select value={it.state||"borrador"} onChange={e=>updateItem(it.id,{state:e.target.value})} style={{fontSize:10,padding:"3px 4px",width:"auto",color:STATES[it.state||"borrador"]?.c,fontWeight:600}}>
               {Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
             </select>
-            <button onClick={()=>removeItem(it.id)} style={{background:"transparent",border:"none",color:"var(--tx3)",cursor:"pointer",padding:2}}><Ic n="trash" s={12}/></button>
+            <button onClick={()=>removeItem(it.id)} style={{background:"rgba(255,90,78,.06)",border:"1px solid rgba(255,90,78,.2)",borderRadius:5,color:"var(--danger)",cursor:"pointer",padding:4}}><Ic n="trash" s={14}/></button>
           </div>
           <div style={{display:"flex",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:180,padding:"6px 10px",borderRight:"1px solid var(--border)"}}>
