@@ -366,7 +366,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // Load from Supabase on mount
   useEffect(()=>{
     DB.loadAll().then(d=>{
-      if(d.companies?.length)sCos(d.companies);
+      if(d.companies?.length){sCos(d.companies);}
+      else{try{const bk=JSON.parse(localStorage.getItem("inm_companies_backup")||"[]");if(bk.length)sCos(bk);}catch{}}
       if(d.tasks?.length)sT(d.tasks);
       if(d.extras?.length)sEx(d.extras);
       if(d.meetings?.length)sMeets(d.meetings);
@@ -394,7 +395,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.teamPay)sTP(d.teamPay);
       addN("✅ Datos recargados desde Supabase");
     }catch(e){addN("❌ Error: "+e.message);}};
-  useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0&&hadData.current.cos){console.warn("Skipping save: would erase companies");return;}dbSave("companies",cos);},[cos,dbLoaded]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0){console.warn("BLOCKED: refusing to save empty companies");return;}dbSave("companies",cos);localStorage.setItem("inm_companies_backup",JSON.stringify(cos));},[cos,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackT.current){initTrackT.current=true;return;}if(calDirty)return;if(tasks.length===0&&hadData.current.tasks){console.warn("Skipping save: would erase tasks");return;}dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
@@ -438,7 +439,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);sCalDirty(true);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:[],date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:null});}};
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
-  const delCo=coId=>{sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
+  const delCo=coId=>{if(cos.length<=1){addN("❌ No puedes eliminar la última empresa");return;}sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
 
