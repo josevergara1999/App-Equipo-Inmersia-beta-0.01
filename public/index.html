@@ -380,9 +380,20 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   // Save to Supabase on changes — skip initial empty state save, never save empty if we had data
   const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);
-  const hadData=useRef({cos:false,tasks:false});
+  const hadData=useRef({cos:false,tasks:false,planners:false});
   useEffect(()=>{if(cos.length>0)hadData.current.cos=true;},[cos]);
   useEffect(()=>{if(tasks.length>0)hadData.current.tasks=true;},[tasks]);
+  useEffect(()=>{if(planners.length>0)hadData.current.planners=true;},[planners]);
+  // Recovery: force reload all data from Supabase
+  const forceReload=async()=>{if(!confirm("¿Recargar TODOS los datos desde Supabase?"))return;
+    try{const d=await DB.loadAll();
+      if(d.companies?.length){sCos(d.companies);hadData.current.cos=true;}
+      if(d.tasks?.length){sT(d.tasks);hadData.current.tasks=true;}
+      if(d.planners?.length){sPlanners(d.planners);hadData.current.planners=true;}
+      if(d.planner_drafts)sPDrafts(d.planner_drafts);
+      if(d.teamPay)sTP(d.teamPay);
+      addN("✅ Datos recargados desde Supabase");
+    }catch(e){addN("❌ Error: "+e.message);}};
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0&&hadData.current.cos){console.warn("Skipping save: would erase companies");return;}dbSave("companies",cos);},[cos,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackT.current){initTrackT.current=true;return;}if(calDirty)return;if(tasks.length===0&&hadData.current.tasks){console.warn("Skipping save: would erase tasks");return;}dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
@@ -513,6 +524,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:apiStatus.gemini?"var(--success)":"var(--danger)"}}/>Gemini</div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}><span style={{width:6,height:6,borderRadius:"50%",background:apiStatus.email?"var(--success)":"var(--danger)"}}/>Email</div>
+            <button onClick={forceReload} style={{display:"flex",alignItems:"center",gap:4,marginTop:6,fontSize:10,color:"var(--tx3)",background:"none",border:"1px solid var(--border)",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",width:"100%"}}><Ic n="inbox" s={12} c="var(--tx3)"/>Recargar datos</button>
           </div>
         </div>
         {/* USER */}
@@ -1650,20 +1662,25 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
-  const removeItem=(id)=>{if(!confirm("¿Eliminar este contenido?"))return;const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
-    // Auto-save to Supabase immediately
-    const all=planners.some(p=>p.weekKey===weekKey)?planners.map(p=>p.weekKey===weekKey?{...plan,items:newItems}:p):[...planners,{...plan,items:newItems}];
-    DB.save("planners",all);sPlanners(all);};
-  const clearWeek=()=>{if(!confirm("¿Limpiar TODA la semana de "+co?.name+"? Esto no se puede deshacer."))return;updatePlan([]);
-    const all=planners.map(p=>p.weekKey===weekKey?{...plan,items:[]}:p);
-    DB.save("planners",all);sPlanners(all);addN("🗑 Semana limpiada");};
+  const removeItem=async(id)=>{if(!confirm("¿Eliminar este contenido?"))return;const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
+    // Safe save: load fresh from Supabase, then update only our weekKey
+    try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||[];
+      const updated=freshPlanners.some(p=>p.weekKey===weekKey)?freshPlanners.map(p=>p.weekKey===weekKey?{...p,items:newItems}:p):[...freshPlanners,{weekKey,companyId:selCo,companyName:co?.name||"",items:newItems}];
+      await DB.save("planners",updated);sPlanners(updated);
+    }catch(e){console.error("Safe remove error:",e);}};
+  const clearWeek=async()=>{if(!confirm("¿Limpiar TODA la semana de "+co?.name+"? Esto no se puede deshacer."))return;updatePlan([]);
+    try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||[];
+      const updated=freshPlanners.map(p=>p.weekKey===weekKey?{...p,items:[]}:p);
+      await DB.save("planners",updated);sPlanners(updated);addN("🗑 Semana limpiada");
+    }catch(e){console.error("Safe clear error:",e);}};
   const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);sDragOver(null);};
 
   // Save planner AND sync to calendar
-  const savePlan=()=>{
-    // Save planner data
-    const all=planners.some(p=>p.weekKey===weekKey)?planners.map(p=>p.weekKey===weekKey?{...plan,items}:p):[...planners,{...plan,items}];
-    DB.save("planners",all);sPlanners(all);
+  const savePlan=async()=>{
+    // Load fresh from Supabase to avoid wiping other companies' data
+    try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||planners;
+    const all=freshPlanners.some(p=>p.weekKey===weekKey)?freshPlanners.map(p=>p.weekKey===weekKey?{...plan,items}:p):[...freshPlanners,{...plan,items}];
+    await DB.save("planners",all);sPlanners(all);
 
     // Sync items to calendar tasks
     const plannerTag="planner_"+weekKey;
@@ -1690,6 +1707,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     });
 
     addN("✅ Plan guardado y sincronizado al calendario");
+    }catch(e){console.error("Save plan error:",e);addN("❌ Error al guardar");}
   };
 
   const dupWeek=()=>{const nextOff=wkOff+1;const now2=new Date();now2.setDate(now2.getDate()+nextOff*7);const dow2=now2.getDay();const mon2=dow2===0?6:dow2-1;
@@ -1699,8 +1717,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     const dayMap={};weekDays.forEach((wd,i)=>{dayMap[wd.ds]=nDays[i];});
     const dupItems=items.map(it=>({...it,id:Date.now()+Math.random()*1000|0,day:dayMap[it.day]||it.day,state:"borrador"}));
     const np={weekKey:newKey,companyId:selCo,companyName:co?.name||"",items:dupItems};
-    const newAll=[...planners,np];
-    sPlanners(newAll);DB.save("planners",newAll);
+    DB.loadAll().then(fresh=>{const fp=fresh.planners||planners;const newAll=[...fp,np];sPlanners(newAll);DB.save("planners",newAll);}).catch(()=>{const newAll=[...planners,np];sPlanners(newAll);DB.save("planners",newAll);});
     sWkOff(nextOff);addN("📋 Semana duplicada");};
 
   const STATES={borrador:{l:"Borrador",c:"var(--tx3)"},en_proceso:{l:"En proceso",c:"var(--gold)"},en_aprobacion:{l:"En aprobación",c:"var(--danger)"},aprobado:{l:"Aprobado",c:"var(--success)"},publicado:{l:"Publicado",c:"var(--info)"}};
