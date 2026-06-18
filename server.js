@@ -423,6 +423,7 @@ app.post("/api/gcal/sync", async (req, res) => {
 // 🟢 SERVIR FRONTEND
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/guion", (req, res) => { res.sendFile(path.join(__dirname, "public", "inm_guion_definitivo.html")); });
 app.get("*", (req, res) => { res.sendFile(path.join(__dirname, "public", "index.html")); });
 
 app.listen(PORT, () => { console.log("Server INMERSIA v3.3 corriendo en puerto", PORT); });
