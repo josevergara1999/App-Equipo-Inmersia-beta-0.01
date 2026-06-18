@@ -1063,6 +1063,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
       <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Guionado</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{guiones.length} guiones</div></div>
       <div style={{display:"flex",gap:8}}>
         <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:13,padding:"8px 12px",width:"auto"}}><option value="all">Todas</option>{cos.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}</select>
+        <Bt v="s" onClick={()=>window.open('/guion','_blank')} icon="external">GUION MACHINE</Bt>
         <Bt v="p" onClick={()=>sShowNew(true)} icon="plus">Nuevo guión</Bt>
       </div>
     </div>
