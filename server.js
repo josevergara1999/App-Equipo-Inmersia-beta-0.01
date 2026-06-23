@@ -512,7 +512,7 @@ app.get("/api/meta/insights",async(req,res)=>{
     const prevData=await prevRes.json();
     const mediaRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=9&access_token=${token}`);
     const media=await mediaRes.json();
-    res.json({connected:true,profile,insights:insData.data||[],prevInsights:prevData.data||[],media:media.data||[]});
+    res.json({connected:true,profile,insights:insData.data||[],prevInsights:prevData.data||[],media:media.data||[],_insightsError:insData.error||null,_prevError:prevData.error||null});
   }catch(err){
     console.error("Meta insights error:",err);
     res.status(500).json({error:err.message});
