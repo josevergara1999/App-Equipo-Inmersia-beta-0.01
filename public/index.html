@@ -333,6 +333,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
+  const[editCoLinks,sECL]=useState([]);const[newLinkName,sNLN]=useState("");const[newLinkUrl,sNLU]=useState("");
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());const[wkOff,sWkOff]=useState(0);
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");const[calDirty,sCalDirty]=useState(false);
@@ -729,7 +730,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     <div style={{fontSize:12,color:"var(--tx3)"}}>{pl?.name} · {fP(pl?.price||0)}/mes</div>
                   </div>
                   <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>sEC(c)} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx2)",cursor:"pointer"}}><Ic n="edit" s={14}/></button>
+                    <button onClick={()=>{sEC(c);sECL(c.links||[]);sNLN("");sNLU("");}} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx2)",cursor:"pointer"}}><Ic n="edit" s={14}/></button>
                     <button onClick={()=>{if(confirm("Eliminar "+c.name+"?"))delCo(c.id)}} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx3)",cursor:"pointer"}}><Ic n="trash" s={14}/></button>
                   </div>
                 </div>
@@ -742,6 +743,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasLoyalty?"var(--success)":"var(--tx3)"}}><input type="checkbox" checked={c.hasLoyalty||false} onChange={()=>toggleFt(c.id,"hasLoyalty")} style={{width:14,height:14,padding:0}}/><Ic n="loyalty" s={14}/>Fidelización</label>
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasMeta?"var(--accent2)":"var(--tx3)"}}><input type="checkbox" checked={c.hasMeta||false} onChange={()=>toggleFt(c.id,"hasMeta")} style={{width:14,height:14,padding:0}}/><Ic n="meta" s={14}/>Meta</label>
                 </div>
+                {(c.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                  {(c.links||[]).map(lk=><a key={lk.id} href={lk.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,fontSize:11,fontWeight:600,color:"var(--accent)",textDecoration:"none"}}>🔗 {lk.name}</a>)}
+                </div>}
               </div>
             </div>);})}
           </div>
@@ -760,6 +764,19 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                 <input type="number" min="0" defaultValue={curTasks[k]||0} onChange={e=>{if(!editCo._tasks)editCo._tasks={...curTasks};editCo._tasks[k]=parseInt(e.target.value)||0;}} style={{width:44,fontSize:13,fontWeight:700,padding:"3px 4px",textAlign:"center"}}/>
               </div>);})}
             </div>
+            <div style={{height:1,background:"var(--border)",margin:"14px 0"}}/>
+            <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Links de Drive</div>
+            {editCoLinks.map((lk,i)=>(
+              <div key={lk.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                <a href={lk.url} target="_blank" rel="noreferrer" style={{flex:1,display:"inline-flex",alignItems:"center",gap:6,padding:"7px 12px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:8,fontSize:12,fontWeight:600,color:"var(--accent)",textDecoration:"none",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>🔗 {lk.name}</a>
+                <button onClick={()=>sECL(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:4,flexShrink:0}}><Ic n="x" s={14}/></button>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:6,marginTop:4}}>
+              <input value={newLinkName} onChange={e=>sNLN(e.target.value)} placeholder="Nombre (ej: Drive Fotos)" style={{flex:1,fontSize:12,padding:"7px 10px"}}/>
+              <input value={newLinkUrl} onChange={e=>sNLU(e.target.value)} placeholder="https://drive.google.com/..." style={{flex:2,fontSize:12,padding:"7px 10px"}}/>
+              <Bt v="s" icon="plus" onClick={()=>{if(!newLinkName.trim()||!newLinkUrl.trim())return;sECL(p=>[...p,{id:Date.now(),name:newLinkName.trim(),url:newLinkUrl.trim()}]);sNLN("");sNLU("");}}>Add</Bt>
+            </div>
             <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
               <Bt v="s" onClick={()=>sEC(null)}>Cancelar</Bt>
               <Bt v="p" icon="save" onClick={()=>{
@@ -767,6 +784,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                 if(editCo._planName)updates.planName=editCo._planName;
                 if(editCo._price)updates.price=parseInt(editCo._price);
                 if(editCo._tasks)updates.tasks=editCo._tasks;
+                updates.links=editCoLinks;
                 sCos(p=>p.map(c=>c.id===editCo.id?{...c,...updates}:c));
                 if(editCo._tasks){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(editCo.id)||t.date);return[...keep,...genTasks({...editCo,...updates})];});}
                 addN("✅ "+editCo.name+" actualizada");sEC(null);
@@ -1808,6 +1826,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           <span style={{fontSize:14}}>{v.i}</span><span style={{fontSize:12,fontWeight:700,color:v.c}}>{c} {v.l.toUpperCase()}{c>1?"S":""}</span>
         </div>);})}
       </div>
+      {(co?.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.08)"}}>
+        {(co?.links||[]).map(lk=><a key={lk.id} href={lk.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 12px",background:"rgba(168,226,107,.08)",border:"1px solid rgba(168,226,107,.25)",borderRadius:7,fontSize:11,fontWeight:600,color:"var(--accent)",textDecoration:"none"}}>🔗 {lk.name}</a>)}
+      </div>}
     </div>
 
     {/* PENDING DRAFTS REVIEW */}
