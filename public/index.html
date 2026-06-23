@@ -441,6 +441,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:null});}};
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
   const delCo=coId=>{if(cos.length<=1){addN("❌ No puedes eliminar la última empresa");return;}sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
+  const regenTasks=coId=>{const co=cos.find(c=>c.id===coId);if(!co)return;sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);const fresh=genTasks(co);const next=[...keep,...fresh];DB.save("tasks",next);return next;});addN("🔄 Tareas regeneradas: "+co.name);};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
 
@@ -743,13 +744,16 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasLoyalty?"var(--success)":"var(--tx3)"}}><input type="checkbox" checked={c.hasLoyalty||false} onChange={()=>toggleFt(c.id,"hasLoyalty")} style={{width:14,height:14,padding:0}}/><Ic n="loyalty" s={14}/>Fidelización</label>
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasMeta?"var(--accent2)":"var(--tx3)"}}><input type="checkbox" checked={c.hasMeta||false} onChange={()=>toggleFt(c.id,"hasMeta")} style={{width:14,height:14,padding:0}}/><Ic n="meta" s={14}/>Meta</label>
                 </div>
-                {(c.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+                  <button onClick={()=>{if(confirm("¿Regenerar tareas sin fecha para "+c.name+"? Las tareas ya agendadas se mantienen."))regenTasks(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🔄 Regenerar tareas</button>
+                </div>
+                {(c.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)"}}>
                   {(c.links||[]).map(lk=><a key={lk.id} href={lk.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,fontSize:11,fontWeight:600,color:"var(--accent)",textDecoration:"none"}}>🔗 {lk.name}</a>)}
                 </div>}
               </div>
             </div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};sCos(p=>[...p,nc]);sT(p=>[...p,...genTasks(nc)]);
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};const newCos=[...cos,nc];const newTasks=[...tasks,...genTasks(nc)];sCos(newCos);sT(newTasks);DB.save("companies",newCos);DB.save("tasks",newTasks);
             // Auto-create client user for this company
             const clientId=nId+1;const clientUser={id:clientId,name:nc.name,email:nc.name.toLowerCase().replace(/\s+/g,""),role:"cliente",avatar:nc.name.slice(0,2).toUpperCase(),color:nc.color||"#9d6bff",pass:"1234",companyName:nc.name};
             sGU(prev=>[...prev,clientUser]);
