@@ -1115,7 +1115,7 @@ function MetricasPg({cos,addN}){
     {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
     {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
     {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
-    {label:"Seguidores ganados",val:tot.follows_and_unfollows||0,prev:prevTot.follows_and_unfollows,icon:"📈",color:"#a3e635"},
+    ...(data?.followsAvailable?[{label:"Nuevos seguidores",val:tot.follows||0,prev:prevTot.follows,icon:"📈",color:"#a3e635"}]:[]),
   ];
 
   const tabs=[["resumen","📊 Resumen"],["crecimiento","📈 Crecimiento"],["audiencia","👥 Audiencia"],["contenido","🎨 Contenido"]];
@@ -1179,8 +1179,10 @@ function MetricasPg({cos,addN}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
         {[
           {label:"Seguidores actuales",val:fN(followers),icon:"👥",color:"#a78bfa"},
-          {label:"Seguidores ganados (30d)",val:fN(tot.follows_and_unfollows||0),rawVal:tot.follows_and_unfollows||0,prev:prevTot.follows_and_unfollows,icon:"📈",color:"#34d399"},
-          {label:"Tasa de crecimiento",val:followers>0?((tot.follows_and_unfollows||0)/followers*100).toFixed(2)+"%":"—",icon:"🚀",color:"#60a5fa"},
+          {label:"Nuevos seguidores (30d)",val:data?.followsAvailable?fN(tot.follows||0):"N/D",rawVal:tot.follows||0,prev:data?.followsAvailable?prevTot.follows:null,icon:"📈",color:"#34d399"},
+          {label:"Bajas (30d)",val:data?.followsAvailable?fN(tot.unfollows||0):"N/D",rawVal:tot.unfollows||0,prev:null,icon:"📉",color:"#f87171"},
+          {label:"Neto (30d)",val:data?.followsAvailable?fN(tot.net_follows||0):"N/D",rawVal:tot.net_follows||0,prev:data?.followsAvailable?prevTot.net_follows:null,icon:"🔄",color:"#60a5fa"},
+          {label:"Tasa de crecimiento",val:data?.followsAvailable&&followers>0?((tot.net_follows||0)/followers*100).toFixed(2)+"%":"N/D",icon:"🚀",color:"#a78bfa"},
         ].map(m=>{const t=m.prev!=null?pct(m.rawVal||0,m.prev):null;return(
           <div key={m.label} className="card" style={{padding:"16px 18px"}}>
             <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6}}>{m.icon} {m.label}</div>

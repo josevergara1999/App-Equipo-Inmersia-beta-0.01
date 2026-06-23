@@ -517,16 +517,18 @@ app.get("/api/meta/insights-full",async(req,res)=>{
     const prevSince=since-30*24*60*60;
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
-    const[profileR,reachR,prevReachR,tvR,prevTvR,followerR,demoAgeR,demoCityR,mediaR]=await Promise.all([
+    const[profileR,reachR,prevReachR,tvR,prevTvR,followerR,demoAgeR,demoCityR,mediaR,followsR,prevFollowsR]=await Promise.all([
       fetch(`${B}/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=reach&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=reach&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()),
-      fetch(`${B}/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions,follows_and_unfollows&metric_type=total_value&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
-      fetch(`${B}/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions,follows_and_unfollows&metric_type=total_value&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()),
+      fetch(`${B}/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
+      fetch(`${B}/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=follower_count&metric_type=total_value&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=follower_demographics&metric_type=total_value&period=lifetime&breakdown=age,gender&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=follower_demographics&metric_type=total_value&period=lifetime&breakdown=city&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=24&${T}`).then(r=>r.json()),
+      fetch(`${B}/${igId}/insights?metric=follows_and_unfollows&metric_type=total_value&period=day&since=${since}&until=${until}&breakdown=follow_type&${T}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${B}/${igId}/insights?metric=follows_and_unfollows&metric_type=total_value&period=day&since=${prevSince}&until=${since}&breakdown=follow_type&${T}`).then(r=>r.json()).catch(()=>({})),
     ]);
     if(profileR.error)return res.json({error:profileR.error.message,connected:false});
     const mediaPosts=mediaR.data||[];
@@ -542,10 +544,22 @@ app.get("/api/meta/insights-full",async(req,res)=>{
     const totals={},prevTotals={};
     (tvR.data||[]).forEach(m=>{totals[m.name]=m.total_value?.value||0;});
     (prevTvR.data||[]).forEach(m=>{prevTotals[m.name]=m.total_value?.value||0;});
+    // follows_and_unfollows: sum all breakdown values (follows - unfollows = net)
+    const sumFollows=(d)=>{
+      if(!d?.data?.[0]?.total_value?.breakdowns?.[0]?.results)return null;
+      const r=d.data[0].total_value.breakdowns[0].results;
+      const follows=r.find(x=>x.dimension_values?.[0]==="FOLLOW")?.value||0;
+      const unfollows=r.find(x=>x.dimension_values?.[0]==="UNFOLLOW")?.value||0;
+      return{follows,unfollows,net:follows-unfollows};
+    };
+    const followsData=sumFollows(followsR);
+    const prevFollowsData=sumFollows(prevFollowsR);
+    if(followsData){totals.follows=followsData.follows;totals.unfollows=followsData.unfollows;totals.net_follows=followsData.net;}
+    if(prevFollowsData){prevTotals.follows=prevFollowsData.follows;prevTotals.unfollows=prevFollowsData.unfollows;prevTotals.net_follows=prevFollowsData.net;}
     const followerTrend=(followerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
     const demoAge=demoAgeR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
     const demoCity=demoCityR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
-    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,followerTrend,demoAge,demoCity,media:postInsights});
+    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,followsAvailable:!!followsData,followerTrend,demoAge,demoCity,media:postInsights});
   }catch(err){
     console.error("Meta insights-full error:",err);
     res.status(500).json({error:err.message});
