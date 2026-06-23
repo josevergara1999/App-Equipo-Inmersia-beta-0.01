@@ -505,14 +505,22 @@ app.get("/api/meta/insights",async(req,res)=>{
     const profileRes=await fetch(`https://graph.facebook.com/v19.0/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&access_token=${token}`);
     const profile=await profileRes.json();
     if(profile.error)return res.json({error:profile.error.message,connected:false});
-    const metricsStr="reach,profile_views,accounts_engaged,total_interactions";
-    const insRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${since}&until=${until}&access_token=${token}`);
-    const insData=await insRes.json();
-    const prevRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${prevSince}&until=${since}&access_token=${token}`);
-    const prevData=await prevRes.json();
+    // Reach: serie diaria para gráfico
+    const reachRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=reach&period=day&since=${since}&until=${until}&access_token=${token}`);
+    const reachData=await reachRes.json();
+    const prevReachRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=reach&period=day&since=${prevSince}&until=${since}&access_token=${token}`);
+    const prevReachData=await prevReachRes.json();
+    // Métricas de valor total
+    const tvRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`);
+    const tvData=await tvRes.json();
+    const prevTvRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=profile_views,accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${prevSince}&until=${since}&access_token=${token}`);
+    const prevTvData=await prevTvRes.json();
     const mediaRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=9&access_token=${token}`);
     const media=await mediaRes.json();
-    res.json({connected:true,profile,insights:insData.data||[],prevInsights:prevData.data||[],media:media.data||[],_insightsError:insData.error||null,_prevError:prevData.error||null});
+    const totals={};const prevTotals={};
+    (tvData.data||[]).forEach(m=>{totals[m.name]=m.total_value?.value||0;});
+    (prevTvData.data||[]).forEach(m=>{prevTotals[m.name]=m.total_value?.value||0;});
+    res.json({connected:true,profile,insights:reachData.data||[],prevInsights:prevReachData.data||[],totals,prevTotals,media:media.data||[]});
   }catch(err){
     console.error("Meta insights error:",err);
     res.status(500).json({error:err.message});

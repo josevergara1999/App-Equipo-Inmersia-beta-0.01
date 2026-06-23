@@ -1042,12 +1042,13 @@ function MetricasPg({cos,addN}){
   const sum=(arr,name)=>{const m=(arr||[]).find(i=>i.name===name);if(!m)return 0;return m.values.reduce((s,v)=>s+(v.value||0),0);};
   const trendPct=(curr,prev)=>{if(!prev)return null;return((curr-prev)/prev*100).toFixed(0);};
   const curr=data?.insights||[];const prev=data?.prevInsights||[];
+  const tot=data?.totals||{};const prevTot=data?.prevTotals||{};
   const kMetrics=[
     {key:"followers",label:"Seguidores",val:data?.profile?.followers_count||0,icon:"👥",color:"#a78bfa"},
     {key:"reach",label:"Alcance",val:sum(curr,"reach"),prevVal:sum(prev,"reach"),icon:"📡",color:"#34d399"},
-    {key:"total_interactions",label:"Interacciones",val:sum(curr,"total_interactions"),prevVal:sum(prev,"total_interactions"),icon:"👁",color:"#60a5fa"},
-    {key:"accounts_engaged",label:"Cuentas activas",val:sum(curr,"accounts_engaged"),prevVal:sum(prev,"accounts_engaged"),icon:"🔥",color:"#f87171"},
-    {key:"profile_views",label:"Visitas perfil",val:sum(curr,"profile_views"),prevVal:sum(prev,"profile_views"),icon:"🔍",color:"#f59e0b"},
+    {key:"total_interactions",label:"Interacciones",val:tot.total_interactions||0,prevVal:prevTot.total_interactions,icon:"👁",color:"#60a5fa"},
+    {key:"accounts_engaged",label:"Cuentas activas",val:tot.accounts_engaged||0,prevVal:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
+    {key:"profile_views",label:"Visitas perfil",val:tot.profile_views||0,prevVal:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
   ];
   const chartVals=(curr.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0);
 
