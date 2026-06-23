@@ -1115,7 +1115,7 @@ function MetricasPg({cos,addN}){
     {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
     {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
     {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
-    ...(data?.followsAvailable?[{label:"Nuevos seguidores",val:tot.follows||0,prev:prevTot.follows,icon:"📈",color:"#a3e635"}]:[]),
+    ...(data?.followerGrowth!=null?[{label:"Crecimiento",val:data.followerGrowth,prev:data.prevFollowerGrowth,icon:"📈",color:"#a3e635"}]:[]),
   ];
 
   const tabs=[["resumen","📊 Resumen"],["crecimiento","📈 Crecimiento"],["audiencia","👥 Audiencia"],["contenido","🎨 Contenido"]];
@@ -1179,9 +1179,8 @@ function MetricasPg({cos,addN}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
         {[
           {label:"Seguidores actuales",val:fN(followers),icon:"👥",color:"#a78bfa"},
-          {label:"Neto seguidores (30d)",val:data?.followsAvailable?fN(tot.net_follows||0):"N/D",rawVal:tot.net_follows||0,prev:data?.followsAvailable?prevTot.net_follows:null,icon:"🔄",color:"#34d399"},
-          ...(tot.follows!=null?[{label:"Nuevos (30d)",val:fN(tot.follows||0),rawVal:tot.follows||0,prev:null,icon:"📈",color:"#a3e635"},{label:"Bajas (30d)",val:fN(tot.unfollows||0),rawVal:tot.unfollows||0,prev:null,icon:"📉",color:"#f87171"}]:[]),
-          {label:"Tasa de crecimiento",val:data?.followsAvailable&&followers>0?((tot.net_follows||0)/followers*100).toFixed(2)+"%":"N/D",icon:"🚀",color:"#a78bfa"},
+                {label:"Crecimiento neto (30d)",val:data?.followerGrowth!=null?fN(data.followerGrowth):"N/D",rawVal:data?.followerGrowth||0,prev:data?.prevFollowerGrowth,icon:"📈",color:"#34d399"},
+          {label:"Tasa de crecimiento",val:data?.followerGrowth!=null&&followers>0?(data.followerGrowth/followers*100).toFixed(2)+"%":"N/D",icon:"🚀",color:"#a78bfa"},
         ].map(m=>{const t=m.prev!=null?pct(m.rawVal||0,m.prev):null;return(
           <div key={m.label} className="card" style={{padding:"16px 18px"}}>
             <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6}}>{m.icon} {m.label}</div>
@@ -1189,14 +1188,19 @@ function MetricasPg({cos,addN}){
             {t!==null&&<div style={{fontSize:12,marginTop:4,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
           </div>);})}
       </div>
+      {(data?.followerTrend||[]).length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución de seguidores</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Conteo diario · últimos 30 días</div>
+        <MiniLineChart values={(data.followerTrend||[]).map(v=>v.value||0)} color="#a78bfa"/>
+      </div>}
       {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución del alcance</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos 30 días vs periodo anterior</div>
-        <MiniLineChart values={chartVals} color="#a78bfa"/>
-        {prev.length>0&&<div style={{marginTop:8,opacity:.6}}><MiniLineChart values={(prev.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0)} color="#a78bfa" h={40}/></div>}
+        <MiniLineChart values={chartVals} color="#34d399"/>
+        {prev.length>0&&<div style={{marginTop:8,opacity:.5}}><MiniLineChart values={(prev.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0)} color="#34d399" h={40}/></div>}
         <div style={{display:"flex",gap:16,marginTop:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:"#a78bfa",borderRadius:2}}/> Período actual</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:"#a78bfa",borderRadius:2}}/> Período anterior</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Período actual</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Período anterior</div>
         </div>
       </div>}
       {bestDays.length>0&&<div className="card" style={{padding:20}}>
