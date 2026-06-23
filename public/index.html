@@ -1770,12 +1770,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   },[grabRefresh]);
   const[lightbox,sLightbox]=useState(null);
   const[showGrabPicker,sShowGrabPicker]=useState(null);
+  const[grabTime,sGrabTime]=useState("");
   const[expandedGrab,sExpandedGrab]=useState({});// {dayGrabKey: "guion"|"crono"|null}
 
   // Grabación days linked per planner day — stores {id, guionId?}
   const grabKey="grab_"+weekKey;
   const getGrabLinks=()=>{try{return JSON.parse(localStorage.getItem(grabKey)||"{}")}catch{return{}}};
-  const linkGrab=(day,guionId)=>{const links=getGrabLinks();const entry={id:Date.now(),guionId:guionId||null};links[day]=[...(links[day]||[]),entry];localStorage.setItem(grabKey,JSON.stringify(links));sShowGrabPicker(null);addN("🎬 Día de grabación agregado");};
+  const linkGrab=(day,guionId,time)=>{const links=getGrabLinks();const entry={id:Date.now(),guionId:guionId||null,time:time||null};links[day]=[...(links[day]||[]),entry];localStorage.setItem(grabKey,JSON.stringify(links));sShowGrabPicker(null);sGrabTime("");addN("🎬 Día de grabación agregado");};
   const unlinkGrab=(day,entryId)=>{const links=getGrabLinks();links[day]=(links[day]||[]).filter(e=>e.id!==entryId);localStorage.setItem(grabKey,JSON.stringify(links));};
   const dayGrabEntries=(day)=>{const links=getGrabLinks();return(links[day]||[]).map(e=>({...e,guion:e.guionId?guiones.find(g=>g.id===e.guionId):null}));};
 
@@ -1941,6 +1942,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <Ic n="camera" s={16} c="var(--accent)"/>
                 <div style={{fontSize:12,fontWeight:600}}>🎬 Día de Grabación{g?" — "+g.title:""}</div>
+                {entry.time&&<div style={{fontSize:10,color:"var(--accent)",fontFamily:"var(--font-mono)",marginTop:1}}>⏰ {entry.time}</div>}
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}}>
                 {g&&g.hasScript!==false&&<button onClick={()=>sExpandedGrab(p=>({...p,[eKey]:p[eKey]==="guion"?null:"guion"}))} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:expG==="guion"?"rgba(199,125,255,.15)":"rgba(199,125,255,.06)",border:"1px solid rgba(199,125,255,.3)",borderRadius:6,color:"#c77dff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}><Ic n="edit" s={12} c="#c77dff"/>Guión</button>}
@@ -1986,26 +1988,33 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
         {/* Grab picker */}
         {showGrabPicker===wd.ds&&(<div style={{margin:"0 0 8px",padding:12,background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:600}}>Agregar día de grabación</span><button onClick={()=>sShowGrabPicker(null)} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer"}}><Ic n="x" s={14}/></button></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><span style={{fontSize:12,fontWeight:600}}>Agregar día de grabación</span><button onClick={()=>{sShowGrabPicker(null);sGrabTime("");}} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer"}}><Ic n="x" s={14}/></button></div>
+
+          {/* Horario */}
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:11,color:"var(--tx2)",display:"block",marginBottom:4,fontWeight:500}}>Horario de grabación</label>
+            <input type="time" value={grabTime} onChange={e=>sGrabTime(e.target.value)} style={{fontSize:13,padding:"6px 10px",width:"100%",boxSizing:"border-box"}}/>
+          </div>
 
           {/* Sin guión */}
-          <button onClick={()=>linkGrab(wd.ds,null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:6,textAlign:"left"}}>
+          <button onClick={()=>linkGrab(wd.ds,null,grabTime)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:6,textAlign:"left"}}>
             <div style={{width:28,height:28,borderRadius:7,background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="camera" s={14} c="var(--accent)"/></div>
             <div><div style={{fontSize:12,fontWeight:600}}>🎬 Sin guión</div><div style={{fontSize:10,color:"var(--tx3)"}}>Solo marcar día de grabación</div></div>
           </button>
 
-          {/* Con guión */}
-          {guiones.filter(g=>String(g.companyId)===String(selCo)).length>0&&<div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,margin:"8px 0 4px",letterSpacing:".06em"}}>CON GUIÓN</div>}
-          {guiones.filter(g=>String(g.companyId)===String(selCo)).map(g=>(<button key={g.id} onClick={()=>linkGrab(wd.ds,g.id)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:4,textAlign:"left"}}>
+          {/* Con guión — todos sin filtrar por empresa */}
+          {guiones.length>0&&<div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,margin:"8px 0 4px",letterSpacing:".06em"}}>CON GUIÓN</div>}
+          {guiones.map(g=>{const gCo=cos.find(c=>String(c.id)===String(g.companyId));return(<button key={g.id} onClick={()=>linkGrab(wd.ds,g.id,grabTime)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:4,textAlign:"left"}}>
             <div style={{width:28,height:28,borderRadius:7,background:"#c77dff22",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="edit" s={14} c="#c77dff"/></div>
             <div style={{flex:1}}>
               <div style={{fontSize:12,fontWeight:600}}>{g.title}</div>
-              <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2}}>
+              <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,flexWrap:"wrap"}}>
                 <Bg color={TT[g.type]?.c} style={{fontSize:9,padding:"1px 5px"}}>{TT[g.type]?.l}</Bg>
+                {gCo&&<span style={{fontSize:10,color:"var(--tx3)",fontStyle:"italic"}}>{gCo.name}</span>}
                 <span style={{fontSize:10,color:"var(--tx3)"}}>{(g.lines||[]).length} líneas{(g.schedule||[]).length>0?" · "+g.schedule.length+" bloques crono":""}</span>
               </div>
             </div>
-          </button>))}
+          </button>);})}
         </div>)}
       </div>);
     })}
