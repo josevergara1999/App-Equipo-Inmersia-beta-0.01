@@ -1051,6 +1051,7 @@ function MetricasPg({cos,addN}){
   const[loading,sLoading]=useState(false);
   const[tab,sTab]=useState("resumen");
   const[postSort,sPostSort]=useState("engagement");
+  const[periodDays,sPeriodDays]=useState(30);
   const igCos=cos.filter(c=>c.igId);
 
   useEffect(()=>{
@@ -1063,17 +1064,22 @@ function MetricasPg({cos,addN}){
     const co=cos.find(c=>c.id===selCo);
     if(!co?.igId)return;
     sLoading(true);sData(null);
-    fetch(`/api/meta/insights-full?igId=${co.igId}`).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
-  },[selCo,metaSt?.connected]);
+    fetch(`/api/meta/insights-full?igId=${co.igId}&days=${periodDays}`).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
+  },[selCo,metaSt?.connected,periodDays]);
 
   const sum=(arr,name)=>{const m=(arr||[]).find(i=>i.name===name);if(!m)return 0;return m.values.reduce((s,v)=>s+(v.value||0),0);};
   const pct=(c,p)=>{if(!p)return null;return((c-p)/p*100).toFixed(0);};
   const fN=(n)=>(n||0).toLocaleString("es-CL");
+  const aggWeekly=(vals,mode="sum")=>{if(vals.length<=35)return vals;const w=[];for(let i=0;i<vals.length;i+=7){const c=vals.slice(i,i+7);w.push(mode==="last"?c[c.length-1]:c.reduce((s,v)=>s+v,0));}return w;};
 
   const curr=data?.insights||[];const prev=data?.prevInsights||[];
   const tot=data?.totals||{};const prevTot=data?.prevTotals||{};
   const followers=data?.profile?.followers_count||0;
-  const chartVals=(curr.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0);
+  const periodLabel=periodDays===30?"30 días":periodDays===90?"3 meses":"6 meses";
+  const rawChartVals=(curr.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0);
+  const chartVals=aggWeekly(rawChartVals);
+  const prevChartVals=aggWeekly((prev.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0));
+  const followerChartVals=aggWeekly((data?.followerTrend||[]).map(v=>v.value||0),"last");
 
   const ageGender=data?.demoAge||[];
   const ageMap={};
@@ -1126,9 +1132,12 @@ function MetricasPg({cos,addN}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
       <div>
         <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Métricas Instagram</h1>
-        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Últimos 30 días · Meta Graph API</div>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Meta Graph API</div>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:3,background:"var(--bg3)",borderRadius:8,padding:3,border:"1px solid var(--border)"}}>
+          {[[30,"30d"],[90,"3m"],[180,"6m"]].map(([d,l])=><button key={d} onClick={()=>sPeriodDays(d)} style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:600,border:"none",background:periodDays===d?"var(--accent)":"transparent",color:periodDays===d?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>)}
+        </div>
         {metaSt&&(metaSt.connected?<Bg color="var(--success)">✓ {metaSt.user}</Bg>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
       </div>
     </div>
@@ -1157,8 +1166,8 @@ function MetricasPg({cos,addN}){
           </div>);})}
       </div>
       {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance diario</div>
-        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos 30 días</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos {periodLabel}{periodDays>30?" · agrupado por semana":""}</div>
         <MiniLineChart values={chartVals} color="#34d399"/>
       </div>}
       {data.media?.length>0&&<div className="card" style={{padding:20}}>
@@ -1188,16 +1197,16 @@ function MetricasPg({cos,addN}){
             {t!==null&&<div style={{fontSize:12,marginTop:4,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
           </div>);})}
       </div>
-      {(data?.followerTrend||[]).length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
+      {followerChartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución de seguidores</div>
-        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Conteo diario · últimos 30 días</div>
-        <MiniLineChart values={(data.followerTrend||[]).map(v=>v.value||0)} color="#a78bfa"/>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos {periodLabel}{periodDays>30?" · agrupado por semana":""}</div>
+        <MiniLineChart values={followerChartVals} color="#a78bfa"/>
       </div>}
       {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución del alcance</div>
-        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos 30 días vs periodo anterior</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos {periodLabel} vs periodo anterior{periodDays>30?" · por semana":""}</div>
         <MiniLineChart values={chartVals} color="#34d399"/>
-        {prev.length>0&&<div style={{marginTop:8,opacity:.5}}><MiniLineChart values={(prev.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0)} color="#34d399" h={40}/></div>}
+        {prevChartVals.length>0&&<div style={{marginTop:8,opacity:.5}}><MiniLineChart values={prevChartVals} color="#34d399" h={40}/></div>}
         <div style={{display:"flex",gap:16,marginTop:8}}>
           <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Período actual</div>
           <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Período anterior</div>

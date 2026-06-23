@@ -512,9 +512,10 @@ app.get("/api/meta/insights-full",async(req,res)=>{
     if(!igId)return res.status(400).json({error:"igId requerido"});
     const token=await getMetaToken();
     if(!token)return res.json({error:"Meta no conectado",connected:false});
+    const days=Math.min(parseInt(req.query.days)||30,180);
     const until=Math.floor(Date.now()/1000);
-    const since=until-30*24*60*60;
-    const prevSince=since-30*24*60*60;
+    const since=until-days*24*60*60;
+    const prevSince=since-days*24*60*60;
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
     const[profileR,reachR,prevReachR,tvR,prevTvR,followerR,prevFollowerR,demoAgeR,demoCityR,mediaR]=await Promise.all([
