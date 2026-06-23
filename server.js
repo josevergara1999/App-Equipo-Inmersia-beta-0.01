@@ -584,6 +584,44 @@ app.get("/api/meta/insights-full",async(req,res)=>{
   }
 });
 
+// Temporary analysis endpoint: paginates through all media, fetches insights per post
+app.get("/api/meta/posts-analysis",async(req,res)=>{
+  try{
+    const{igId,since,until}=req.query;
+    if(!igId)return res.status(400).json({error:"igId requerido"});
+    const token=await getMetaToken();
+    if(!token)return res.json({error:"no token"});
+    const sinceTs=since?parseInt(since):0;
+    const untilTs=until?parseInt(until):Math.floor(Date.now()/1000);
+    const B=`https://graph.facebook.com/v19.0`;
+    const T=`access_token=${token}`;
+    // Paginate through media until we have all posts in date range
+    let url=`${B}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=50&${T}`;
+    let allPosts=[];let pages=0;
+    while(url&&pages<10){
+      const r=await fetch(url).then(r=>r.json());
+      const batch=r.data||[];
+      // Filter to range
+      const inRange=batch.filter(p=>{const t=new Date(p.timestamp).getTime()/1000;return t>=sinceTs&&t<=untilTs;});
+      const tooOld=batch.some(p=>new Date(p.timestamp).getTime()/1000<sinceTs);
+      allPosts=[...allPosts,...inRange];
+      if(tooOld||!r.paging?.next)break;
+      url=r.paging.next;pages++;
+    }
+    // Fetch insights for each post in parallel
+    const withInsights=await Promise.all(allPosts.map(async p=>{
+      try{
+        const m=p.media_type==="VIDEO"?"reach,plays,likes,comments,shares,saved":"reach,likes,comments,shares,saved";
+        const ins=await fetch(`${B}/${p.id}/insights?metric=${m}&${T}`).then(r=>r.json());
+        const map={};(ins.data||[]).forEach(i=>{map[i.name]=i.values?.[0]?.value||0;});
+        return{...p,ins:map,eng:(p.like_count||0)+(p.comments_count||0)+(map.saved||0)+(map.shares||0)};
+      }catch{return{...p,ins:{},eng:(p.like_count||0)+(p.comments_count||0)};}
+    }));
+    withInsights.sort((a,b)=>b.eng-a.eng);
+    res.json({posts:withInsights,count:withInsights.length});
+  }catch(err){res.status(500).json({error:err.message});}
+});
+
 app.get("/api/meta/insights",async(req,res)=>{
   try{
     const{igId}=req.query;
