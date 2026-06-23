@@ -457,9 +457,11 @@ app.get("/api/auth/callback/meta",async(req,res)=>{
 });
 
 async function getMetaToken(){
-  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  if(process.env.META_ACCESS_TOKEN)return process.env.META_ACCESS_TOKEN;
   try{
+    const sbUrl=process.env.SUPABASE_URL;
+    const sbKey=process.env.SUPABASE_KEY;
+    if(!sbUrl||!sbKey)return null;
     const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.meta_token&select=value`,{headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`}});
     const d=await r.json();
     return d?.[0]?.value?.token||null;
@@ -486,15 +488,8 @@ app.get("/api/meta/exchange",async(req,res)=>{
     const llRes=await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${token}`);
     const llData=await llRes.json();
     if(!llData.access_token)return res.json({error:"Exchange falló",details:llData});
-    const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-    const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
-    await fetch(`${sbUrl}/rest/v1/app_data`,{
-      method:"POST",
-      headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
-      body:JSON.stringify({key:"meta_token",value:{token:llData.access_token,expires_at:Date.now()+(llData.expires_in||5183944)*1000},updated_at:new Date().toISOString()})
-    });
     const dias=Math.floor((llData.expires_in||5183944)/86400);
-    res.json({ok:true,mensaje:`Token guardado correctamente, expira en ${dias} días`});
+    res.json({ok:true,dias,token:llData.access_token,instruccion:`Agrega META_ACCESS_TOKEN en Render con el valor del campo "token"`});
   }catch(err){res.status(500).json({error:err.message});}
 });
 
