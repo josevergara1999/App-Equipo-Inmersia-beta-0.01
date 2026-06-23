@@ -1049,88 +1049,251 @@ function MetricasPg({cos,addN}){
   const[selCo,sSelCo]=useState(null);
   const[data,sData]=useState(null);
   const[loading,sLoading]=useState(false);
+  const[tab,sTab]=useState("resumen");
+  const[postSort,sPostSort]=useState("engagement");
   const igCos=cos.filter(c=>c.igId);
 
   useEffect(()=>{
     fetch("/api/meta/status").then(r=>r.json()).then(sMetaSt).catch(()=>sMetaSt({connected:false}));
     if(sessionStorage.getItem("meta_connected")){addN("✅ Meta conectado correctamente");sessionStorage.removeItem("meta_connected");}
   },[]);
-
   useEffect(()=>{if(igCos.length>0&&!selCo)sSelCo(igCos[0].id);},[cos.length]);
-
   useEffect(()=>{
     if(!selCo||!metaSt?.connected)return;
     const co=cos.find(c=>c.id===selCo);
     if(!co?.igId)return;
     sLoading(true);sData(null);
-    fetch(`/api/meta/insights?igId=${co.igId}`).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
+    fetch(`/api/meta/insights-full?igId=${co.igId}`).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
   },[selCo,metaSt?.connected]);
 
   const sum=(arr,name)=>{const m=(arr||[]).find(i=>i.name===name);if(!m)return 0;return m.values.reduce((s,v)=>s+(v.value||0),0);};
-  const trendPct=(curr,prev)=>{if(!prev)return null;return((curr-prev)/prev*100).toFixed(0);};
+  const pct=(c,p)=>{if(!p)return null;return((c-p)/p*100).toFixed(0);};
+  const fN=(n)=>(n||0).toLocaleString("es-CL");
+
   const curr=data?.insights||[];const prev=data?.prevInsights||[];
   const tot=data?.totals||{};const prevTot=data?.prevTotals||{};
-  const kMetrics=[
-    {key:"followers",label:"Seguidores",val:data?.profile?.followers_count||0,icon:"👥",color:"#a78bfa"},
-    {key:"reach",label:"Alcance",val:sum(curr,"reach"),prevVal:sum(prev,"reach"),icon:"📡",color:"#34d399"},
-    {key:"total_interactions",label:"Interacciones",val:tot.total_interactions||0,prevVal:prevTot.total_interactions,icon:"👁",color:"#60a5fa"},
-    {key:"accounts_engaged",label:"Cuentas activas",val:tot.accounts_engaged||0,prevVal:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
-    {key:"profile_views",label:"Visitas perfil",val:tot.profile_views||0,prevVal:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
-  ];
+  const followers=data?.profile?.followers_count||0;
   const chartVals=(curr.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0);
 
+  const ageGender=data?.demoAge||[];
+  const ageMap={};
+  ageGender.forEach(r=>{const age=r.dimension_values?.[0];if(age)ageMap[age]=(ageMap[age]||0)+r.value;});
+  const ageArr=Object.entries(ageMap).sort((a,b)=>a[0].localeCompare(b[0]));
+  const ageMax=Math.max(...ageArr.map(([,v])=>v),1);
+  const genderMap={F:0,M:0,U:0};
+  ageGender.forEach(r=>{const g=r.dimension_values?.[1];if(g)genderMap[g]=(genderMap[g]||0)+r.value;});
+  const gTotal=Object.values(genderMap).reduce((s,v)=>s+v,0)||1;
+  const cities=(data?.demoCity||[]).sort((a,b)=>b.value-a.value).slice(0,8);
+  const cityMax=cities[0]?.value||1;
+
+  const posts=(data?.media||[]).map(p=>{
+    const likes=p.like_count||0;const comments=p.comments_count||0;
+    const saves=p.ins?.saved||0;const shares=p.ins?.shares||0;const reach=p.ins?.reach||0;
+    const interactions=likes+comments+saves+shares;
+    const engRate=followers>0?(interactions/followers*100):0;
+    const reachEngRate=reach>0?(interactions/reach*100):0;
+    return{...p,likes,comments,saves,shares,reach,interactions,engRate:parseFloat(engRate.toFixed(2)),reachEngRate:parseFloat(reachEngRate.toFixed(2))};
+  });
+  const sortedPosts=[...posts].sort((a,b)=>{
+    if(postSort==="engagement")return b.engRate-a.engRate;
+    if(postSort==="reach")return b.reach-a.reach;
+    if(postSort==="likes")return b.likes-a.likes;
+    if(postSort==="saves")return b.saves-a.saves;
+    return new Date(b.timestamp)-new Date(a.timestamp);
+  });
+  const typeMap={};
+  posts.forEach(p=>{if(!typeMap[p.media_type])typeMap[p.media_type]={count:0,eng:0,reach:0};typeMap[p.media_type].count++;typeMap[p.media_type].eng+=p.engRate;typeMap[p.media_type].reach+=p.reach;});
+  const typeArr=Object.entries(typeMap).map(([t,d])=>({t,count:d.count,avgEng:(d.eng/d.count).toFixed(2),avgReach:Math.round(d.reach/d.count)}));
+  const typeLabel={IMAGE:"📷 Fotos",VIDEO:"🎬 Videos",CAROUSEL_ALBUM:"🖼 Carruseles"};
+  const dayMap={};
+  posts.forEach(p=>{const day=new Date(p.timestamp).toLocaleDateString("es-CL",{weekday:"short"});if(!dayMap[day])dayMap[day]={count:0,eng:0};dayMap[day].count++;dayMap[day].eng+=p.engRate;});
+  const bestDays=Object.entries(dayMap).map(([day,d])=>({day,avg:(d.eng/d.count).toFixed(2)})).sort((a,b)=>b.avg-a.avg);
+
+  const kMetrics=[
+    {label:"Seguidores",val:followers,icon:"👥",color:"#a78bfa"},
+    {label:"Alcance",val:sum(curr,"reach"),prev:sum(prev,"reach"),icon:"📡",color:"#34d399"},
+    {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
+    {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
+    {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
+    {label:"Seguidores ganados",val:tot.follows_and_unfollows||0,prev:prevTot.follows_and_unfollows,icon:"📈",color:"#a3e635"},
+  ];
+
+  const tabs=[["resumen","📊 Resumen"],["crecimiento","📈 Crecimiento"],["audiencia","👥 Audiencia"],["contenido","🎨 Contenido"]];
+
+  if(igCos.length===0)return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}><div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>📊</div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Sin cuentas conectadas</div><div style={{fontSize:13}}>Edita una empresa y agrega su ID de Instagram</div></div></div>);
+
   return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
-      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Métricas Instagram</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Últimos 30 días · Meta Graph API</div></div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {metaSt&&(metaSt.connected?<Bg color="var(--success)">✓ Conectado · {metaSt.user}</Bg>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}><Ic n="meta" s={16} c="#fff"/>Conectar con Meta</a>)}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+      <div>
+        <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Métricas Instagram</h1>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Últimos 30 días · Meta Graph API</div>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        {metaSt&&(metaSt.connected?<Bg color="var(--success)">✓ {metaSt.user}</Bg>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
       </div>
     </div>
 
-    {igCos.length>0&&<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-      {igCos.map(c=><button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 14px",borderRadius:9,fontSize:13,fontWeight:600,border:`2px solid ${selCo===c.id?c.color:"var(--border)"}`,background:selCo===c.id?c.color+"22":"transparent",color:selCo===c.id?c.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>)}
+    {igCos.length>1&&<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+      {igCos.map(c=><button key={c.id} onClick={()=>{sSelCo(c.id);sData(null);}} style={{padding:"7px 14px",borderRadius:9,fontSize:13,fontWeight:600,border:`2px solid ${selCo===c.id?c.color:"var(--border)"}`,background:selCo===c.id?c.color+"22":"transparent",color:selCo===c.id?c.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>)}
     </div>}
 
-    {igCos.length===0&&<div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>📊</div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Sin cuentas conectadas</div><div style={{fontSize:13}}>Edita una empresa → agrega el ID de Instagram en el campo correspondiente</div></div>}
+    {metaSt&&!metaSt.connected&&<div className="card" style={{padding:32,textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>📱</div><div style={{fontSize:16,fontWeight:600,marginBottom:8}}>Conecta tu cuenta de Meta</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar con Meta</a></div>}
 
-    {igCos.length>0&&metaSt&&!metaSt.connected&&<div className="card" style={{padding:32,textAlign:"center"}}><div style={{fontSize:36,marginBottom:10}}>📱</div><div style={{fontSize:16,fontWeight:600,marginBottom:8}}>Conecta tu cuenta de Meta</div><div style={{fontSize:13,color:"var(--tx3)",marginBottom:16}}>Autoriza el acceso para ver métricas automáticas</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}><Ic n="meta" s={16} c="#fff"/>Conectar con Meta</a></div>}
+    {metaSt?.connected&&<div style={{display:"flex",gap:4,marginBottom:20,borderBottom:"1px solid var(--border)",paddingBottom:0}}>
+      {tabs.map(([k,l])=><button key={k} onClick={()=>sTab(k)} style={{padding:"8px 16px",background:"transparent",border:"none",borderBottom:`2px solid ${tab===k?"var(--accent)":"transparent"}`,color:tab===k?"var(--accent)":"var(--tx2)",fontSize:13,fontWeight:tab===k?600:400,cursor:"pointer",fontFamily:"inherit",marginBottom:-1}}>{l}</button>)}
+    </div>}
 
-    {loading&&<div style={{textAlign:"center",padding:40,color:"var(--tx3)"}}><div style={{display:"inline-flex",gap:5}}>{[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"var(--accent)",opacity:.6,animation:`pulse 1s infinite ${i*.2}s`}}/>)}</div><div style={{marginTop:10,fontSize:13}}>Cargando métricas...</div></div>}
+    {loading&&<div style={{textAlign:"center",padding:60,color:"var(--tx3)"}}><div style={{display:"inline-flex",gap:5}}>{[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"var(--accent)",opacity:.6,animation:`pulse 1s infinite ${i*.2}s`}}/>)}</div><div style={{marginTop:10,fontSize:13}}>Cargando métricas...</div></div>}
 
-    {data?.error&&<div className="card" style={{padding:20,borderColor:"rgba(255,90,78,.3)"}}><div style={{color:"var(--danger)",fontSize:14,fontWeight:600}}>Error: {data.error}</div>{!data.connected&&<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,padding:"8px 14px",background:"#1877F2",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>Reconectar Meta</a>}</div>}
+    {data?.error&&<div className="card" style={{padding:20,borderColor:"rgba(255,90,78,.3)"}}><div style={{color:"var(--danger)",fontSize:14,fontWeight:600}}>Error: {data.error}</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,padding:"8px 14px",background:"#1877F2",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>Reconectar</a></div>}
 
-    {data?.connected&&!loading&&<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:20}}>
-        {kMetrics.map(m=>{const t=m.prevVal!=null?trendPct(m.val,m.prevVal):null;return(
-          <div key={m.key} className="card" style={{padding:"16px 18px"}}>
-            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6}}>{m.icon} {m.label}</div>
-            <div className="num" style={{fontSize:30,fontWeight:700,color:m.color,letterSpacing:"-0.02em"}}>{(m.val||0).toLocaleString("es-CL")}</div>
-            {t!==null&&<div style={{fontSize:12,marginTop:4,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"} {Math.abs(t)}% vs mes anterior</div>}
-          </div>);
-        })}
+    {data?.connected&&!loading&&tab==="resumen"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
+        {kMetrics.map(m=>{const t=m.prev!=null?pct(m.val,m.prev):null;return(
+          <div key={m.label} className="card" style={{padding:"14px 16px"}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{m.icon} {m.label}</div>
+            <div className="num" style={{fontSize:24,fontWeight:700,color:m.color}}>{fN(m.val)}</div>
+            {t!==null&&<div style={{fontSize:11,marginTop:3,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
+          </div>);})}
       </div>
-
-      {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:20}}>
+      {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance diario</div>
-        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Evolución últimos 30 días</div>
-        <MiniLineChart values={chartVals} color="#60a5fa"/>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos 30 días</div>
+        <MiniLineChart values={chartVals} color="#34d399"/>
       </div>}
-
-      {(data.media||[]).length>0&&<div className="card" style={{padding:20}}>
+      {data.media?.length>0&&<div className="card" style={{padding:20}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Publicaciones recientes</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
-          {(data.media||[]).map(post=>(
-            <div key={post.id} style={{background:"var(--bg3)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
-              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx3)",fontSize:28}}>{post.media_type==="VIDEO"?"🎬":"📷"}</div>}
-              <div style={{padding:"8px 10px"}}>
-                <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{new Date(post.timestamp).toLocaleDateString("es-CL",{day:"numeric",month:"short"})}</div>
-                {post.caption&&<div style={{fontSize:11,color:"var(--tx2)",marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{post.caption}</div>}
-                <div style={{display:"flex",gap:10,fontSize:12,color:"var(--tx3)"}}><span>❤️ {(post.like_count||0).toLocaleString()}</span><span>💬 {(post.comments_count||0).toLocaleString()}</span></div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
+          {data.media.slice(0,6).map(post=>(
+            <div key={post.id} style={{background:"var(--bg3)",borderRadius:8,overflow:"hidden",border:"1px solid var(--border)"}}>
+              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{post.media_type==="VIDEO"?"🎬":"📷"}</div>}
+              <div style={{padding:"6px 8px"}}>
+                <div style={{fontSize:12,color:"var(--tx3)",display:"flex",gap:8}}><span>❤️ {fN(post.like_count)}</span><span>💬 {fN(post.comments_count)}</span></div>
               </div>
-            </div>
-          ))}
+            </div>))}
         </div>
       </div>}
+    </>}
+
+    {data?.connected&&!loading&&tab==="crecimiento"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
+        {[
+          {label:"Seguidores actuales",val:fN(followers),icon:"👥",color:"#a78bfa"},
+          {label:"Seguidores ganados (30d)",val:fN(tot.follows_and_unfollows||0),rawVal:tot.follows_and_unfollows||0,prev:prevTot.follows_and_unfollows,icon:"📈",color:"#34d399"},
+          {label:"Tasa de crecimiento",val:followers>0?((tot.follows_and_unfollows||0)/followers*100).toFixed(2)+"%":"—",icon:"🚀",color:"#60a5fa"},
+        ].map(m=>{const t=m.prev!=null?pct(m.rawVal||0,m.prev):null;return(
+          <div key={m.label} className="card" style={{padding:"16px 18px"}}>
+            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6}}>{m.icon} {m.label}</div>
+            <div className="num" style={{fontSize:26,fontWeight:700,color:m.color}}>{m.val}</div>
+            {t!==null&&<div style={{fontSize:12,marginTop:4,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
+          </div>);})}
+      </div>
+      {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución del alcance</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos 30 días vs periodo anterior</div>
+        <MiniLineChart values={chartVals} color="#a78bfa"/>
+        {prev.length>0&&<div style={{marginTop:8,opacity:.6}}><MiniLineChart values={(prev.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0)} color="#a78bfa" h={40}/></div>}
+        <div style={{display:"flex",gap:16,marginTop:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:"#a78bfa",borderRadius:2}}/> Período actual</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:"#a78bfa",borderRadius:2}}/> Período anterior</div>
+        </div>
+      </div>}
+      {bestDays.length>0&&<div className="card" style={{padding:20}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Mejor día para publicar</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}}>
+          {bestDays.map((d,i)=><div key={d.day} style={{padding:"12px 10px",borderRadius:10,background:i===0?"var(--accent)22":i===1?"var(--accent)11":"var(--bg3)",border:`1px solid ${i===0?"var(--accent)":"var(--border)"}`,textAlign:"center"}}>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{d.day}</div>
+            <div className="num" style={{fontSize:16,fontWeight:700,color:i===0?"var(--accent)":"var(--tx)"}}>{d.avg}%</div>
+            {i===0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2}}>⭐ Mejor</div>}
+          </div>)}
+        </div>
+      </div>}
+    </>}
+
+    {data?.connected&&!loading&&tab==="audiencia"&&<>
+      {ageArr.length>0&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>Distribución por edad</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:16}}>Porcentaje de seguidores por grupo etario</div>
+        {ageArr.map(([age,val])=><div key={age} style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+            <span style={{fontWeight:500}}>{age}</span>
+            <span style={{color:"var(--tx3)"}}>{fN(val)} · {Math.round(val/ageMax*100)}%</span>
+          </div>
+          <div style={{height:8,background:"var(--bg4)",borderRadius:4,overflow:"hidden"}}>
+            <div style={{width:(val/ageMax*100)+"%",height:"100%",background:"var(--accent)",borderRadius:4,transition:"width .4s"}}/>
+          </div>
+        </div>)}
+      </div>}
+      {gTotal>1&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Distribución por género</div>
+        <div style={{display:"flex",gap:12,alignItems:"center"}}>
+          {[["F","Mujeres","#f472b6"],["M","Hombres","#60a5fa"],["U","Otro","#a78bfa"]].map(([k,l,c])=>genderMap[k]>0&&(
+            <div key={k} style={{flex:genderMap[k]/gTotal,textAlign:"center"}}>
+              <div style={{height:60,background:c+"33",border:`2px solid ${c}`,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span className="num" style={{fontSize:18,fontWeight:700,color:c}}>{Math.round(genderMap[k]/gTotal*100)}%</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{l}</div>
+            </div>))}
+        </div>
+      </div>}
+      {cities.length>0&&<div className="card" style={{padding:20}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>Top ciudades</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:16}}>Ubicación de tus seguidores</div>
+        {cities.map((c,i)=><div key={i} style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+            <span style={{fontWeight:500}}>{c.dimension_values?.[0]||"Desconocida"}</span>
+            <span style={{color:"var(--tx3)"}}>{fN(c.value)}</span>
+          </div>
+          <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden"}}>
+            <div style={{width:(c.value/cityMax*100)+"%",height:"100%",background:"#60a5fa",borderRadius:3,transition:"width .4s"}}/>
+          </div>
+        </div>)}
+      </div>}
+      {ageArr.length===0&&cities.length===0&&<div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>👥</div><div style={{fontSize:14}}>Los datos demográficos aún no están disponibles para esta cuenta</div></div>}
+    </>}
+
+    {data?.connected&&!loading&&tab==="contenido"&&<>
+      {typeArr.length>0&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Rendimiento por tipo de contenido</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10}}>
+          {typeArr.map(t=><div key={t.t} style={{padding:"14px 16px",background:"var(--bg3)",borderRadius:10,border:"1px solid var(--border)"}}>
+            <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>{typeLabel[t.t]||t.t}</div>
+            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>{t.count} publicaciones</div>
+            <div className="num" style={{fontSize:20,fontWeight:700,color:"var(--accent)",marginTop:4}}>{t.avgEng}%</div>
+            <div style={{fontSize:11,color:"var(--tx3)"}}>eng. rate promedio</div>
+            <div className="num" style={{fontSize:14,fontWeight:600,color:"var(--tx2)",marginTop:4}}>{fN(t.avgReach)}</div>
+            <div style={{fontSize:11,color:"var(--tx3)"}}>alcance promedio</div>
+          </div>)}
+        </div>
+      </div>}
+      <div className="card" style={{padding:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{fontSize:13,fontWeight:600}}>Todas las publicaciones</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {[["engagement","Engagement"],["reach","Alcance"],["likes","Likes"],["saves","Guardados"],["recent","Reciente"]].map(([k,l])=><button key={k} onClick={()=>sPostSort(k)} style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,border:`1px solid ${postSort===k?"var(--accent)":"var(--border)"}`,background:postSort===k?"var(--accent)22":"transparent",color:postSort===k?"var(--accent)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+          {sortedPosts.map((post,idx)=>(
+            <div key={post.id} style={{background:"var(--bg3)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)",position:"relative"}}>
+              {idx<3&&<div style={{position:"absolute",top:6,left:6,background:"var(--accent)",color:"var(--bg)",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:700,zIndex:1}}>#{idx+1}</div>}
+              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>{post.media_type==="VIDEO"?"🎬":"📷"}</div>}
+              <div style={{padding:"8px 10px"}}>
+                <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>{new Date(post.timestamp).toLocaleDateString("es-CL",{day:"numeric",month:"short"})}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11}}>
+                  <div><span style={{color:"var(--tx3)"}}>❤️ </span><span className="num">{fN(post.likes)}</span></div>
+                  <div><span style={{color:"var(--tx3)"}}>💬 </span><span className="num">{fN(post.comments)}</span></div>
+                  <div><span style={{color:"var(--tx3)"}}>🔖 </span><span className="num">{fN(post.saves)}</span></div>
+                  <div><span style={{color:"var(--tx3)"}}>📡 </span><span className="num">{fN(post.reach)}</span></div>
+                </div>
+                <div style={{marginTop:6,padding:"4px 8px",background:"var(--accent)22",borderRadius:6,textAlign:"center"}}>
+                  <span style={{fontSize:12,fontWeight:700,color:"var(--accent)"}}>{post.engRate}%</span>
+                  <span style={{fontSize:10,color:"var(--tx3)",marginLeft:4}}>eng. rate</span>
+                </div>
+              </div>
+            </div>))}
+        </div>
+      </div>
     </>}
   </div>);
 }
