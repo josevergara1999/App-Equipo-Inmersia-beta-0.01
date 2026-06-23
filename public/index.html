@@ -338,9 +338,21 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[aiIn,sAI]=useState("");const[aiMs,sAM]=useState([]);const[aiL,sAL]=useState(false);
   const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");const[calDirty,sCalDirty]=useState(false);
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
+  const[metaExpWarn,sMetaExpWarn]=useState(false);const[metaDaysLeft,sMetaDaysLeft]=useState(0);
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
   const[theme,sTheme]=useState(()=>localStorage.getItem("inm_theme")||"A");
   useEffect(()=>{document.body.setAttribute("data-variant",theme);localStorage.setItem("inm_theme",theme);},[theme]);
+  useEffect(()=>{
+    const check=()=>{
+      const cached=localStorage.getItem("meta_token_expiry");
+      const checkedAt=localStorage.getItem("meta_token_expiry_checked");
+      const now=Date.now();
+      const checkFn=(exp)=>{const days=(exp-now)/(86400000);if(days>0&&days<=2){const key="meta_exp_dismissed_"+Math.floor(exp/86400000);if(!localStorage.getItem(key)){sMetaDaysLeft(Math.ceil(days));sMetaExpWarn(true);}}};
+      if(cached&&checkedAt&&now-parseInt(checkedAt)<86400000){checkFn(parseInt(cached));return;}
+      fetch("/api/meta/token-info").then(r=>r.json()).then(d=>{if(d.expires_at){const exp=d.expires_at*1000;localStorage.setItem("meta_token_expiry",exp);localStorage.setItem("meta_token_expiry_checked",now.toString());checkFn(exp);}}).catch(()=>{});
+    };
+    check();
+  },[]);
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   const[planners,sPlanners]=useState([]);const[pDrafts,sPDrafts]=useState([]);
@@ -955,6 +967,21 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           </button>
         </nav>
       </>}
+
+      {/* META TOKEN EXPIRY WARNING */}
+      {metaExpWarn&&<div style={{position:"fixed",inset:0,background:"rgba(5,7,10,.65)",zIndex:1002,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+        <div className="su" style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:18,padding:28,width:340,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          <div style={{fontSize:36,marginBottom:10}}>⚠️</div>
+          <div style={{fontSize:18,fontWeight:600,marginBottom:6}}>Token de Meta por vencer</div>
+          <div style={{fontSize:14,color:"var(--tx2)",marginBottom:16}}>El token de Instagram vence en <strong style={{color:"var(--danger)"}}>{metaDaysLeft} {metaDaysLeft===1?"día":"días"}</strong>. Renuévalo para seguir viendo métricas.</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:18,padding:"10px 14px",background:"var(--bg3)",borderRadius:10,textAlign:"left"}}>Graph API Explorer → genera nuevo token → abre <code style={{color:"var(--accent)"}}>/api/meta/exchange?token=...</code> → actualiza META_ACCESS_TOKEN en Render</div>
+          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+            <Bt v="s" onClick={()=>{const exp=localStorage.getItem("meta_token_expiry");if(exp)localStorage.setItem("meta_exp_dismissed_"+Math.floor(parseInt(exp)/86400000),"1");sMetaExpWarn(false);}}>Entendido</Bt>
+            <Bt v="p" icon="trend_up" onClick={()=>{const exp=localStorage.getItem("meta_token_expiry");if(exp)localStorage.setItem("meta_exp_dismissed_"+Math.floor(parseInt(exp)/86400000),"1");sMetaExpWarn(false);sPg("metricas");}}>Ver Métricas</Bt>
+          </div>
+        </div>
+      </div>}
+
     </div>
   );
 }

@@ -479,6 +479,19 @@ app.get("/api/meta/status",async(req,res)=>{
   }catch{res.json({connected:false});}
 });
 
+app.get("/api/meta/token-info",async(req,res)=>{
+  try{
+    const token=await getMetaToken();
+    if(!token)return res.json({connected:false});
+    const appId=process.env.META_APP_ID;
+    const appSecret=process.env.META_APP_SECRET;
+    const r=await fetch(`https://graph.facebook.com/debug_token?input_token=${token}&access_token=${appId}|${appSecret}`);
+    const d=await r.json();
+    if(d.error||d.data?.error)return res.json({connected:false});
+    res.json({connected:true,expires_at:d.data?.expires_at||null,is_valid:d.data?.is_valid||false});
+  }catch(err){res.json({connected:false,error:err.message});}
+});
+
 app.get("/api/meta/exchange",async(req,res)=>{
   const{token}=req.query;
   if(!token)return res.json({error:"token requerido"});
