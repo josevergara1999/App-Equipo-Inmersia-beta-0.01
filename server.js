@@ -505,7 +505,7 @@ app.get("/api/meta/insights",async(req,res)=>{
     const profileRes=await fetch(`https://graph.facebook.com/v19.0/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&access_token=${token}`);
     const profile=await profileRes.json();
     if(profile.error)return res.json({error:profile.error.message,connected:false});
-    const metricsStr="impressions,reach,profile_views";
+    const metricsStr="reach,profile_views,accounts_engaged,total_interactions";
     const insRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${since}&until=${until}&access_token=${token}`);
     const insData=await insRes.json();
     const prevRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${prevSince}&until=${since}&access_token=${token}`);

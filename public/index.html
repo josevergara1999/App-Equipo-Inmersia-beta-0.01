@@ -1045,10 +1045,11 @@ function MetricasPg({cos,addN}){
   const kMetrics=[
     {key:"followers",label:"Seguidores",val:data?.profile?.followers_count||0,icon:"👥",color:"#a78bfa"},
     {key:"reach",label:"Alcance",val:sum(curr,"reach"),prevVal:sum(prev,"reach"),icon:"📡",color:"#34d399"},
-    {key:"impressions",label:"Impresiones",val:sum(curr,"impressions"),prevVal:sum(prev,"impressions"),icon:"👁",color:"#60a5fa"},
+    {key:"total_interactions",label:"Interacciones",val:sum(curr,"total_interactions"),prevVal:sum(prev,"total_interactions"),icon:"👁",color:"#60a5fa"},
+    {key:"accounts_engaged",label:"Cuentas activas",val:sum(curr,"accounts_engaged"),prevVal:sum(prev,"accounts_engaged"),icon:"🔥",color:"#f87171"},
     {key:"profile_views",label:"Visitas perfil",val:sum(curr,"profile_views"),prevVal:sum(prev,"profile_views"),icon:"🔍",color:"#f59e0b"},
   ];
-  const chartVals=(curr.find(m=>m.name==="impressions")?.values||[]).map(v=>v.value||0);
+  const chartVals=(curr.find(m=>m.name==="reach")?.values||[]).map(v=>v.value||0);
 
   return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
@@ -1082,7 +1083,7 @@ function MetricasPg({cos,addN}){
       </div>
 
       {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:20}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Impresiones diarias</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance diario</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Evolución últimos 30 días</div>
         <MiniLineChart values={chartVals} color="#60a5fa"/>
       </div>}
