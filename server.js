@@ -506,19 +506,26 @@ app.get("/api/meta/exchange",async(req,res)=>{
   }catch(err){res.status(500).json({error:err.message});}
 });
 
-// Fetch total_value metrics chunked in 30-day windows (Meta API limit)
-async function fetchTvChunked(base,igId,metrics,token,since,until){
+// Fetch metrics broken down by 30-day windows → returns [{label,reach,total_interactions,...}, ...]
+async function fetchMonthly(base,igId,tvMetrics,token,since,until){
   const CHUNK=30*24*60*60;
-  const chunks=[];
+  const months=[];
   let s=since;
-  while(s<until){const u=Math.min(s+CHUNK,until);chunks.push([s,u]);s=u;}
-  const results=await Promise.all(chunks.map(([cs,cu])=>
-    fetch(`${base}/${igId}/insights?metric=${metrics}&metric_type=total_value&period=day&since=${cs}&until=${cu}&access_token=${token}`)
-      .then(r=>r.json()).catch(()=>({}))
-  ));
-  const totals={};
-  results.forEach(r=>{(r.data||[]).forEach(m=>{totals[m.name]=(totals[m.name]||0)+(m.total_value?.value||0);});});
-  return totals;
+  while(s<until){const u=Math.min(s+CHUNK,until);months.push([s,u]);s=u;}
+  const results=await Promise.all(months.map(async([cs,cu])=>{
+    const date=new Date(cs*1000);
+    const label=date.toLocaleDateString("es-CL",{month:"short",year:"2-digit"})
+      .replace(".","").replace(/^(\w)/,c=>c.toUpperCase());
+    const[tvR,rR]=await Promise.all([
+      fetch(`${base}/${igId}/insights?metric=${tvMetrics}&metric_type=total_value&period=day&since=${cs}&until=${cu}&access_token=${token}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${base}/${igId}/insights?metric=reach&period=day&since=${cs}&until=${cu}&access_token=${token}`).then(r=>r.json()).catch(()=>({})),
+    ]);
+    const tv={};
+    (tvR.data||[]).forEach(m=>{tv[m.name]=m.total_value?.value||0;});
+    const reach=(rR.data||[]).find(m=>m.name==="reach")?.values?.reduce((s,v)=>s+(v.value||0),0)||0;
+    return{label,reach,...tv};
+  }));
+  return results.reverse();// oldest first
 }
 
 app.get("/api/meta/insights-full",async(req,res)=>{
@@ -545,11 +552,15 @@ app.get("/api/meta/insights-full",async(req,res)=>{
       fetch(`${B}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=24&${T}`).then(r=>r.json()),
     ]);
     if(profileR.error)return res.json({error:profileR.error.message,connected:false});
-    // total_value metrics chunked for any period length
-    const[totals,prevTotals]=await Promise.all([
-      fetchTvChunked(B,igId,TV_METRICS,token,since,until),
-      fetchTvChunked(B,igId,TV_METRICS,token,prevSince,since),
+    // monthly breakdown for bar charts + aggregate totals
+    const[monthly,prevMonthly]=await Promise.all([
+      fetchMonthly(B,igId,TV_METRICS,token,since,until),
+      fetchMonthly(B,igId,TV_METRICS,token,prevSince,since),
     ]);
+    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions"];
+    const totals={},prevTotals={};
+    monthly.forEach(m=>{TV_KEYS.forEach(k=>{totals[k]=(totals[k]||0)+(m[k]||0);});});
+    prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
     const mediaPosts=mediaR.data||[];
     const postInsights=await Promise.all(mediaPosts.map(async post=>{
       try{
@@ -566,7 +577,7 @@ app.get("/api/meta/insights-full",async(req,res)=>{
     const prevFollowerGrowth=prevFollowerVals.length>=2?prevFollowerVals[prevFollowerVals.length-1].value-prevFollowerVals[0].value:null;
     const demoAge=demoAgeR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
     const demoCity=demoCityR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
-    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,followerGrowth,prevFollowerGrowth,followerTrend:followerVals,demoAge,demoCity,media:postInsights});
+    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,monthly,followerGrowth,prevFollowerGrowth,followerTrend:followerVals,demoAge,demoCity,media:postInsights});
   }catch(err){
     console.error("Meta insights-full error:",err);
     res.status(500).json({error:err.message});
