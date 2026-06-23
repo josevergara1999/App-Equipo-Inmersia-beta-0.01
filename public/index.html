@@ -718,7 +718,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <Bt v="p" onClick={()=>sNC(true)} icon="plus">Nueva empresa</Bt>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:12}}>
-            {cos.map(c=>{const pl={name:c.planName||PLANS[c.plan]?.name||c.plan,price:c.price||c.customPrice||PLANS[c.plan]?.price||0};const ct=tasks.filter(t=>String(t.companyId)===String(c.id));const done=ct.filter(t=>["aprobado","publicado"].includes(t.state)).length;
+            {cos.map(c=>{const pl={name:c.planName||PLANS[c.plan]?.name||c.plan,price:c.price||c.customPrice||PLANS[c.plan]?.price||0,tasks:c.tasks||PLANS[c.plan]?.tasks||{}};const ct=tasks.filter(t=>String(t.companyId)===String(c.id));const done=ct.filter(t=>["aprobado","publicado"].includes(t.state)).length;
             return(<div key={c.id} className="card" style={{overflow:"hidden"}}>
               <div style={{height:3,background:c.color}}/>
               <div style={{padding:20}}>
