@@ -768,7 +768,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Links de Drive</div>
             {editCoLinks.map((lk,i)=>(
               <div key={lk.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-                <a href={lk.url} target="_blank" rel="noreferrer" style={{flex:1,display:"inline-flex",alignItems:"center",gap:6,padding:"7px 12px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:8,fontSize:12,fontWeight:600,color:"var(--accent)",textDecoration:"none",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>🔗 {lk.name}</a>
+                <span style={{fontSize:14,color:"var(--accent)",flexShrink:0}}>🔗</span>
+                <input value={lk.name} onChange={e=>sECL(p=>p.map((l,j)=>j===i?{...l,name:e.target.value}:l))} style={{flex:1,fontSize:12,padding:"6px 10px",fontWeight:600}} placeholder="Nombre del link"/>
+                <a href={lk.url} target="_blank" rel="noreferrer" title={lk.url} style={{color:"var(--tx3)",display:"flex",alignItems:"center",flexShrink:0}}><Ic n="external" s={14}/></a>
                 <button onClick={()=>sECL(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",padding:4,flexShrink:0}}><Ic n="x" s={14}/></button>
               </div>
             ))}
