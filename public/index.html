@@ -1179,9 +1179,8 @@ function MetricasPg({cos,addN}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
         {[
           {label:"Seguidores actuales",val:fN(followers),icon:"👥",color:"#a78bfa"},
-          {label:"Nuevos seguidores (30d)",val:data?.followsAvailable?fN(tot.follows||0):"N/D",rawVal:tot.follows||0,prev:data?.followsAvailable?prevTot.follows:null,icon:"📈",color:"#34d399"},
-          {label:"Bajas (30d)",val:data?.followsAvailable?fN(tot.unfollows||0):"N/D",rawVal:tot.unfollows||0,prev:null,icon:"📉",color:"#f87171"},
-          {label:"Neto (30d)",val:data?.followsAvailable?fN(tot.net_follows||0):"N/D",rawVal:tot.net_follows||0,prev:data?.followsAvailable?prevTot.net_follows:null,icon:"🔄",color:"#60a5fa"},
+          {label:"Neto seguidores (30d)",val:data?.followsAvailable?fN(tot.net_follows||0):"N/D",rawVal:tot.net_follows||0,prev:data?.followsAvailable?prevTot.net_follows:null,icon:"🔄",color:"#34d399"},
+          ...(tot.follows!=null?[{label:"Nuevos (30d)",val:fN(tot.follows||0),rawVal:tot.follows||0,prev:null,icon:"📈",color:"#a3e635"},{label:"Bajas (30d)",val:fN(tot.unfollows||0),rawVal:tot.unfollows||0,prev:null,icon:"📉",color:"#f87171"}]:[]),
           {label:"Tasa de crecimiento",val:data?.followsAvailable&&followers>0?((tot.net_follows||0)/followers*100).toFixed(2)+"%":"N/D",icon:"🚀",color:"#a78bfa"},
         ].map(m=>{const t=m.prev!=null?pct(m.rawVal||0,m.prev):null;return(
           <div key={m.label} className="card" style={{padding:"16px 18px"}}>
