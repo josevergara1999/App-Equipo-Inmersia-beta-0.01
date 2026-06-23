@@ -525,7 +525,7 @@ async function fetchMonthly(base,igId,tvMetrics,token,since,until){
     const reach=(rR.data||[]).find(m=>m.name==="reach")?.values?.reduce((s,v)=>s+(v.value||0),0)||0;
     return{label,reach,...tv};
   }));
-  return results.reverse();// oldest first
+  return results;// already oldest→newest (built from since→until)
 }
 
 app.get("/api/meta/insights-full",async(req,res)=>{

@@ -1142,7 +1142,7 @@ function MetricasPg({cos,addN}){
 
   const kMetrics=[
     {label:"Seguidores",val:followers,icon:"👥",color:"#a78bfa"},
-    {label:"Alcance",val:sum(curr,"reach"),prev:sum(prev,"reach"),icon:"📡",color:"#34d399"},
+    {label:"Alcance",val:sum(curr,"reach")||tot.reach||0,prev:sum(prev,"reach")||prevTot.reach||0,icon:"📡",color:"#34d399"},
     {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
     {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
     {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
