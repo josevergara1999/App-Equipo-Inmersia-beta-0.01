@@ -420,6 +420,90 @@ app.post("/api/gcal/sync", async (req, res) => {
 });
 
 // ===============================
+// 📊 META / INSTAGRAM MÉTRICAS
+// ===============================
+app.get("/api/auth/meta",(req,res)=>{
+  const appId=process.env.META_APP_ID;
+  const redirectUri=process.env.META_REDIRECT_URI;
+  const scopes="instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement";
+  res.redirect(`https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code`);
+});
+
+app.get("/api/auth/callback/meta",async(req,res)=>{
+  const{code}=req.query;
+  if(!code)return res.send("No code recibido");
+  try{
+    const appId=process.env.META_APP_ID;
+    const appSecret=process.env.META_APP_SECRET;
+    const redirectUri=process.env.META_REDIRECT_URI;
+    const shortRes=await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`);
+    const shortData=await shortRes.json();
+    if(!shortData.access_token)return res.send("Error token: "+JSON.stringify(shortData));
+    const llRes=await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortData.access_token}`);
+    const llData=await llRes.json();
+    const token=llData.access_token||shortData.access_token;
+    const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
+    const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    await fetch(`${sbUrl}/rest/v1/app_data`,{
+      method:"POST",
+      headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({key:"meta_token",value:{token,expires_at:Date.now()+(llData.expires_in||5183944)*1000},updated_at:new Date().toISOString()})
+    });
+    res.redirect("/?meta=connected");
+  }catch(err){
+    console.error("Meta OAuth callback error:",err);
+    res.send("Error: "+err.message);
+  }
+});
+
+async function getMetaToken(){
+  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
+  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  try{
+    const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.meta_token&select=value`,{headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`}});
+    const d=await r.json();
+    return d?.[0]?.value?.token||null;
+  }catch{return null;}
+}
+
+app.get("/api/meta/status",async(req,res)=>{
+  try{
+    const token=await getMetaToken();
+    if(!token)return res.json({connected:false});
+    const r=await fetch(`https://graph.facebook.com/v19.0/me?fields=name&access_token=${token}`);
+    const d=await r.json();
+    if(d.error)return res.json({connected:false});
+    res.json({connected:true,user:d.name});
+  }catch{res.json({connected:false});}
+});
+
+app.get("/api/meta/insights",async(req,res)=>{
+  try{
+    const{igId}=req.query;
+    if(!igId)return res.status(400).json({error:"igId requerido"});
+    const token=await getMetaToken();
+    if(!token)return res.json({error:"Meta no conectado",connected:false});
+    const until=Math.floor(Date.now()/1000);
+    const since=until-30*24*60*60;
+    const prevSince=since-30*24*60*60;
+    const profileRes=await fetch(`https://graph.facebook.com/v19.0/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&access_token=${token}`);
+    const profile=await profileRes.json();
+    if(profile.error)return res.json({error:profile.error.message,connected:false});
+    const metricsStr="impressions,reach,profile_views";
+    const insRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${since}&until=${until}&access_token=${token}`);
+    const insData=await insRes.json();
+    const prevRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/insights?metric=${metricsStr}&period=day&since=${prevSince}&until=${since}&access_token=${token}`);
+    const prevData=await prevRes.json();
+    const mediaRes=await fetch(`https://graph.facebook.com/v19.0/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=9&access_token=${token}`);
+    const media=await mediaRes.json();
+    res.json({connected:true,profile,insights:insData.data||[],prevInsights:prevData.data||[],media:media.data||[]});
+  }catch(err){
+    console.error("Meta insights error:",err);
+    res.status(500).json({error:err.message});
+  }
+});
+
+// ===============================
 // 🟢 SERVIR FRONTEND
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));
