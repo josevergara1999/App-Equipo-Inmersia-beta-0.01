@@ -477,6 +477,27 @@ app.get("/api/meta/status",async(req,res)=>{
   }catch{res.json({connected:false});}
 });
 
+app.get("/api/meta/exchange",async(req,res)=>{
+  const{token}=req.query;
+  if(!token)return res.json({error:"token requerido"});
+  try{
+    const appId=process.env.META_APP_ID;
+    const appSecret=process.env.META_APP_SECRET;
+    const llRes=await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${token}`);
+    const llData=await llRes.json();
+    if(!llData.access_token)return res.json({error:"Exchange falló",details:llData});
+    const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
+    const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    await fetch(`${sbUrl}/rest/v1/app_data`,{
+      method:"POST",
+      headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({key:"meta_token",value:{token:llData.access_token,expires_at:Date.now()+(llData.expires_in||5183944)*1000},updated_at:new Date().toISOString()})
+    });
+    const dias=Math.floor((llData.expires_in||5183944)/86400);
+    res.json({ok:true,mensaje:`Token guardado correctamente, expira en ${dias} días`});
+  }catch(err){res.status(500).json({error:err.message});}
+});
+
 app.get("/api/meta/insights",async(req,res)=>{
   try{
     const{igId}=req.query;
