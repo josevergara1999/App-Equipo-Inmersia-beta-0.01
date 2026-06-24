@@ -37,11 +37,82 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
+function parseCookies(req) {
+  const list = {};
+  (req.headers.cookie || "").split(";").forEach(c => {
+    const [k, ...v] = c.split("=");
+    if (k?.trim()) list[k.trim()] = decodeURIComponent(v.join("=").trim());
+  });
+  return list;
+}
+
 function requireAuth(req, res, next) {
-  const auth = req.headers.authorization || "";
-  const token = auth.replace("Bearer ", "").trim();
-  if (!verifyToken(token)) return res.status(401).json({ error: "No autorizado" });
+  const cookies = parseCookies(req);
+  const cookieToken = cookies._iauth || "";
+  const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
+  if (!verifyToken(cookieToken || headerToken)) return res.status(401).json({ error: "No autorizado" });
   next();
+}
+
+// ===============================
+// 🚦 RATE LIMITER
+// ===============================
+const _hits = new Map();
+setInterval(() => _hits.clear(), 60000);
+function rateLimit(max) {
+  return (req, res, next) => {
+    const ip = (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+    const n = (_hits.get(ip) || 0) + 1;
+    _hits.set(ip, n);
+    if (n > max) return res.status(429).json({ error: "Demasiadas solicitudes, espera un momento" });
+    next();
+  };
+}
+
+// ===============================
+// 🛡️ SECURITY HEADERS + CORS
+// ===============================
+const ALLOWED_ORIGINS = new Set([
+  "https://app-equipo-inmersia-beta-0-01.onrender.com",
+  process.env.APP_URL,
+  "http://localhost:10000"
+].filter(Boolean));
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.has(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
+app.use("/api", rateLimit(120));
+
+// ===============================
+// ✅ igId WHITELIST
+// ===============================
+let _igCache = null, _igCacheAt = 0;
+async function isValidIgId(igId) {
+  const now = Date.now();
+  if (_igCache && now - _igCacheAt < 300000) return _igCache.has(igId);
+  try {
+    const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+    const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    const r = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.companies&select=value`, {
+      headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` }
+    });
+    const d = await r.json();
+    const cos = d?.[0]?.value || [];
+    _igCache = new Set(cos.filter(c => c.igId).map(c => String(c.igId)));
+    _igCacheAt = now;
+    return _igCache.has(igId);
+  } catch { return true; } // si Supabase falla, no bloqueamos
 }
 
 // ===============================
@@ -380,11 +451,22 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}&gcal_email=${userData.email}`);
     }
 
-    return res.redirect(`/?login=success&email=${userData.email}&_t=${signToken(userData.email)}`);
+    res.cookie("_iauth", signToken(userData.email), {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000
+    });
+    return res.redirect(`/?login=success&email=${encodeURIComponent(userData.email)}`);
   } catch (err) {
     console.error(err);
     res.send("Error en callback Google");
   }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie("_iauth", { httpOnly: true, secure: true, sameSite: "lax" });
+  res.json({ ok: true });
 });
 
 // ===============================
@@ -566,6 +648,7 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
   try{
     const{igId}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
+    if(!await isValidIgId(igId))return res.status(403).json({error:"Cuenta no autorizada"});
     const token=await getMetaToken();
     if(!token)return res.json({error:"Meta no conectado",connected:false});
     const days=Math.min(parseInt(req.query.days)||30,180);
@@ -623,6 +706,7 @@ app.get("/api/meta/posts-analysis",requireAuth,async(req,res)=>{
   try{
     const{igId,since,until}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
+    if(!await isValidIgId(igId))return res.status(403).json({error:"Cuenta no autorizada"});
     const token=await getMetaToken();
     if(!token)return res.json({error:"no token"});
     const sinceTs=since?parseInt(since):0;
@@ -660,6 +744,7 @@ app.get("/api/meta/insights",requireAuth,async(req,res)=>{
   try{
     const{igId}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
+    if(!await isValidIgId(igId))return res.status(403).json({error:"Cuenta no autorizada"});
     const token=await getMetaToken();
     if(!token)return res.json({error:"Meta no conectado",connected:false});
     const until=Math.floor(Date.now()/1000);
