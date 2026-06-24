@@ -141,9 +141,10 @@ function dbSave(key,value){
 }
 
 // ═══ API CLIENT — all calls go through backend ═════════════════
+const authH=()=>({Authorization:"Bearer "+(localStorage.getItem("_iauth")||"")});
 const API={
   async generate(prompt,temperature=0.7){
-    const r=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,temperature})});
+    const r=await fetch("/api/ai/generate",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify({prompt,temperature})});
     const d=await r.json();if(d.error)throw new Error(d.error);return d.text;
   },
   async transcribe(audioBlob){
@@ -155,20 +156,20 @@ const API={
     const fd=new FormData();
     if(audioBlob)fd.append("audio",audioBlob,"audio.webm");
     fd.append("company",company);fd.append("participants",participants);
-    const r=await fetch("/api/generate-acta",{method:"POST",body:fd});
+    const r=await fetch("/api/generate-acta",{method:"POST",headers:authH(),body:fd});
     const d=await r.json();if(d.error)throw new Error(d.error);return d;
   },
   async loyaltyPush(company,topic){
-    const r=await fetch("/api/loyalty/generate-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company,topic})});
+    const r=await fetch("/api/loyalty/generate-push",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify({company,topic})});
     const d=await r.json();if(d.error)throw new Error(d.error);return d.text;
   },
   async metaAdvisor(company,campaigns,totalBudget,question){
-    const r=await fetch("/api/meta/advisor",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company,campaigns,totalBudget,question})});
+    const r=await fetch("/api/meta/advisor",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify({company,campaigns,totalBudget,question})});
     const d=await r.json();if(d.error)throw new Error(d.error);return d.text;
   },
   async health(){const r=await fetch("/api/health");return r.json();},
-  async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
-  async gcalSync(email,title,company,date){try{const r=await fetch("/api/gcal/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,title,company,date})});return r.json();}catch(e){console.log("gcal sync err:",e);return{ok:false};}},
+  async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
+  async gcalSync(email,title,company,date){try{const r=await fetch("/api/gcal/sync",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify({email,title,company,date})});return r.json();}catch(e){console.log("gcal sync err:",e);return{ok:false};}},
 };
 
 // ═══ CONFIG ═════════════════════════════════════════════════════
@@ -349,7 +350,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       const now=Date.now();
       const checkFn=(exp)=>{const days=(exp-now)/(86400000);if(days>0&&days<=2){const key="meta_exp_dismissed_"+Math.floor(exp/86400000);if(!localStorage.getItem(key)){sMetaDaysLeft(Math.ceil(days));sMetaExpWarn(true);}}};
       if(cached&&checkedAt&&now-parseInt(checkedAt)<86400000){checkFn(parseInt(cached));return;}
-      fetch("/api/meta/token-info").then(r=>r.json()).then(d=>{if(d.expires_at){const exp=d.expires_at*1000;localStorage.setItem("meta_token_expiry",exp);localStorage.setItem("meta_token_expiry_checked",now.toString());checkFn(exp);}}).catch(()=>{});
+      fetch("/api/meta/token-info",{headers:authH()}).then(r=>r.json()).then(d=>{if(d.expires_at){const exp=d.expires_at*1000;localStorage.setItem("meta_token_expiry",exp);localStorage.setItem("meta_token_expiry_checked",now.toString());checkFn(exp);}}).catch(()=>{});
     };
     check();
   },[]);
@@ -483,7 +484,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     const sys=`Eres CUMBRE AI de INMERSIA. Empresas: ${cos.map(c=>c.name+" ("+c.plan+")").join(", ")}. Usuarios: ${users.map(u=>u.name).join(", ")}. Tipos: post,historia,reel,video_pro,visita,custom,repost. Si piden CREAR tareas responde JSON: {"action":"create_tasks","tasks":[{"title":"...","type":"post","company":"Fauna","responsable":"Tiago","date":"2026-04-10"}]}. Hoy: ${td()}. Responde siempre en español.`;
     try{
       const controller=new AbortController();const tout=setTimeout(()=>controller.abort(),30000);
-      const r=await fetch("/api/ai/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:sys+"\nUsuario: "+msg,temperature:0.7}),signal:controller.signal});
+      const r=await fetch("/api/ai/generate",{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify({prompt:sys+"\nUsuario: "+msg,temperature:0.7}),signal:controller.signal});
       clearTimeout(tout);
       if(!r.ok){const err=await r.text().catch(()=>"");throw new Error("Server "+r.status+(err?" - "+err.slice(0,100):""));}
       const d=await r.json();if(d.error)throw new Error(d.error);const txt2=d.text;
@@ -1080,7 +1081,7 @@ function MetricasPg({cos,addN}){
   const igCos=cos.filter(c=>c.igId);
 
   useEffect(()=>{
-    fetch("/api/meta/status").then(r=>r.json()).then(sMetaSt).catch(()=>sMetaSt({connected:false}));
+    fetch("/api/meta/status",{headers:authH()}).then(r=>r.json()).then(sMetaSt).catch(()=>sMetaSt({connected:false}));
     if(sessionStorage.getItem("meta_connected")){addN("✅ Meta conectado correctamente");sessionStorage.removeItem("meta_connected");}
   },[]);
   useEffect(()=>{if(igCos.length>0&&!selCo)sSelCo(igCos[0].id);},[cos.length]);
@@ -1089,7 +1090,7 @@ function MetricasPg({cos,addN}){
     const co=cos.find(c=>c.id===selCo);
     if(!co?.igId)return;
     sLoading(true);sData(null);
-    fetch(`/api/meta/insights-full?igId=${co.igId}&days=${periodDays}`).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
+    fetch(`/api/meta/insights-full?igId=${co.igId}&days=${periodDays}`,{headers:authH()}).then(r=>r.json()).then(d=>{sData(d);sLoading(false);}).catch(()=>sLoading(false));
   },[selCo,metaSt?.connected,periodDays]);
 
   const sum=(arr,name)=>{const m=(arr||[]).find(i=>i.name===name);if(!m)return 0;return m.values.reduce((s,v)=>s+(v.value||0),0);};
@@ -2757,6 +2758,8 @@ useEffect(() => {
   // 🔐 LOGIN
   if (login === "success" && email) {
     localStorage.setItem("userEmail", email);
+    const t = params.get("_t");
+    if (t) localStorage.setItem("_iauth", t);
     const found = us.find(x => x.email === email || x.gmail === email);
     sU(found || { id:99, name: email.split("@")[0], email, role: "admin", avatar: email.slice(0,2).toUpperCase(), color: "#9d6bff" });
     window.history.replaceState({}, document.title, "/");

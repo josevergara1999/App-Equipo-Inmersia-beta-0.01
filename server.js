@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const multer = require("multer");
+const crypto = require("crypto");
 
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
@@ -9,6 +10,39 @@ const PORT = process.env.PORT || 10000;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 app.use(express.json());
+
+// ===============================
+// 🔐 AUTH TOKENS
+// ===============================
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.GOOGLE_CLIENT_SECRET || "inm") + "_inm_jwt_2026";
+
+function signToken(email) {
+  const exp = Date.now() + 30 * 24 * 3600000;
+  const payload = Buffer.from(JSON.stringify({ email, exp })).toString("base64url");
+  const sig = crypto.createHmac("sha256", JWT_SECRET).update(payload).digest("base64url");
+  return payload + "." + sig;
+}
+
+function verifyToken(token) {
+  try {
+    if (!token) return null;
+    const dot = token.lastIndexOf(".");
+    const payload = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expected = crypto.createHmac("sha256", JWT_SECRET).update(payload).digest("base64url");
+    if (sig !== expected) return null;
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (data.exp < Date.now()) return null;
+    return data;
+  } catch { return null; }
+}
+
+function requireAuth(req, res, next) {
+  const auth = req.headers.authorization || "";
+  const token = auth.replace("Bearer ", "").trim();
+  if (!verifyToken(token)) return res.status(401).json({ error: "No autorizado" });
+  next();
+}
 
 // ===============================
 // 📧 RESEND EMAIL
@@ -58,7 +92,7 @@ app.get("/api/test-email", async (req, res) => {
 // ===============================
 // 📧 NOTIFICACIÓN POR EMAIL
 // ===============================
-app.post("/api/notify", async (req, res) => {
+app.post("/api/notify", requireAuth, async (req, res) => {
   try {
     const { type, to, taskTitle, company, assignee, date, state, details } = req.body;
 
@@ -209,7 +243,7 @@ async function callGemini(contents) {
 // ===============================
 // 🎙️ GENERAR ACTA DE REUNIÓN
 // ===============================
-app.post("/api/generate-acta", upload.single("audio"), async (req, res) => {
+app.post("/api/generate-acta", requireAuth, upload.single("audio"), async (req, res) => {
   try {
     const company = req.body.company || "General";
     const participants = req.body.participants || "Equipo";
@@ -262,7 +296,7 @@ app.post("/api/generate-acta", upload.single("audio"), async (req, res) => {
 // ===============================
 // 🤖 CUMBRE AI
 // ===============================
-app.post("/api/ai/generate", async (req, res) => {
+app.post("/api/ai/generate", requireAuth, async (req, res) => {
   try {
     const { prompt } = req.body;
     const text = await callGemini([{ parts: [{ text: prompt }] }]);
@@ -273,7 +307,7 @@ app.post("/api/ai/generate", async (req, res) => {
 // ===============================
 // 💳 LOYALTY PUSH
 // ===============================
-app.post("/api/loyalty/generate-push", async (req, res) => {
+app.post("/api/loyalty/generate-push", requireAuth, async (req, res) => {
   try {
     const { company, topic } = req.body;
     const text = await callGemini([{ parts: [{ text: `Genera una notificación push de fidelización para ${company} sobre: ${topic}. Máximo 2 líneas, tono cercano y profesional.` }] }]);
@@ -284,7 +318,7 @@ app.post("/api/loyalty/generate-push", async (req, res) => {
 // ===============================
 // 📣 META ADS ADVISOR
 // ===============================
-app.post("/api/meta/advisor", async (req, res) => {
+app.post("/api/meta/advisor", requireAuth, async (req, res) => {
   try {
     const { company, campaigns, totalBudget, question } = req.body;
     const text = await callGemini([{ parts: [{ text: `Eres un experto en Meta Ads. Empresa: ${company}. Presupuesto: $${totalBudget}. Campañas: ${JSON.stringify(campaigns)}. Pregunta: ${question}. Responde conciso y accionable.` }] }]);
@@ -346,7 +380,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
       return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}&gcal_email=${userData.email}`);
     }
 
-    return res.redirect(`/?login=success&email=${userData.email}`);
+    return res.redirect(`/?login=success&email=${userData.email}&_t=${signToken(userData.email)}`);
   } catch (err) {
     console.error(err);
     res.send("Error en callback Google");
@@ -384,7 +418,7 @@ async function getGCalAccessToken(email) {
   return refreshData.access_token;
 }
 
-app.post("/api/gcal/sync", async (req, res) => {
+app.post("/api/gcal/sync", requireAuth, async (req, res) => {
   try {
     const { email, title, company, date } = req.body;
     if (!email || !date) return res.json({ ok: false, msg: "Faltan datos" });
@@ -468,7 +502,7 @@ async function getMetaToken(){
   }catch{return null;}
 }
 
-app.get("/api/meta/status",async(req,res)=>{
+app.get("/api/meta/status",requireAuth,async(req,res)=>{
   try{
     const token=await getMetaToken();
     if(!token)return res.json({connected:false});
@@ -479,7 +513,7 @@ app.get("/api/meta/status",async(req,res)=>{
   }catch{res.json({connected:false});}
 });
 
-app.get("/api/meta/token-info",async(req,res)=>{
+app.get("/api/meta/token-info",requireAuth,async(req,res)=>{
   try{
     const token=await getMetaToken();
     if(!token)return res.json({connected:false});
@@ -492,7 +526,7 @@ app.get("/api/meta/token-info",async(req,res)=>{
   }catch(err){res.json({connected:false,error:err.message});}
 });
 
-app.get("/api/meta/exchange",async(req,res)=>{
+app.get("/api/meta/exchange",requireAuth,async(req,res)=>{
   const{token}=req.query;
   if(!token)return res.json({error:"token requerido"});
   try{
@@ -528,7 +562,7 @@ async function fetchMonthly(base,igId,tvMetrics,token,since,until){
   return results;// already oldest→newest (built from since→until)
 }
 
-app.get("/api/meta/insights-full",async(req,res)=>{
+app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
   try{
     const{igId}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
@@ -585,7 +619,7 @@ app.get("/api/meta/insights-full",async(req,res)=>{
 });
 
 // Temporary analysis endpoint: paginates through all media, fetches insights per post
-app.get("/api/meta/posts-analysis",async(req,res)=>{
+app.get("/api/meta/posts-analysis",requireAuth,async(req,res)=>{
   try{
     const{igId,since,until}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
@@ -622,7 +656,7 @@ app.get("/api/meta/posts-analysis",async(req,res)=>{
   }catch(err){res.status(500).json({error:err.message});}
 });
 
-app.get("/api/meta/insights",async(req,res)=>{
+app.get("/api/meta/insights",requireAuth,async(req,res)=>{
   try{
     const{igId}=req.query;
     if(!igId)return res.status(400).json({error:"igId requerido"});
