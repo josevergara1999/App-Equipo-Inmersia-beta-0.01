@@ -657,8 +657,8 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
     const prevSince=since-days*24*60*60;
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
-    const TV_METRICS="profile_views,accounts_engaged,total_interactions";
-    const[profileR,reachR,prevReachR,followerR,prevFollowerR,demoAgeR,demoCityR,mediaR]=await Promise.all([
+    const TV_METRICS="profile_views,accounts_engaged,total_interactions,impressions";
+    const[profileR,reachR,prevReachR,followerR,prevFollowerR,demoAgeR,demoCityR,demoCountryR,mediaR,ctaR,onlineFR]=await Promise.all([
       fetch(`${B}/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=reach&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=reach&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()),
@@ -666,7 +666,10 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
       fetch(`${B}/${igId}/insights?metric=follower_count&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()).catch(()=>({})),
       fetch(`${B}/${igId}/insights?metric=follower_demographics&metric_type=total_value&period=lifetime&breakdown=age,gender&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=follower_demographics&metric_type=total_value&period=lifetime&breakdown=city&${T}`).then(r=>r.json()),
+      fetch(`${B}/${igId}/insights?metric=follower_demographics&metric_type=total_value&period=lifetime&breakdown=country&${T}`).then(r=>r.json()).catch(()=>({})),
       fetch(`${B}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,media_url,thumbnail_url&limit=24&${T}`).then(r=>r.json()),
+      fetch(`${B}/${igId}/insights?metric=website_clicks,email_contacts,phone_call_clicks,direction_clicks&metric_type=total_value&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${B}/${igId}/insights?metric=online_followers&period=lifetime&${T}`).then(r=>r.json()).catch(()=>({})),
     ]);
     if(profileR.error)return res.json({error:profileR.error.message,connected:false});
     // monthly breakdown for bar charts + aggregate totals
@@ -674,7 +677,7 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
       fetchMonthly(B,igId,TV_METRICS,token,since,until),
       fetchMonthly(B,igId,TV_METRICS,token,prevSince,since),
     ]);
-    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions"];
+    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions","impressions"];
     const totals={},prevTotals={};
     monthly.forEach(m=>{TV_KEYS.forEach(k=>{totals[k]=(totals[k]||0)+(m[k]||0);});});
     prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
@@ -694,7 +697,13 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
     const prevFollowerGrowth=prevFollowerVals.length>=2?prevFollowerVals[prevFollowerVals.length-1].value-prevFollowerVals[0].value:null;
     const demoAge=demoAgeR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
     const demoCity=demoCityR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
-    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,monthly,followerGrowth,prevFollowerGrowth,followerTrend:followerVals,demoAge,demoCity,media:postInsights});
+    const demoCountry=(demoCountryR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[]).sort((a,b)=>b.value-a.value).slice(0,10);
+    const ctaMap={};(ctaR.data||[]).forEach(m=>{ctaMap[m.name]=m.total_value?.value||0;});
+    const onlineDays=onlineFR.data?.[0]?.values||[];
+    const hourTotals={};onlineDays.forEach(day=>{Object.entries(day.value||{}).forEach(([h,c])=>{hourTotals[h]=(hourTotals[h]||0)+(c||0);});});
+    const dc=onlineDays.length||1;
+    const onlineByHour=Object.fromEntries(Object.entries(hourTotals).map(([h,t])=>[h,Math.round(t/dc)]));
+    res.json({connected:true,profile:profileR,insights:reachR.data||[],prevInsights:prevReachR.data||[],totals,prevTotals,monthly,followerGrowth,prevFollowerGrowth,followerTrend:followerVals,demoAge,demoCity,demoCountry,cta:ctaMap,onlineByHour,media:postInsights});
   }catch(err){
     console.error("Meta insights-full error:",err);
     res.status(500).json({error:err.message});

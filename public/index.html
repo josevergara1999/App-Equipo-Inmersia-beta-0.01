@@ -1145,6 +1145,7 @@ function MetricasPg({cos,addN}){
   const kMetrics=[
     {label:"Seguidores",val:followers,icon:"👥",color:"#a78bfa"},
     {label:"Alcance",val:sum(curr,"reach")||tot.reach||0,prev:sum(prev,"reach")||prevTot.reach||0,icon:"📡",color:"#34d399"},
+    {label:"Impresiones",val:tot.impressions||0,prev:prevTot.impressions,icon:"👁",color:"#818cf8"},
     {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
     {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
     {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
@@ -1213,6 +1214,21 @@ function MetricasPg({cos,addN}){
         <div className="card" style={{padding:20}}>
           <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>🔥 Cuentas activas mes a mes</div>
           <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.accounts_engaged||0}))} color="#f87171" fN={fN}/>
+        </div>
+        {(data.monthly||[]).some(m=>m.impressions)&&<div className="card" style={{padding:20}}>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>👁 Impresiones mes a mes</div>
+          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.impressions||0}))} color="#818cf8" fN={fN}/>
+        </div>}
+      </div>}
+      {data.cta&&Object.values(data.cta).some(v=>v>0)&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Acciones del perfil ({periodLabel})</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
+          {[{k:"website_clicks",l:"Clics web",icon:"🔗",c:"#34d399"},{k:"email_contacts",l:"Email",icon:"✉️",c:"#60a5fa"},{k:"phone_call_clicks",l:"Llamadas",icon:"📞",c:"#f59e0b"},{k:"direction_clicks",l:"Dirección",icon:"📍",c:"#f87171"}].filter(x=>data.cta[x.k]>0).map(x=>(
+            <div key={x.k} style={{padding:"12px 14px",background:"var(--bg3)",borderRadius:10,border:"1px solid var(--border)"}}>
+              <div style={{fontSize:11,color:"var(--tx3)",marginBottom:2}}>{x.icon} {x.l}</div>
+              <div className="num" style={{fontSize:20,fontWeight:700,color:x.c}}>{fN(data.cta[x.k])}</div>
+            </div>
+          ))}
         </div>
       </div>}
       {data.media?.length>0&&<div className="card" style={{padding:20}}>
@@ -1313,6 +1329,32 @@ function MetricasPg({cos,addN}){
           </div>
         </div>)}
       </div>}
+      {(data?.demoCountry||[]).length>0&&<div className="card" style={{padding:20,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>Top países</div>
+        <div style={{fontSize:12,color:"var(--tx3)",marginBottom:16}}>Distribución de seguidores por país</div>
+        {(()=>{const cMax=data.demoCountry[0]?.value||1;return data.demoCountry.slice(0,8).map((c,i)=>(<div key={i} style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{c.dimension_values?.[0]||"Desconocido"}</span><span style={{color:"var(--tx3)"}}>{fN(c.value)}</span></div>
+          <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden"}}><div style={{width:(c.value/cMax*100)+"%",height:"100%",background:"#a78bfa",borderRadius:3,transition:"width .4s"}}/></div>
+        </div>))})()}
+      </div>}
+      {data?.onlineByHour&&Object.keys(data.onlineByHour).length>0&&(()=>{
+        const hours=Array.from({length:24},(_,i)=>i);
+        const vals=hours.map(h=>data.onlineByHour[String(h)]||0);
+        const maxV=Math.max(...vals,1);
+        const peakH=vals.indexOf(Math.max(...vals));
+        return(<div className="card" style={{padding:20,marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Seguidores online por hora</div>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:16}}>Hora pico: <strong style={{color:"var(--accent)"}}>{peakH}:00 – {peakH+1}:00</strong> · Promedio última semana</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:2,height:60}}>
+            {hours.map(h=>{const v=vals[h];const pct=v/maxV;return(<div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{width:"100%",height:Math.max(3,pct*56)+"px",background:h===peakH?"var(--accent)":"var(--accent)44",borderRadius:"2px 2px 0 0",transition:"height .4s"}}/>
+            </div>);})}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--tx3)",marginTop:4,paddingRight:4}}>
+            {[0,6,12,18,23].map(h=><span key={h}>{h}h</span>)}
+          </div>
+        </div>);
+      })()}
       {ageArr.length===0&&cities.length===0&&<div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>👥</div><div style={{fontSize:14}}>Los datos demográficos aún no están disponibles para esta cuenta</div></div>}
     </>}
 
@@ -1348,7 +1390,8 @@ function MetricasPg({cos,addN}){
                   <div><span style={{color:"var(--tx3)"}}>❤️ </span><span className="num">{fN(post.likes)}</span></div>
                   <div><span style={{color:"var(--tx3)"}}>💬 </span><span className="num">{fN(post.comments)}</span></div>
                   <div><span style={{color:"var(--tx3)"}}>🔖 </span><span className="num">{fN(post.saves)}</span></div>
-                  <div><span style={{color:"var(--tx3)"}}>📡 </span><span className="num">{fN(post.reach)}</span></div>
+                  <div><span style={{color:"var(--tx3)"}}>🔄 </span><span className="num">{fN(post.shares)}</span></div>
+                  <div style={{gridColumn:"span 2"}}><span style={{color:"var(--tx3)"}}>📡 </span><span className="num">{fN(post.reach)}</span></div>
                 </div>
                 <div style={{marginTop:6,padding:"4px 8px",background:"var(--accent)22",borderRadius:6,textAlign:"center"}}>
                   <span style={{fontSize:12,fontWeight:700,color:"var(--accent)"}}>{post.engRate}%</span>
