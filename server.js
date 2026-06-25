@@ -785,6 +785,63 @@ app.get("/api/meta/insights",requireAuth,async(req,res)=>{
 });
 
 // ===============================
+// 🤖 ATLAS VOICE ASSISTANT API
+// ===============================
+const requireAtlas=(req,res,next)=>{
+  const key=req.headers['x-atlas-key'];
+  const validKey=process.env.ATLAS_API_KEY||'atlas2026XkP9mWqVz3bNj';
+  if(!key||key!==validKey)return res.status(401).json({error:'unauthorized'});
+  next();
+};
+
+app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
+  try{
+    const igId=req.query.igId||'17841472187907093';
+    if(!await isValidIgId(igId))return res.status(403).json({error:'cuenta no autorizada'});
+    const token=await getMetaToken();
+    if(!token)return res.json({error:'Meta no conectado'});
+    const days=Math.min(parseInt(req.query.days)||30,180);
+    const until=Math.floor(Date.now()/1000);
+    const since=until-days*24*60*60;
+    const prevSince=since-days*24*60*60;
+    const B=`https://graph.facebook.com/v19.0`;
+    const T=`access_token=${token}`;
+    const TV_METRICS="profile_views,accounts_engaged,total_interactions,impressions";
+    const[profileR,monthly,prevMonthly,followerR,prevFollowerR,ctaR,mediaR]=await Promise.all([
+      fetch(`${B}/${igId}?fields=followers_count,media_count,name,username&${T}`).then(r=>r.json()),
+      fetchMonthly(B,igId,TV_METRICS,token,since,until),
+      fetchMonthly(B,igId,TV_METRICS,token,prevSince,since),
+      fetch(`${B}/${igId}/insights?metric=follower_count&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${B}/${igId}/insights?metric=follower_count&period=day&since=${prevSince}&until=${since}&${T}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${B}/${igId}/insights?metric=website_clicks,email_contacts,phone_call_clicks,direction_clicks&metric_type=total_value&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()).catch(()=>({})),
+      fetch(`${B}/${igId}/media?fields=id,media_type,like_count,comments_count&limit=24&${T}`).then(r=>r.json()),
+    ]);
+    if(profileR.error)return res.json({error:profileR.error.message});
+    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions","impressions"];
+    const totals={},prevTotals={};
+    monthly.forEach(m=>{TV_KEYS.forEach(k=>{totals[k]=(totals[k]||0)+(m[k]||0);});});
+    prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
+    const followerVals=(followerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
+    const prevFollowerVals=(prevFollowerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
+    const followerGrowth=followerVals.length>=2?followerVals[followerVals.length-1].value-followerVals[0].value:null;
+    const prevFollowerGrowth=prevFollowerVals.length>=2?prevFollowerVals[prevFollowerVals.length-1].value-prevFollowerVals[0].value:null;
+    const ctaMap={};(ctaR.data||[]).forEach(m=>{ctaMap[m.name]=m.total_value?.value||0;});
+    const mediaPosts=mediaR.data||[];
+    const topPost=mediaPosts.length>0?[...mediaPosts].sort((a,b)=>((b.like_count||0)+(b.comments_count||0))-((a.like_count||0)+(a.comments_count||0)))[0]:null;
+    res.json({
+      company:profileR.name,username:profileR.username,period:`${days} días`,
+      followers:profileR.followers_count,followerGrowth,prevFollowerGrowth,
+      reach:totals.reach||0,prevReach:prevTotals.reach||0,
+      impressions:totals.impressions||0,interactions:totals.total_interactions||0,
+      prevInteractions:prevTotals.total_interactions||0,
+      profileViews:totals.profile_views||0,accountsEngaged:totals.accounts_engaged||0,
+      cta:ctaMap,monthly,
+      topPost:topPost?{type:topPost.media_type,likes:topPost.like_count||0,comments:topPost.comments_count||0}:null,
+    });
+  }catch(err){console.error("Atlas metrics error:",err);res.status(500).json({error:err.message});}
+});
+
+// ===============================
 // 🟢 SERVIR FRONTEND
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));
