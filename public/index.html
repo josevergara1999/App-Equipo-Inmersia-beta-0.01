@@ -272,6 +272,7 @@ function Bt({children,v="p",onClick:oc,style:s,disabled:d,icon}){const vs={p:{ba
 function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:999,fontSize:12,fontWeight:600,color:cl||"var(--tx2)",background:b||(cl?cl+"22":"var(--bg4)"),whiteSpace:"nowrap",lineHeight:1,...s}}>{children}</span>}
 function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(5,7,10,.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div>)}
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
+function NotesBox({initial,onSave}){const[v,sV]=useState(initial||"");return(<div style={{display:"flex",gap:6,alignItems:"flex-start",marginTop:2}}><textarea value={v} onChange={e=>sV(e.target.value)} placeholder="Notas de seguimiento (reuniones, acuerdos, proximos pasos...)" style={{flex:1,minHeight:50,fontSize:12,padding:"7px 10px",borderRadius:7,resize:"vertical",fontFamily:"inherit"}}/><Bt v="s" onClick={()=>onSave(v)} style={{padding:"7px 12px",fontSize:11,flexShrink:0,alignSelf:"flex-start"}}>💾 Guardar</Bt></div>)}
 
 // ═══ LOGIN ══════════════════════════════════════════════════════
 function Login({users:us,onLogin:ol}){
@@ -825,9 +826,23 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
           const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
           const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
+          const ETAPAS=[
+            ["contactado","Primer acercamiento"],
+            ["respuesta_positiva","Respondió (interesado)"],
+            ["respuesta_negativa","Respondió (no interesado)"],
+            ["reunion_agendada","Reunión agendada"],
+            ["reunion_realizada","Reunión realizada"],
+            ["preparando_cotizacion","Preparando cotización"],
+            ["cotizacion_enviada","Cotización enviada"],
+            ["esperando_cotizacion","Esperando respuesta cotización"],
+            ["cliente_cerrado","Cliente cerrado ✅"],
+            ["perdido","Perdido ✗"],
+          ];
+          const CANALES=[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Email"],["telefono","Teléfono"],["presencial","Presencial"],["otro","Otro"]];
           const pending=(pros||[]).filter(p=>(p.status||"pendiente")===prosStatusF);
           const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
           const chip=(active,onClick,label)=>(<button key={label} onClick={onClick} style={{fontSize:11,fontWeight:600,padding:"6px 12px",borderRadius:7,border:"1px solid var(--border)",background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{label}</button>);
+          const updateField=(id,field,value)=>{const nl=pros.map(x=>x.id===id?{...x,[field]:value}:x);sPros(nl);DB.save("prospects",nl);};
           return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
               <div>
@@ -878,6 +893,21 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                             </div>
                           </div>
                           {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                          {p.status==="aprobado"&&(<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                            <div style={{fontSize:10,fontWeight:600,color:"var(--tx3)",marginBottom:5,textTransform:"uppercase",letterSpacing:".03em"}}>Etapa de seguimiento</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
+                              {ETAPAS.map(([k,l])=>{const active=(p.etapa||"contactado")===k;return(
+                                <button key={k} onClick={()=>updateField(p.id,"etapa",k)} style={{fontSize:10,fontWeight:600,padding:"5px 9px",borderRadius:6,border:"1px solid "+(active?"var(--accent2)":"var(--border)"),background:active?"rgba(168,226,107,.15)":"var(--bg3)",color:active?"var(--accent)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                              );})}
+                            </div>
+                            <div style={{fontSize:10,fontWeight:600,color:"var(--tx3)",marginBottom:5,textTransform:"uppercase",letterSpacing:".03em"}}>Canal de contacto</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
+                              {CANALES.map(([k,l])=>{const active=p.canal_contacto===k;return(
+                                <button key={k} onClick={()=>updateField(p.id,"canal_contacto",k)} style={{fontSize:10,fontWeight:600,padding:"5px 9px",borderRadius:6,border:"1px solid "+(active?"var(--accent)":"var(--border)"),background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                              );})}
+                            </div>
+                            <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
+                          </div>)}
                         </div>
                       ))}
                     </div>
