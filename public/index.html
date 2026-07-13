@@ -334,7 +334,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],grabacion:["Días Grabación","🎬","camera"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"]};
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
-  const[prosAreaF,sProsAreaF]=useState("all");const[prosCatF,sProsCatF]=useState("all");const[prosStatusF,sProsStatusF]=useState("pendiente");
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
@@ -822,101 +821,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* PROSPECTOS */}
-        {pg==="prospectos"&&isA&&(()=>{
-          const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
-          const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
-          const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
-          const ETAPAS=[
-            ["contactado","Primer acercamiento"],
-            ["respuesta_positiva","Respondió (interesado)"],
-            ["respuesta_negativa","Respondió (no interesado)"],
-            ["reunion_agendada","Reunión agendada"],
-            ["reunion_realizada","Reunión realizada"],
-            ["preparando_cotizacion","Preparando cotización"],
-            ["cotizacion_enviada","Cotización enviada"],
-            ["esperando_cotizacion","Esperando respuesta cotización"],
-            ["cliente_cerrado","Cliente cerrado ✅"],
-            ["perdido","Perdido ✗"],
-          ];
-          const CANALES=[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Email"],["telefono","Teléfono"],["presencial","Presencial"],["otro","Otro"]];
-          const pending=(pros||[]).filter(p=>(p.status||"pendiente")===prosStatusF);
-          const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
-          const chip=(active,onClick,label)=>(<button key={label} onClick={onClick} style={{fontSize:11,fontWeight:600,padding:"6px 12px",borderRadius:7,border:"1px solid var(--border)",background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{label}</button>);
-          const updateField=(id,field,value)=>{const nl=pros.map(x=>x.id===id?{...x,[field]:value}:x);sPros(nl);DB.save("prospects",nl);};
-          return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
-              <div>
-                <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Prospectos</h1>
-                <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pendingCount} pendientes de revisión</div>
-              </div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                {STATUS_L.map(([k,l])=>chip(prosStatusF===k,()=>sProsStatusF(k),l))}
-                <div style={{width:1,height:20,background:"var(--border)"}}/>
-                {chip(prosAreaF==="all",()=>sProsAreaF("all"),"Todas las ubicaciones")}
-                {AREAS_L.map(([k,l])=>chip(prosAreaF===k,()=>sProsAreaF(k),l))}
-                <div style={{width:1,height:20,background:"var(--border)"}}/>
-                {chip(prosCatF==="all",()=>sProsCatF("all"),"Todas las categorías")}
-                {CATS_L.map(([k,l])=>chip(prosCatF===k,()=>sProsCatF(k),l))}
-              </div>
-            </div>
-            {AREAS_L.filter(([k])=>prosAreaF==="all"||prosAreaF===k).map(([areaKey,areaLabel])=>{
-              const areaPending=pending.filter(p=>p.area===areaKey);
-              if(!areaPending.length)return null;
-              return(<div key={areaKey} style={{marginBottom:28}}>
-                <h2 style={{fontSize:18,fontWeight:600,marginBottom:12,paddingBottom:6,borderBottom:"1px solid var(--border)"}}>{areaLabel}</h2>
-                {CATS_L.filter(([k])=>prosCatF==="all"||prosCatF===k).map(([catKey,catLabel])=>{
-                  const catPending=areaPending.filter(p=>p.category===catKey);
-                  if(!catPending.length)return null;
-                  return(<div key={catKey} style={{marginBottom:16}}>
-                    <div style={{fontSize:12,fontWeight:600,color:"var(--tx3)",marginBottom:8,textTransform:"uppercase",letterSpacing:".03em"}}>{catLabel} ({catPending.length})</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {catPending.map(p=>(
-                        <div key={p.id} className="card" style={{padding:"12px 16px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220,flex:"1 1 220px"}}>
-                              <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
-                              <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.fit_flag}</Bg>
-                            </div>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"2 1 280px"}}>
-                              {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📸 Instagram</a>}
-                              {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>🔗 Sitio web</a>}
-                              {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📍 Maps</a>}
-                              {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📞 {p.phone}</a>}
-                            </div>
-                            <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
-                              {prosStatusF==="pendiente"?(<>
-                                <Bt v="p" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"aprobado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✅ Aprobar</Bt>
-                                <Bt v="d" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"rechazado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✗ Rechazar</Bt>
-                              </>):(
-                                <Bt v="s" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"pendiente"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>↩ Volver a pendiente</Bt>
-                              )}
-                            </div>
-                          </div>
-                          {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
-                          {p.status==="aprobado"&&(<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
-                            <div style={{fontSize:10,fontWeight:600,color:"var(--tx3)",marginBottom:5,textTransform:"uppercase",letterSpacing:".03em"}}>Etapa de seguimiento</div>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
-                              {ETAPAS.map(([k,l])=>{const active=(p.etapa||"contactado")===k;return(
-                                <button key={k} onClick={()=>updateField(p.id,"etapa",k)} style={{fontSize:10,fontWeight:600,padding:"5px 9px",borderRadius:6,border:"1px solid "+(active?"var(--accent2)":"var(--border)"),background:active?"rgba(168,226,107,.15)":"var(--bg3)",color:active?"var(--accent)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-                              );})}
-                            </div>
-                            <div style={{fontSize:10,fontWeight:600,color:"var(--tx3)",marginBottom:5,textTransform:"uppercase",letterSpacing:".03em"}}>Canal de contacto</div>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
-                              {CANALES.map(([k,l])=>{const active=p.canal_contacto===k;return(
-                                <button key={k} onClick={()=>updateField(p.id,"canal_contacto",k)} style={{fontSize:10,fontWeight:600,padding:"5px 9px",borderRadius:6,border:"1px solid "+(active?"var(--accent)":"var(--border)"),background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-                              );})}
-                            </div>
-                            <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
-                          </div>)}
-                        </div>
-                      ))}
-                    </div>
-                  </div>);
-                })}
-              </div>);
-            })}
-          </div>);
-        })()}
+        {pg==="prospectos"&&isA&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
 
         {/* TASKS */}
         {/* PLANNER */}
@@ -1174,6 +1079,232 @@ function MiniBarChart({data,color="#60a5fa",h=90,fN}){
       </g>);
     })}
   </svg>);
+}
+
+function ProspectosPg({pros,sPros,users,addN}){
+  const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
+  const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
+  const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
+  const ETAPAS=[
+    ["contactado","Primer acercamiento"],
+    ["en_respuesta","En respuesta"],
+    ["reunion_agendada","Reunión agendada"],
+    ["preparando_cotizacion","Preparando cotización"],
+    ["cotizacion_lista","Cotización lista"],
+    ["cotizacion_enviada","Cotización enviada"],
+    ["esperando_respuesta","Esperando respuesta"],
+    ["cliente_cerrado","Cliente cerrado ✅"],
+    ["perdido","Perdido ✗"],
+  ];
+  const CANALES=[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Email"],["telefono","Teléfono"],["presencial","Presencial"],["otro","Otro"]];
+  const COMUNICACION=[["cerrado","Cerrado"],["abierto","Abierto"],["no_responde","No responde bien"],["interesado","Interesado"],["desinteresado","Desinteresado"]];
+  const NEEDS_PROMPT={contactado:1,en_respuesta:1,reunion_agendada:1,cotizacion_lista:1};
+
+  const[areaF,sAreaF]=useState("all");
+  const[catF,sCatF]=useState("all");
+  const[statusF,sStatusF]=useState("pendiente");
+  const[dragId,sDragId]=useState(null);
+  const[dragOverCol,sDragOverCol]=useState(null);
+  const[pendingMove,sPendingMove]=useState(null);
+  const[mChannels,sMChannels]=useState([]);
+  const[mComunicacion,sMComunicacion]=useState("");
+  const[mPeople,sMPeople]=useState([]);
+  const[mDate,sMDate]=useState("");
+  const[mTime,sMTime]=useState("");
+  const[mFile,sMFile]=useState(null);
+
+  useEffect(()=>{
+    if(!pendingMove){sMChannels([]);sMComunicacion("");sMPeople([]);sMDate("");sMTime("");sMFile(null);return;}
+    const p=(pros||[]).find(x=>x.id===pendingMove.id)||{};
+    sMChannels(p.canales_primer_contacto||[]);
+    sMComunicacion(p.comunicacion_status||"");
+    sMPeople(p.reunion_personas||[]);
+    sMDate(p.reunion_fecha||"");
+    sMTime(p.reunion_hora||"");
+    sMFile(null);
+  },[pendingMove]);
+
+  const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
+  const chip=(active,onClick,label)=>(<button key={label} onClick={onClick} style={{fontSize:11,fontWeight:600,padding:"6px 12px",borderRadius:7,border:"1px solid var(--border)",background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{label}</button>);
+  const updateField=(id,field,value)=>{const nl=pros.map(x=>x.id===id?{...x,[field]:value}:x);sPros(nl);DB.save("prospects",nl);};
+  const setStatus=(id,status)=>{const nl=pros.map(x=>x.id===id?{...x,status}:x);sPros(nl);DB.save("prospects",nl);};
+  const commitMove=(id,etapa,extra)=>{
+    const nl=pros.map(x=>x.id===id?{...x,etapa,...extra}:x);
+    sPros(nl);DB.save("prospects",nl);
+    addN&&addN("Prospecto movido a: "+(ETAPAS.find(([k])=>k===etapa)?.[1]||etapa));
+  };
+  const handleDrop=(targetEtapa)=>{
+    if(!dragId)return;
+    const id=dragId;sDragId(null);sDragOverCol(null);
+    if(NEEDS_PROMPT[targetEtapa])sPendingMove({id,targetEtapa});
+    else commitMove(id,targetEtapa,{});
+  };
+  const confirmDisabled=!pendingMove?true:
+    pendingMove.targetEtapa==="contactado"?mChannels.length===0:
+    pendingMove.targetEtapa==="en_respuesta"?!mComunicacion:
+    pendingMove.targetEtapa==="reunion_agendada"?(mPeople.length===0||!mDate||!mTime):
+    pendingMove.targetEtapa==="cotizacion_lista"?!mFile:
+    false;
+  const confirmMove=()=>{
+    if(!pendingMove||confirmDisabled)return;
+    let extra={};
+    if(pendingMove.targetEtapa==="contactado")extra={canales_primer_contacto:mChannels};
+    else if(pendingMove.targetEtapa==="en_respuesta")extra={comunicacion_status:mComunicacion};
+    else if(pendingMove.targetEtapa==="reunion_agendada")extra={reunion_personas:mPeople,reunion_fecha:mDate,reunion_hora:mTime};
+    else if(pendingMove.targetEtapa==="cotizacion_lista")extra={cotizacion_file:mFile};
+    commitMove(pendingMove.id,pendingMove.targetEtapa,extra);
+    sPendingMove(null);
+  };
+
+  const modalTitle=!pendingMove?"":
+    pendingMove.targetEtapa==="contactado"?"¿Por qué canal(es) se hizo el primer contacto?":
+    pendingMove.targetEtapa==="en_respuesta"?"¿Cómo está la comunicación?":
+    pendingMove.targetEtapa==="reunion_agendada"?"Agendar reunión":
+    pendingMove.targetEtapa==="cotizacion_lista"?"Subir cotización":"";
+
+  const pending=(pros||[]).filter(p=>(p.status||"pendiente")===statusF);
+  const approved=(pros||[]).filter(p=>p.status==="aprobado")
+    .filter(p=>areaF==="all"||p.area===areaF)
+    .filter(p=>catF==="all"||p.category===catF);
+
+  const linkRow=(p,small)=>(<div style={{display:"flex",flexWrap:"wrap",gap:small?4:6,marginBottom:small?6:0}}>
+    {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📸{small?"":" Instagram"}</a>}
+    {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>🔗{small?"":" Sitio web"}</a>}
+    {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📍{small?"":" Maps"}</a>}
+    {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📞{small?"":" "+p.phone}</a>}
+  </div>);
+
+  return(<div className="fi" style={{maxWidth:"100%",margin:"0 auto"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+      <div>
+        <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Prospectos</h1>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pendingCount} pendientes de revisión</div>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        {STATUS_L.map(([k,l])=>chip(statusF===k,()=>sStatusF(k),l))}
+        <div style={{width:1,height:20,background:"var(--border)"}}/>
+        {chip(areaF==="all",()=>sAreaF("all"),"Todas las ubicaciones")}
+        {AREAS_L.map(([k,l])=>chip(areaF===k,()=>sAreaF(k),l))}
+        <div style={{width:1,height:20,background:"var(--border)"}}/>
+        {chip(catF==="all",()=>sCatF("all"),"Todas las categorías")}
+        {CATS_L.map(([k,l])=>chip(catF===k,()=>sCatF(k),l))}
+      </div>
+    </div>
+
+    {statusF!=="aprobado"?(
+      <>
+        {AREAS_L.filter(([k])=>areaF==="all"||areaF===k).map(([areaKey,areaLabel])=>{
+          const areaPending=pending.filter(p=>p.area===areaKey);
+          if(!areaPending.length)return null;
+          return(<div key={areaKey} style={{marginBottom:28}}>
+            <h2 style={{fontSize:18,fontWeight:600,marginBottom:12,paddingBottom:6,borderBottom:"1px solid var(--border)"}}>{areaLabel}</h2>
+            {CATS_L.filter(([k])=>catF==="all"||catF===k).map(([catKey,catLabel])=>{
+              const catPending=areaPending.filter(p=>p.category===catKey);
+              if(!catPending.length)return null;
+              return(<div key={catKey} style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--tx3)",marginBottom:8,textTransform:"uppercase",letterSpacing:".03em"}}>{catLabel} ({catPending.length})</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {catPending.map(p=>(
+                    <div key={p.id} className="card" style={{padding:"12px 16px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220,flex:"1 1 220px"}}>
+                          <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+                          <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.fit_flag}</Bg>
+                        </div>
+                        <div style={{flex:"2 1 280px"}}>{linkRow(p,false)}</div>
+                        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+                          {statusF==="pendiente"?(<>
+                            <Bt v="p" onClick={()=>setStatus(p.id,"aprobado")} style={{padding:"7px 14px",fontSize:11}}>✅ Aprobar</Bt>
+                            <Bt v="d" onClick={()=>setStatus(p.id,"rechazado")} style={{padding:"7px 14px",fontSize:11}}>✗ Rechazar</Bt>
+                          </>):(
+                            <Bt v="s" onClick={()=>setStatus(p.id,"pendiente")} style={{padding:"7px 14px",fontSize:11}}>↩ Volver a pendiente</Bt>
+                          )}
+                        </div>
+                      </div>
+                      {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>);
+            })}
+          </div>);
+        })}
+      </>
+    ):(
+      <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:12}}>
+        {ETAPAS.map(([etapaKey,etapaLabel])=>{
+          const colItems=approved.filter(p=>(p.etapa||"contactado")===etapaKey);
+          return(<div key={etapaKey}
+            onDragOver={e=>{e.preventDefault();sDragOverCol(etapaKey);}}
+            onDragLeave={()=>sDragOverCol(null)}
+            onDrop={()=>handleDrop(etapaKey)}
+            style={{minWidth:250,maxWidth:250,flexShrink:0,background:dragOverCol===etapaKey?"rgba(168,226,107,.06)":"transparent",borderRadius:12,transition:"background .2s",padding:6}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".03em",padding:"4px 6px",marginBottom:6}}>{etapaLabel} ({colItems.length})</div>
+            {colItems.map(p=>(
+              <div key={p.id} draggable onDragStart={()=>sDragId(p.id)} onDragEnd={()=>{sDragId(null);sDragOverCol(null);}}
+                className="card" style={{padding:12,marginBottom:8,cursor:"grab"}}>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+                <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{fontSize:9,marginBottom:6}}>{p.fit_flag}</Bg>
+                {linkRow(p,true)}
+                {p.profile_notes&&<div style={{fontSize:10,color:"var(--tx2)",lineHeight:1.4,marginBottom:6,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                {p.canales_primer_contacto?.length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>📩 {p.canales_primer_contacto.map(c=>CANALES.find(([k])=>k===c)?.[1]||c).join(", ")}</div>}
+                {p.comunicacion_status&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>💬 {COMUNICACION.find(([k])=>k===p.comunicacion_status)?.[1]||p.comunicacion_status}</div>}
+                {p.reunion_fecha&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>🗓 {p.reunion_fecha} {p.reunion_hora||""}{p.reunion_personas?.length?" · "+p.reunion_personas.map(uid=>users.find(u=>u.id===uid)?.name||"?").join(", "):""}</div>}
+                {p.cotizacion_file&&<a href={p.cotizacion_file.data} download={p.cotizacion_file.name} style={{fontSize:9,color:"var(--accent)",display:"block",marginBottom:2,textDecoration:"none"}}>📄 {p.cotizacion_file.name}</a>}
+                <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
+                <div style={{display:"flex",gap:4,marginTop:6}}>
+                  <button onClick={()=>setStatus(p.id,"pendiente")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid var(--border)",borderRadius:5,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>↩ pendiente</button>
+                  <button onClick={()=>setStatus(p.id,"rechazado")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit"}}>✗ rechazar</button>
+                </div>
+              </div>
+            ))}
+          </div>);
+        })}
+      </div>
+    )}
+
+    <Md open={!!pendingMove} onClose={()=>sPendingMove(null)} title={modalTitle}>
+      {pendingMove?.targetEtapa==="contactado"&&(
+        <Fd label="Canales usados (elige uno o varios)">
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {CANALES.map(([k,l])=>{const sel=mChannels.includes(k);return(
+              <button key={k} onClick={()=>sMChannels(sel?mChannels.filter(x=>x!==k):[...mChannels,k])} style={{fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:7,border:"1px solid "+(sel?"var(--accent)":"var(--border)"),background:sel?"var(--accent)":"var(--bg3)",color:sel?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+            );})}
+          </div>
+        </Fd>
+      )}
+      {pendingMove?.targetEtapa==="en_respuesta"&&(
+        <Fd label="Estado de la comunicación">
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {COMUNICACION.map(([k,l])=>(
+              <button key={k} onClick={()=>sMComunicacion(k)} style={{fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:7,border:"1px solid "+(mComunicacion===k?"var(--accent)":"var(--border)"),background:mComunicacion===k?"var(--accent)":"var(--bg3)",color:mComunicacion===k?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+            ))}
+          </div>
+        </Fd>
+      )}
+      {pendingMove?.targetEtapa==="reunion_agendada"&&(<>
+        <Fd label="Quién asiste">
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {users.map(u=>{const sel=mPeople.includes(u.id);return(
+              <button key={u.id} onClick={()=>sMPeople(sel?mPeople.filter(x=>x!==u.id):[...mPeople,u.id])} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,padding:"6px 10px",borderRadius:7,border:"1px solid "+(sel?"var(--accent)":"var(--border)"),background:sel?"var(--accent)":"var(--bg3)",color:sel?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>
+            );})}
+          </div>
+        </Fd>
+        <Fd label="Día"><input type="date" value={mDate} onChange={e=>sMDate(e.target.value)}/></Fd>
+        <Fd label="Hora"><input type="time" value={mTime} onChange={e=>sMTime(e.target.value)}/></Fd>
+      </>)}
+      {pendingMove?.targetEtapa==="cotizacion_lista"&&(
+        <Fd label="Archivo de cotización (PDF)">
+          <input type="file" accept="application/pdf" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sMFile({name:f.name,data:ev.target.result,type:f.type});r.readAsDataURL(f);}}/>
+          {mFile&&<div style={{fontSize:12,color:"var(--tx2)",marginTop:6}}>📄 {mFile.name}</div>}
+        </Fd>
+      )}
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
+        <Bt v="s" onClick={()=>sPendingMove(null)}>Cancelar</Bt>
+        <Bt v="p" disabled={confirmDisabled} onClick={confirmMove}>Confirmar</Bt>
+      </div>
+    </Md>
+  </div>);
 }
 
 function MetricasPg({cos,addN}){
