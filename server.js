@@ -541,7 +541,7 @@ app.post("/api/gcal/sync", requireAuth, async (req, res) => {
 app.get("/api/auth/meta",(req,res)=>{
   const appId=process.env.META_APP_ID;
   const redirectUri=process.env.META_REDIRECT_URI;
-  const scopes="instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement";
+  const scopes="instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement,ads_read";
   res.redirect(`https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code`);
 });
 
@@ -636,6 +636,8 @@ async function fetchMonthly(base,igId,tvMetrics,token,since,until){
       fetch(`${base}/${igId}/insights?metric=${tvMetrics}&metric_type=total_value&period=day&since=${cs}&until=${cu}&access_token=${token}`).then(r=>r.json()).catch(()=>({})),
       fetch(`${base}/${igId}/insights?metric=reach&period=day&since=${cs}&until=${cu}&access_token=${token}`).then(r=>r.json()).catch(()=>({})),
     ]);
+    if(tvR.error)console.error(`fetchMonthly TV metrics error (${label}):`,tvR.error.message||tvR.error);
+    if(rR.error)console.error(`fetchMonthly reach error (${label}):`,rR.error.message||rR.error);
     const tv={};
     (tvR.data||[]).forEach(m=>{tv[m.name]=m.total_value?.value||0;});
     const reach=(rR.data||[]).find(m=>m.name==="reach")?.values?.reduce((s,v)=>s+(v.value||0),0)||0;
@@ -657,7 +659,10 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
     const prevSince=since-days*24*60*60;
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
-    const TV_METRICS="profile_views,accounts_engaged,total_interactions,impressions";
+    // profile_views/impressions dropped — both deprecated by Meta on this endpoint (see
+    // /api/atlas/metrics above for the full explanation), were silently zeroing all 4
+    // combined metrics when requested together.
+    const TV_METRICS="accounts_engaged,total_interactions";
     const[profileR,reachR,prevReachR,followerR,prevFollowerR,demoAgeR,demoCityR,demoCountryR,mediaR,ctaR,onlineFR]=await Promise.all([
       fetch(`${B}/${igId}?fields=followers_count,media_count,name,username,profile_picture_url&${T}`).then(r=>r.json()),
       fetch(`${B}/${igId}/insights?metric=reach&period=day&since=${since}&until=${until}&${T}`).then(r=>r.json()),
@@ -677,7 +682,7 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
       fetchMonthly(B,igId,TV_METRICS,token,since,until),
       fetchMonthly(B,igId,TV_METRICS,token,prevSince,since),
     ]);
-    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions","impressions"];
+    const TV_KEYS=["reach","accounts_engaged","total_interactions"];
     const totals={},prevTotals={};
     monthly.forEach(m=>{TV_KEYS.forEach(k=>{totals[k]=(totals[k]||0)+(m[k]||0);});});
     prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
@@ -794,6 +799,62 @@ const requireAtlas=(req,res,next)=>{
   next();
 };
 
+// Read-only Meta Ads (Marketing API) access, separate from the Instagram Insights API
+// used above — needs the `ads_read` scope on the Meta token (added 2026-07-13) and a
+// re-authorization of the /api/auth/meta connection to take effect.
+const INMERSIA_AD_ACCOUNTS={
+  huemul:"act_1809797739421316",
+};
+
+app.get("/api/atlas/ads",requireAtlas,async(req,res)=>{
+  try{
+    const client=(req.query.client||'huemul').toLowerCase().trim();
+    const adAccount=INMERSIA_AD_ACCOUNTS[client];
+    if(!adAccount)return res.status(400).json({error:`No ad account mapped for '${client}'. Known: ${Object.keys(INMERSIA_AD_ACCOUNTS).join(', ')}`});
+    const token=await getMetaToken();
+    if(!token)return res.json({error:'Meta no conectado'});
+    const days=Math.min(parseInt(req.query.days)||30,180);
+    const statusFilter=(req.query.status||'ACTIVE').toUpperCase(); // 'ACTIVE' or 'ALL'
+    const until=Math.floor(Date.now()/1000);
+    const since=until-days*24*60*60;
+    const toDateStr=ts=>new Date(ts*1000).toISOString().slice(0,10);
+    const B=`https://graph.facebook.com/v19.0`;
+    const T=`access_token=${token}`;
+    const timeRange=encodeURIComponent(JSON.stringify({since:toDateStr(since),until:toDateStr(until)}));
+
+    const[campaignsR,insightsR]=await Promise.all([
+      fetch(`${B}/${adAccount}/campaigns?fields=id,name,objective,status,effective_status,daily_budget,lifetime_budget&limit=100&${T}`).then(r=>r.json()),
+      fetch(`${B}/${adAccount}/insights?level=campaign&fields=campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions&time_range=${timeRange}&limit=100&${T}`).then(r=>r.json()),
+    ]);
+    if(campaignsR.error)return res.json({error:campaignsR.error.message});
+    if(insightsR.error)console.error("Meta ads insights error:",insightsR.error.message||insightsR.error);
+
+    const insightsByCampaign={};
+    (insightsR.data||[]).forEach(i=>{insightsByCampaign[i.campaign_id]=i;});
+
+    let campaigns=(campaignsR.data||[]).map(c=>{
+      const ins=insightsByCampaign[c.id]||{};
+      const results=(ins.actions||[]).reduce((sum,a)=>sum+(parseInt(a.value)||0),0);
+      return{
+        id:c.id,name:c.name,objective:c.objective,
+        status:c.status,effectiveStatus:c.effective_status,
+        dailyBudget:c.daily_budget?parseInt(c.daily_budget)/100:null,
+        lifetimeBudget:c.lifetime_budget?parseInt(c.lifetime_budget)/100:null,
+        spend:parseFloat(ins.spend||0),impressions:parseInt(ins.impressions||0),
+        reach:parseInt(ins.reach||0),clicks:parseInt(ins.clicks||0),
+        ctr:parseFloat(ins.ctr||0),cpc:parseFloat(ins.cpc||0),
+        results,
+      };
+    });
+    if(statusFilter!=='ALL')campaigns=campaigns.filter(c=>c.effectiveStatus===statusFilter);
+
+    res.json({
+      client,adAccount,period:`${days} días`,status:statusFilter,
+      campaignCount:campaigns.length,campaigns,
+    });
+  }catch(err){console.error("Atlas ads error:",err);res.status(500).json({error:err.message});}
+});
+
 app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
   try{
     const igId=req.query.igId||'17841472187907093';
@@ -806,7 +867,12 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
     const prevSince=since-days*24*60*60;
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
-    const TV_METRICS="profile_views,accounts_engaged,total_interactions,impressions";
+    // profile_views and impressions were dropped from this list — both are deprecated by
+    // Meta on Instagram Insights (profile_views removed from this endpoint entirely;
+    // impressions deprecated for all API versions since 2025-04-21). Requesting them
+    // alongside valid metrics made Meta reject the WHOLE combined call, which silently
+    // zeroed out all four fields (reach was unaffected — fetched in a separate call).
+    const TV_METRICS="accounts_engaged,total_interactions";
     const[profileR,monthly,prevMonthly,followerR,prevFollowerR,ctaR,mediaR]=await Promise.all([
       fetch(`${B}/${igId}?fields=followers_count,media_count,name,username&${T}`).then(r=>r.json()),
       fetchMonthly(B,igId,TV_METRICS,token,since,until),
@@ -817,7 +883,7 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
       fetch(`${B}/${igId}/media?fields=id,media_type,like_count,comments_count&limit=24&${T}`).then(r=>r.json()),
     ]);
     if(profileR.error)return res.json({error:profileR.error.message});
-    const TV_KEYS=["reach","profile_views","accounts_engaged","total_interactions","impressions"];
+    const TV_KEYS=["reach","accounts_engaged","total_interactions"];
     const totals={},prevTotals={};
     monthly.forEach(m=>{TV_KEYS.forEach(k=>{totals[k]=(totals[k]||0)+(m[k]||0);});});
     prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
@@ -832,9 +898,11 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
       company:profileR.name,username:profileR.username,period:`${days} días`,
       followers:profileR.followers_count,followerGrowth,prevFollowerGrowth,
       reach:totals.reach||0,prevReach:prevTotals.reach||0,
-      impressions:totals.impressions||0,interactions:totals.total_interactions||0,
+      interactions:totals.total_interactions||0,
       prevInteractions:prevTotals.total_interactions||0,
-      profileViews:totals.profile_views||0,accountsEngaged:totals.accounts_engaged||0,
+      accountsEngaged:totals.accounts_engaged||0,
+      // impressions/profileViews intentionally omitted — Meta deprecated both metrics on
+      // this endpoint, no direct replacement exists as of 2026.
       cta:ctaMap,monthly,
       topPost:topPost?{type:topPost.media_type,likes:topPost.like_count||0,comments:topPost.comments_count||0}:null,
     });

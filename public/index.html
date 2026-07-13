@@ -1145,10 +1145,10 @@ function MetricasPg({cos,addN}){
   const kMetrics=[
     {label:"Seguidores",val:followers,icon:"👥",color:"#a78bfa"},
     {label:"Alcance",val:sum(curr,"reach")||tot.reach||0,prev:sum(prev,"reach")||prevTot.reach||0,icon:"📡",color:"#34d399"},
-    {label:"Impresiones",val:tot.impressions||0,prev:prevTot.impressions,icon:"👁",color:"#818cf8"},
     {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
     {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
-    {label:"Visitas perfil",val:tot.profile_views||0,prev:prevTot.profile_views,icon:"🔍",color:"#f59e0b"},
+    // "Impresiones" y "Visitas perfil" se sacaron 2026-07-13 — Meta deprecó ambas
+    // metricas en Instagram Insights, ya no hay dato real que mostrar aqui.
     ...(data?.followerGrowth!=null?[{label:"Crecimiento",val:data.followerGrowth,prev:data.prevFollowerGrowth,icon:"📈",color:"#a3e635"}]:[]),
   ];
 
@@ -1208,17 +1208,11 @@ function MetricasPg({cos,addN}){
           <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.total_interactions||0}))} color="#60a5fa" fN={fN}/>
         </div>
         <div className="card" style={{padding:20}}>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>🔍 Visitas perfil mes a mes</div>
-          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.profile_views||0}))} color="#f59e0b" fN={fN}/>
-        </div>
-        <div className="card" style={{padding:20}}>
           <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>🔥 Cuentas activas mes a mes</div>
           <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.accounts_engaged||0}))} color="#f87171" fN={fN}/>
         </div>
-        {(data.monthly||[]).some(m=>m.impressions)&&<div className="card" style={{padding:20}}>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>👁 Impresiones mes a mes</div>
-          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.impressions||0}))} color="#818cf8" fN={fN}/>
-        </div>}
+        {/* "Visitas perfil" e "Impresiones" mes a mes se sacaron 2026-07-13 — Meta
+            deprecó ambas metricas, ya no llegan datos para esos graficos. */}
       </div>}
       {data.cta&&Object.values(data.cta).some(v=>v>0)&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Acciones del perfil ({periodLabel})</div>
