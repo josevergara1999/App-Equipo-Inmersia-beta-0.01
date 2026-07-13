@@ -698,8 +698,13 @@ app.get("/api/meta/insights-full",requireAuth,async(req,res)=>{
     }));
     const followerVals=(followerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
     const prevFollowerVals=(prevFollowerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
-    const followerGrowth=followerVals.length>=2?followerVals[followerVals.length-1].value-followerVals[0].value:null;
-    const prevFollowerGrowth=prevFollowerVals.length>=2?prevFollowerVals[prevFollowerVals.length-1].value-prevFollowerVals[0].value:null;
+    // follower_count with period=day is a daily-delta time series (net new followers
+    // that day), same shape as reach — must be SUMMED across the period, not
+    // last-minus-first (that was subtracting two unrelated single days' deltas, which
+    // produced wrong/misleading growth numbers, e.g. showing -38 when Instagram's own
+    // app showed real growth for the same period).
+    const followerGrowth=followerVals.length>0?followerVals.reduce((s,v)=>s+(v.value||0),0):null;
+    const prevFollowerGrowth=prevFollowerVals.length>0?prevFollowerVals.reduce((s,v)=>s+(v.value||0),0):null;
     const demoAge=demoAgeR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
     const demoCity=demoCityR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[];
     const demoCountry=(demoCountryR.data?.[0]?.total_value?.breakdowns?.[0]?.results||[]).sort((a,b)=>b.value-a.value).slice(0,10);
@@ -889,8 +894,13 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
     prevMonthly.forEach(m=>{TV_KEYS.forEach(k=>{prevTotals[k]=(prevTotals[k]||0)+(m[k]||0);});});
     const followerVals=(followerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
     const prevFollowerVals=(prevFollowerR.data||[]).find(m=>m.name==="follower_count")?.values||[];
-    const followerGrowth=followerVals.length>=2?followerVals[followerVals.length-1].value-followerVals[0].value:null;
-    const prevFollowerGrowth=prevFollowerVals.length>=2?prevFollowerVals[prevFollowerVals.length-1].value-prevFollowerVals[0].value:null;
+    // follower_count with period=day is a daily-delta time series (net new followers
+    // that day), same shape as reach — must be SUMMED across the period, not
+    // last-minus-first (that was subtracting two unrelated single days' deltas, which
+    // produced wrong/misleading growth numbers, e.g. showing -38 when Instagram's own
+    // app showed real growth for the same period).
+    const followerGrowth=followerVals.length>0?followerVals.reduce((s,v)=>s+(v.value||0),0):null;
+    const prevFollowerGrowth=prevFollowerVals.length>0?prevFollowerVals.reduce((s,v)=>s+(v.value||0),0):null;
     const ctaMap={};(ctaR.data||[]).forEach(m=>{ctaMap[m.name]=m.total_value?.value||0;});
     const mediaPosts=mediaR.data||[];
     const topPost=mediaPosts.length>0?[...mediaPosts].sort((a,b)=>((b.like_count||0)+(b.comments_count||0))-((a.like_count||0)+(a.comments_count||0)))[0]:null;
