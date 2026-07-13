@@ -1166,7 +1166,7 @@ function MetricasPg({cos,addN}){
         <div style={{display:"flex",gap:3,background:"var(--bg3)",borderRadius:8,padding:3,border:"1px solid var(--border)"}}>
           {[[30,"30d"],[90,"3m"],[180,"6m"]].map(([d,l])=><button key={d} onClick={()=>sPeriodDays(d)} style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:600,border:"none",background:periodDays===d?"var(--accent)":"transparent",color:periodDays===d?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>)}
         </div>
-        {metaSt&&(metaSt.connected?<Bg color="var(--success)">✓ {metaSt.user}</Bg>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
+        {metaSt&&(metaSt.connected?<div style={{display:"flex",gap:6,alignItems:"center"}}><Bg color="var(--success)">✓ {metaSt.user}</Bg><a href="/api/auth/meta" title="Reconectar (por ejemplo si se agrego un permiso nuevo)" style={{fontSize:11,color:"var(--tx3)",textDecoration:"underline",cursor:"pointer"}}>reconectar</a></div>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
       </div>
     </div>
 
