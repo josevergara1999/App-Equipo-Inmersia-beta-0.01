@@ -332,6 +332,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[pg,sPg]=useState("dashboard");
   const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],grabacion:["Días Grabación","🎬","camera"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"]};
   const[cos,sCos]=useState([]);
+  const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
@@ -388,6 +389,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.meetings?.length)sMeets(d.meetings);
       if(d.planners?.length)sPlanners(d.planners);
       if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
+      if(d.prospects?.length)sPros(d.prospects);
       if(d.teamPay)sTP(d.teamPay);
       if(d.billRcpts)sBR(d.billRcpts);
       sDbLoaded(true);
@@ -535,6 +537,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{height:1,background:"var(--border)",margin:"6px 0"}}/>
           <button onClick={myGcal?()=>sShGcal(true):connectGCal} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:myGcal?"rgba(62,213,152,.06)":"transparent",color:myGcal?"var(--success)":"var(--tx2)",fontSize:14,fontWeight:500,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="calendar" s={18}/>{myGcal?"GCal ✓":"Conectar GCal"}</button>
           {isA&&<button onClick={()=>sPg("payments")} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color:"var(--gold)",fontSize:14,fontWeight:600,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="payments" s={18}/>Facturación</button>}
+          {isA&&<button onClick={()=>sPg("prospectos")} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color:"var(--gold)",fontSize:14,fontWeight:600,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="pin" s={18}/>Prospectos</button>}
           <div style={{padding:"8px 12px",fontSize:11,color:"var(--tx3)"}}>
             <div style={{display:"flex",gap:4,marginBottom:6}}>
               {[["A","#a8e26b"],["B","#ff7a6b"],["C","#4a7a2b"]].map(([t,c])=>(<button key={t} onClick={()=>sTheme(t)} style={{width:20,height:20,borderRadius:6,background:c,border:theme===t?"2px solid var(--tx)":"2px solid transparent",cursor:"pointer",transition:"border .15s"}} title={t==="A"?"Oak & Sage":t==="B"?"Night & Coral":"Light Linen"}/>))}
@@ -816,6 +819,32 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           </div>}</Md>
         </div>)}
 
+        {/* PROSPECTOS */}
+        {pg==="prospectos"&&isA&&(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
+          <div style={{marginBottom:24}}>
+            <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Prospectos</h1>
+            <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length} pendientes de revisión</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:12}}>
+            {(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").map(p=>(
+              <div key={p.id} className="card" style={{padding:18}}>
+                <div style={{fontSize:16,fontWeight:600,marginBottom:6}}>{p.name}</div>
+                <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{marginBottom:10}}>{p.fit_flag}{p.fit_reason?" · "+p.fit_reason:""}</Bg>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+                  {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📸 Instagram</a>}
+                  {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>🔗 Sitio web</a>}
+                  {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📍 Maps</a>}
+                  {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📞 {p.phone}</a>}
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Bt v="p" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"aprobado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"8px 16px",fontSize:11}}>✅ Aprobar</Bt>
+                  <Bt v="d" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"rechazado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"8px 16px",fontSize:11}}>✗ Rechazar</Bt>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>)}
+
         {/* TASKS */}
         {/* PLANNER */}
         {pg==="planner"&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} pDrafts={pDrafts} sPDrafts={sPDrafts} fCo={fCo} addN={addN}/>}
@@ -951,6 +980,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </button>
               {isA&&<button onClick={()=>{sPg("payments");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>💰</span>Facturación
+              </button>}
+              {isA&&<button onClick={()=>{sPg("prospectos");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>📍</span>Prospectos
               </button>}
               <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--danger)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>🚪</span>Salir

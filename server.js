@@ -919,6 +919,57 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
   }catch(err){console.error("Atlas metrics error:",err);res.status(500).json({error:err.message});}
 });
 
+// Prospectos (leads) pushed by Atlas's leads_tool.py — stored as a single app_data
+// row (key="prospects") like everything else in this app, deduped by place_id.
+async function loadProspects(){
+  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
+  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.prospects&select=value`,{
+    headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`}
+  });
+  const d=await r.json();
+  return d?.[0]?.value||[];
+}
+async function saveProspects(list){
+  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
+  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  await fetch(`${sbUrl}/rest/v1/app_data`,{
+    method:"POST",
+    headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+    body:JSON.stringify({key:"prospects",value:list,updated_at:new Date().toISOString()})
+  });
+}
+
+app.post("/api/atlas/prospects",requireAtlas,async(req,res)=>{
+  try{
+    const incoming=Array.isArray(req.body?.prospects)?req.body.prospects:[];
+    if(!incoming.length)return res.status(400).json({error:"prospects vacío"});
+    const existing=await loadProspects();
+    const existingIds=new Set(existing.map(p=>p.id));
+    const added=[];
+    for(const p of incoming){
+      if(!p.id||existingIds.has(p.id))continue;
+      if(p.fit_flag==="EXCLUIR")continue; // belt-and-suspenders, leads_tool.py already filters this
+      added.push({...p,status:p.status||"pendiente",created_at:new Date().toISOString()});
+      existingIds.add(p.id);
+    }
+    const merged=[...existing,...added];
+    await saveProspects(merged);
+    res.json({added:added.length,skipped_duplicates:incoming.length-added.length,total:merged.length});
+  }catch(err){console.error("Atlas prospects push error:",err);res.status(500).json({error:err.message});}
+});
+
+// GET ?status=aprobado is what Atlas/Claude Code calls later to fetch the ones Jose
+// approved in the Prospectos tab, for the deeper (non-scripted) research follow-up.
+app.get("/api/atlas/prospects",requireAtlas,async(req,res)=>{
+  try{
+    const status=(req.query.status||"").toLowerCase().trim();
+    let list=await loadProspects();
+    if(status)list=list.filter(p=>(p.status||"pendiente").toLowerCase()===status);
+    res.json({count:list.length,prospects:list});
+  }catch(err){console.error("Atlas prospects get error:",err);res.status(500).json({error:err.message});}
+});
+
 // ===============================
 // 🟢 SERVIR FRONTEND
 // ===============================
