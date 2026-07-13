@@ -940,22 +940,36 @@ async function saveProspects(list){
   });
 }
 
+// Fields Atlas is allowed to fill in on an ALREADY-existing prospect (re-running
+// discover/enrich, or a later deep-research pass, can find things a first pass
+// missed) — only fills gaps (existing truthy value wins), and never touches
+// `status`, so an aprobado/rechazado decision Jose already made is untouched.
+const PROSPECT_FILLABLE_FIELDS=["instagram_handle","website","phone","profile_notes"];
+
 app.post("/api/atlas/prospects",requireAtlas,async(req,res)=>{
   try{
     const incoming=Array.isArray(req.body?.prospects)?req.body.prospects:[];
     if(!incoming.length)return res.status(400).json({error:"prospects vacío"});
     const existing=await loadProspects();
-    const existingIds=new Set(existing.map(p=>p.id));
-    const added=[];
+    const byId=new Map(existing.map(p=>[p.id,p]));
+    let added=0,updated=0,skipped=0;
     for(const p of incoming){
-      if(!p.id||existingIds.has(p.id))continue;
-      if(p.fit_flag==="EXCLUIR")continue; // belt-and-suspenders, leads_tool.py already filters this
-      added.push({...p,status:p.status||"pendiente",created_at:new Date().toISOString()});
-      existingIds.add(p.id);
+      if(!p.id||p.fit_flag==="EXCLUIR"){skipped++;continue;}
+      const cur=byId.get(p.id);
+      if(!cur){
+        byId.set(p.id,{...p,status:p.status||"pendiente",created_at:new Date().toISOString()});
+        added++;
+        continue;
+      }
+      let changed=false;
+      for(const f of PROSPECT_FILLABLE_FIELDS){
+        if(!cur[f]&&p[f]){cur[f]=p[f];changed=true;}
+      }
+      if(changed)updated++;else skipped++;
     }
-    const merged=[...existing,...added];
+    const merged=[...byId.values()];
     await saveProspects(merged);
-    res.json({added:added.length,skipped_duplicates:incoming.length-added.length,total:merged.length});
+    res.json({added,updated,skipped,total:merged.length});
   }catch(err){console.error("Atlas prospects push error:",err);res.status(500).json({error:err.message});}
 });
 

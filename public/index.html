@@ -333,7 +333,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],grabacion:["Días Grabación","🎬","camera"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"]};
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
-  const[prosAreaF,sProsAreaF]=useState("all");const[prosCatF,sProsCatF]=useState("all");
+  const[prosAreaF,sProsAreaF]=useState("all");const[prosCatF,sProsCatF]=useState("all");const[prosStatusF,sProsStatusF]=useState("pendiente");
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
   const[modal,sMd2]=useState(null);const[newCo,sNC]=useState(false);const[editCo,sEC]=useState(null);const[dayView,sDayView]=useState(null);
@@ -824,15 +824,19 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="prospectos"&&isA&&(()=>{
           const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
           const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
-          const pending=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente");
+          const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
+          const pending=(pros||[]).filter(p=>(p.status||"pendiente")===prosStatusF);
+          const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
           const chip=(active,onClick,label)=>(<button key={label} onClick={onClick} style={{fontSize:11,fontWeight:600,padding:"6px 12px",borderRadius:7,border:"1px solid var(--border)",background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{label}</button>);
           return(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
               <div>
                 <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Prospectos</h1>
-                <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pending.length} pendientes de revisión</div>
+                <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pendingCount} pendientes de revisión</div>
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                {STATUS_L.map(([k,l])=>chip(prosStatusF===k,()=>sProsStatusF(k),l))}
+                <div style={{width:1,height:20,background:"var(--border)"}}/>
                 {chip(prosAreaF==="all",()=>sProsAreaF("all"),"Todas las ubicaciones")}
                 {AREAS_L.map(([k,l])=>chip(prosAreaF===k,()=>sProsAreaF(k),l))}
                 <div style={{width:1,height:20,background:"var(--border)"}}/>
@@ -852,21 +856,28 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     <div style={{fontSize:12,fontWeight:600,color:"var(--tx3)",marginBottom:8,textTransform:"uppercase",letterSpacing:".03em"}}>{catLabel} ({catPending.length})</div>
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       {catPending.map(p=>(
-                        <div key={p.id} className="card" style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220,flex:"1 1 220px"}}>
-                            <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
-                            <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.fit_flag}</Bg>
+                        <div key={p.id} className="card" style={{padding:"12px 16px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220,flex:"1 1 220px"}}>
+                              <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+                              <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.fit_flag}</Bg>
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"2 1 280px"}}>
+                              {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📸 Instagram</a>}
+                              {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>🔗 Sitio web</a>}
+                              {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📍 Maps</a>}
+                              {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📞 {p.phone}</a>}
+                            </div>
+                            <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+                              {prosStatusF==="pendiente"?(<>
+                                <Bt v="p" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"aprobado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✅ Aprobar</Bt>
+                                <Bt v="d" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"rechazado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✗ Rechazar</Bt>
+                              </>):(
+                                <Bt v="s" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"pendiente"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>↩ Volver a pendiente</Bt>
+                              )}
+                            </div>
                           </div>
-                          <div style={{display:"flex",flexWrap:"wrap",gap:6,flex:"2 1 280px"}}>
-                            {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📸 Instagram</a>}
-                            {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>🔗 Sitio web</a>}
-                            {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📍 Maps</a>}
-                            {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:11,fontWeight:600,color:"var(--accent)",padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,textDecoration:"none"}}>📞 {p.phone}</a>}
-                          </div>
-                          <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
-                            <Bt v="p" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"aprobado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✅ Aprobar</Bt>
-                            <Bt v="d" onClick={()=>{const nl=pros.map(x=>x.id===p.id?{...x,status:"rechazado"}:x);sPros(nl);DB.save("prospects",nl);}} style={{padding:"7px 14px",fontSize:11}}>✗ Rechazar</Bt>
-                          </div>
+                          {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
                         </div>
                       ))}
                     </div>
