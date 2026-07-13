@@ -182,7 +182,7 @@ const INIT_USERS=[
   {id:1,name:"Consuelo",email:"consuelo@inmersia.cl",gmail:"cefuenzalidam@gmail.com",role:"editor",avatar:"CF",color:"#9d6bff",pass:"1234"},
   {id:2,name:"Cleme",email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234"},
   {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b",pass:"1234"},
-  {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"visualizador",avatar:"GA",color:"#ffd93d",pass:"1234"},
+  {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"Sales",avatar:"GA",color:"#ffd93d",pass:"1234"},
   {id:5,name:"Javi",email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234"},
   {id:6,name:"Jose",email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234"},
   {id:7,name:"INMERSIA",email:"inmersiatours@gmail.com",gmail:"inmersiatours@gmail.com",role:"admin",avatar:"IN",color:"#c9a0ff",pass:"1234"},
@@ -334,6 +334,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[users,sU]=useState(initU);
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
+  const canProspectos=isA||cu.role==="Sales";
   const[pg,sPg]=useState("dashboard");
   const visP={dashboard:["Dashboard","📊","dashboard"],calendar:["Calendario","📅","calendar"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],grabacion:["Días Grabación","🎬","camera"],team:["Equipo","👥","team"],ai:["Cumbre AI","🤖","ai"],meetings:["Reuniones","🎙","meetings"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"]};
   const[cos,sCos]=useState([]);
@@ -542,7 +543,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{height:1,background:"var(--border)",margin:"6px 0"}}/>
           <button onClick={myGcal?()=>sShGcal(true):connectGCal} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:myGcal?"rgba(62,213,152,.06)":"transparent",color:myGcal?"var(--success)":"var(--tx2)",fontSize:14,fontWeight:500,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="calendar" s={18}/>{myGcal?"GCal ✓":"Conectar GCal"}</button>
           {isA&&<button onClick={()=>sPg("payments")} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color:"var(--gold)",fontSize:14,fontWeight:600,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="payments" s={18}/>Facturación</button>}
-          {isA&&<button onClick={()=>sPg("prospectos")} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color:"var(--gold)",fontSize:14,fontWeight:600,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="pin" s={18}/>Prospectos</button>}
+          {canProspectos&&<button onClick={()=>sPg("prospectos")} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color:"var(--gold)",fontSize:14,fontWeight:600,textAlign:"left",border:"none",cursor:"pointer",fontFamily:"inherit"}}><Ic n="pin" s={18}/>Prospectos</button>}
           <div style={{padding:"8px 12px",fontSize:11,color:"var(--tx3)"}}>
             <div style={{display:"flex",gap:4,marginBottom:6}}>
               {[["A","#a8e26b"],["B","#ff7a6b"],["C","#4a7a2b"]].map(([t,c])=>(<button key={t} onClick={()=>sTheme(t)} style={{width:20,height:20,borderRadius:6,background:c,border:theme===t?"2px solid var(--tx)":"2px solid transparent",cursor:"pointer",transition:"border .15s"}} title={t==="A"?"Oak & Sage":t==="B"?"Night & Coral":"Light Linen"}/>))}
@@ -825,7 +826,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* PROSPECTOS */}
-        {pg==="prospectos"&&isA&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu}/>}
+        {pg==="prospectos"&&canProspectos&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu}/>}
 
         {/* TASKS */}
         {/* PLANNER */}
@@ -853,7 +854,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               <div style={{padding:20,textAlign:"center"}}>
                 <Av u={u} sz={52}/>
                 <div style={{marginTop:8,fontSize:16,fontWeight:600,letterSpacing:"-0.01em"}}>{u.name}</div>
-                {isA?<select value={u.role} onChange={e=>chRole(u.id,e.target.value)} style={{marginTop:6,fontSize:12,padding:"4px 8px",width:"auto",textAlign:"center"}}><option value="admin">Administrador</option><option value="editor">Editor</option><option value="visualizador">Visualizador</option></select>:<Bg color={u.role==="admin"?"var(--danger)":u.role==="editor"?"var(--accent)":"var(--tx2)"} style={{marginTop:6}}>{u.role}</Bg>}
+                {isA?<select value={u.role} onChange={e=>chRole(u.id,e.target.value)} style={{marginTop:6,fontSize:12,padding:"4px 8px",width:"auto",textAlign:"center"}}><option value="admin">Administrador</option><option value="editor">Editor</option><option value="visualizador">Visualizador</option><option value="Sales">Sales</option></select>:<Bg color={u.role==="admin"?"var(--danger)":u.role==="editor"?"var(--accent)":u.role==="Sales"?"var(--gold)":"var(--tx2)"} style={{marginTop:6}}>{u.role}</Bg>}
                 <div style={{display:"flex",justifyContent:"center",gap:20,marginTop:14}}>
                   <div><div className="num" style={{fontSize:22,fontWeight:600,color:u.color}}>{ut.length}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Asignadas</div></div>
                   <div><div className="num" style={{fontSize:22,fontWeight:600,color:"var(--success)"}}>{dn}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Listas</div></div>
@@ -963,7 +964,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {isA&&<button onClick={()=>{sPg("payments");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>💰</span>Facturación
               </button>}
-              {isA&&<button onClick={()=>{sPg("prospectos");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
+              {canProspectos&&<button onClick={()=>{sPg("prospectos");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>📍</span>Prospectos
               </button>}
               <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--danger)",fontSize:10,fontFamily:"inherit"}}>
