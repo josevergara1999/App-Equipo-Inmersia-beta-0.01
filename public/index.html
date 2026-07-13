@@ -72,6 +72,10 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rec{0%,100%{box-shadow:0 0 0 0 rgba(255,90,78,.4)}50%{box-shadow:0 0 0 10px transparent}}
+@keyframes slowBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.blink-slow{animation:slowBlink 1.8s ease-in-out infinite}
+@keyframes borderGlow{0%,100%{border-color:#a8e26b;box-shadow:0 0 7px rgba(168,226,107,.6)}33%{border-color:#4dc7ff;box-shadow:0 0 7px rgba(77,199,255,.6)}66%{border-color:#ff9b3d;box-shadow:0 0 7px rgba(255,155,61,.6)}}
+.shimmer-btn{border:2px solid #a8e26b!important;animation:borderGlow 2.4s ease-in-out infinite,slowBlink 1.8s ease-in-out infinite!important;font-weight:700!important}
 
 .fi{animation:fadeIn .35s ease}.su{animation:slideUp .4s ease}
 
@@ -821,7 +825,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* PROSPECTOS */}
-        {pg==="prospectos"&&isA&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN}/>}
+        {pg==="prospectos"&&isA&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu}/>}
 
         {/* TASKS */}
         {/* PLANNER */}
@@ -1081,7 +1085,7 @@ function MiniBarChart({data,color="#60a5fa",h=90,fN}){
   </svg>);
 }
 
-function ProspectosPg({pros,sPros,users,addN}){
+function ProspectosPg({pros,sPros,users,addN,currentUser}){
   const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
   const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
   const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
@@ -1099,6 +1103,7 @@ function ProspectosPg({pros,sPros,users,addN}){
   const CANALES=[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Email"],["telefono","Teléfono"],["presencial","Presencial"],["otro","Otro"]];
   const COMUNICACION=[["cerrado","Cerrado"],["abierto","Abierto"],["no_responde","No responde bien"],["interesado","Interesado"],["desinteresado","Desinteresado"]];
   const NEEDS_PROMPT={contactado:1,en_respuesta:1,reunion_agendada:1,cotizacion_lista:1};
+  const STAGE_BTN_LABEL={contactado:"📩 Acercamiento",en_respuesta:"💬 Comunicación",reunion_agendada:"🗓 Reunión",cotizacion_lista:"📄 Cotización"};
 
   const[areaF,sAreaF]=useState("all");
   const[catF,sCatF]=useState("all");
@@ -1112,6 +1117,45 @@ function ProspectosPg({pros,sPros,users,addN}){
   const[mDate,sMDate]=useState("");
   const[mTime,sMTime]=useState("");
   const[mFile,sMFile]=useState(null);
+
+  const[expandedIds,sExpandedIds]=useState({});
+  const[showAdd,sShowAdd]=useState(false);
+  const[addName,sAddName]=useState("");
+  const[addArea,sAddArea]=useState("");
+  const[addCategory,sAddCategory]=useState("");
+  const[addInstagram,sAddInstagram]=useState("");
+  const[addWebsite,sAddWebsite]=useState("");
+  const[addPhone,sAddPhone]=useState("");
+  const[addMaps,sAddMaps]=useState("");
+  const resetAddForm=()=>{sAddName("");sAddArea("");sAddCategory("");sAddInstagram("");sAddWebsite("");sAddPhone("");sAddMaps("");};
+  const normalizeInstagram=(v)=>{
+    if(!v)return"";
+    const m=v.match(/instagram\.com\/([A-Za-z0-9_.]+)/);
+    if(m)return m[1].replace(/\/$/,"");
+    return v.replace(/^@/,"").trim();
+  };
+  const addDisabled=!addName.trim()||!addArea||!addCategory;
+  const submitAdd=()=>{
+    if(addDisabled)return;
+    const np={
+      id:"manual_"+Date.now(),
+      name:addName.trim(),
+      area:addArea,
+      category:addCategory,
+      instagram_handle:normalizeInstagram(addInstagram),
+      website:addWebsite.trim(),
+      phone:addPhone.trim(),
+      maps_url:addMaps.trim(),
+      fit_flag:"MANUAL",
+      fit_reason:"Agregado manualmente"+(currentUser?.name?" por "+currentUser.name:""),
+      status:"pendiente",
+      created_at:new Date().toISOString(),
+    };
+    const nl=[...(pros||[]),np];
+    sPros(nl);DB.save("prospects",nl);
+    addN&&addN("Prospecto agregado: "+np.name);
+    resetAddForm();sShowAdd(false);
+  };
 
   useEffect(()=>{
     if(!pendingMove){sMChannels([]);sMComunicacion("");sMPeople([]);sMDate("");sMTime("");sMFile(null);return;}
@@ -1140,7 +1184,7 @@ function ProspectosPg({pros,sPros,users,addN}){
     else commitMove(id,targetEtapa,{});
   };
   const confirmDisabled=!pendingMove?true:
-    pendingMove.targetEtapa==="contactado"?mChannels.length===0:
+    pendingMove.targetEtapa==="contactado"?false:
     pendingMove.targetEtapa==="en_respuesta"?!mComunicacion:
     pendingMove.targetEtapa==="reunion_agendada"?(mPeople.length===0||!mDate||!mTime):
     pendingMove.targetEtapa==="cotizacion_lista"?!mFile:
@@ -1167,12 +1211,16 @@ function ProspectosPg({pros,sPros,users,addN}){
     .filter(p=>areaF==="all"||p.area===areaF)
     .filter(p=>catF==="all"||p.category===catF);
 
-  const linkRow=(p,small)=>(<div style={{display:"flex",flexWrap:"wrap",gap:small?4:6,marginBottom:small?6:0}}>
-    {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📸{small?"":" Instagram"}</a>}
-    {p.website&&<a href={p.website} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>🔗{small?"":" Sitio web"}</a>}
-    {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📍{small?"":" Maps"}</a>}
-    {p.phone&&<a href={`tel:${p.phone}`} style={{fontSize:small?9:11,fontWeight:600,color:"var(--accent)",padding:small?"3px 7px":"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:small?6:7,textDecoration:"none"}}>📞{small?"":" "+p.phone}</a>}
-  </div>);
+  const linkRow=(p,small)=>{
+    const sz=small?28:34;
+    const ic={width:sz,height:sz,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:small?13:15,color:"var(--accent)",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"50%",textDecoration:"none",flexShrink:0};
+    return(<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:small?8:0}}>
+      {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" title="Instagram" style={ic}>📸</a>}
+      {p.website&&<a href={p.website} target="_blank" rel="noreferrer" title="Sitio web" style={ic}>🔗</a>}
+      {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" title="Ver en Maps" style={ic}>📍</a>}
+      {p.phone&&<a href={`tel:${p.phone}`} title={p.phone} style={ic}>📞</a>}
+    </div>);
+  };
 
   return(<div className="fi" style={{maxWidth:"100%",margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
@@ -1181,6 +1229,8 @@ function ProspectosPg({pros,sPros,users,addN}){
         <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pendingCount} pendientes de revisión</div>
       </div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <Bt v="p" icon="plus" onClick={()=>sShowAdd(true)}>Agregar prospecto</Bt>
+        <div style={{width:1,height:20,background:"var(--border)"}}/>
         {STATUS_L.map(([k,l])=>chip(statusF===k,()=>sStatusF(k),l))}
         <div style={{width:1,height:20,background:"var(--border)"}}/>
         {chip(areaF==="all",()=>sAreaF("all"),"Todas las ubicaciones")}
@@ -1238,26 +1288,48 @@ function ProspectosPg({pros,sPros,users,addN}){
             onDragOver={e=>{e.preventDefault();sDragOverCol(etapaKey);}}
             onDragLeave={()=>sDragOverCol(null)}
             onDrop={()=>handleDrop(etapaKey)}
-            style={{minWidth:250,maxWidth:250,flexShrink:0,background:dragOverCol===etapaKey?"rgba(168,226,107,.06)":"transparent",borderRadius:12,transition:"background .2s",padding:6}}>
+            style={{minWidth:270,maxWidth:270,flexShrink:0,background:dragOverCol===etapaKey?"rgba(168,226,107,.06)":"transparent",borderRadius:12,transition:"background .2s",padding:6}}>
             <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".03em",padding:"4px 6px",marginBottom:6}}>{etapaLabel} ({colItems.length})</div>
-            {colItems.map(p=>(
+            {colItems.map(p=>{
+              const expanded=!!expandedIds[p.id];
+              return(
               <div key={p.id} draggable onDragStart={()=>sDragId(p.id)} onDragEnd={()=>{sDragId(null);sDragOverCol(null);}}
                 className="card" style={{padding:12,marginBottom:8,cursor:"grab"}}>
-                <div style={{fontSize:13,fontWeight:600,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
-                <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{fontSize:9,marginBottom:6}}>{p.fit_flag}</Bg>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+                <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{fontSize:9,marginBottom:8}}>{p.fit_flag}</Bg>
                 {linkRow(p,true)}
-                {p.profile_notes&&<div style={{fontSize:10,color:"var(--tx2)",lineHeight:1.4,marginBottom:6,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
                 {p.canales_primer_contacto?.length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>📩 {p.canales_primer_contacto.map(c=>CANALES.find(([k])=>k===c)?.[1]||c).join(", ")}</div>}
                 {p.comunicacion_status&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>💬 {COMUNICACION.find(([k])=>k===p.comunicacion_status)?.[1]||p.comunicacion_status}</div>}
                 {p.reunion_fecha&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>🗓 {p.reunion_fecha} {p.reunion_hora||""}{p.reunion_personas?.length?" · "+p.reunion_personas.map(uid=>users.find(u=>u.id===uid)?.name||"?").join(", "):""}</div>}
-                {p.cotizacion_file&&<a href={p.cotizacion_file.data} download={p.cotizacion_file.name} style={{fontSize:9,color:"var(--accent)",display:"block",marginBottom:2,textDecoration:"none"}}>📄 {p.cotizacion_file.name}</a>}
-                <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
-                <div style={{display:"flex",gap:4,marginTop:6}}>
+                {p.cotizacion_file&&<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                  <a href={p.cotizacion_file.data} download={p.cotizacion_file.name} style={{fontSize:9,color:"var(--accent)",textDecoration:"none"}}>📄 {p.cotizacion_file.name}</a>
+                  <button onClick={()=>{if(confirm("¿Quitar el archivo de cotización?"))updateField(p.id,"cotizacion_file",null);}} style={{fontSize:9,padding:"1px 5px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit"}}>🗑 Quitar</button>
+                </div>}
+                <button onClick={()=>sExpandedIds(prev=>({...prev,[p.id]:!prev[p.id]}))} className={p.profile_notes&&!expanded?"shimmer-btn":""} style={{fontSize:10,fontWeight:600,padding:"4px 9px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:4,marginTop:2,marginBottom:8}}>
+                  {expanded?"▲":"▼"} {p.profile_notes?"Resumen":"Notas"}
+                </button>
+                {expanded&&(<div style={{marginBottom:8,padding:"8px 10px",background:"var(--bg3)",borderRadius:8}}>
+                  {p.profile_notes&&<div style={{fontSize:10,color:"var(--tx2)",lineHeight:1.4,marginBottom:8,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                  <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
+                </div>)}
+                <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                  {NEEDS_PROMPT[p.etapa||"contactado"]&&(()=>{
+                    const stageKey=p.etapa||"contactado";
+                    let btnLabel=STAGE_BTN_LABEL[stageKey],btnTargetEtapa=stageKey,btnBg="transparent",btnBorder="var(--border)",btnColor="var(--tx3)",btnWeight=400,btnBlink=false;
+                    if(stageKey==="contactado"){
+                      const hasChannel=p.canales_primer_contacto?.length>0;
+                      if(hasChannel){btnLabel="⏳ Esperando";btnTargetEtapa="contactado";btnBg="var(--success)";btnBorder="var(--success)";btnColor="#08130f";btnWeight=700;btnBlink=true;}
+                      else{btnLabel="📩 Acercamiento";btnTargetEtapa="contactado";}
+                    }else if(stageKey==="en_respuesta"){
+                      btnLabel="💬 En conversación";btnTargetEtapa="en_respuesta";btnBg="rgba(77,199,255,.15)";btnBorder="var(--info)";btnColor="var(--info)";btnWeight=700;btnBlink=true;
+                    }
+                    return(<button onClick={()=>sPendingMove({id:p.id,targetEtapa:btnTargetEtapa})} className={btnBlink?"blink-slow":""} style={{fontSize:9,padding:"3px 6px",background:btnBg,border:"1px solid "+btnBorder,borderRadius:5,color:btnColor,cursor:"pointer",fontFamily:"inherit",fontWeight:btnWeight}}>{btnLabel}</button>);
+                  })()}
                   <button onClick={()=>setStatus(p.id,"pendiente")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid var(--border)",borderRadius:5,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>↩ pendiente</button>
                   <button onClick={()=>setStatus(p.id,"rechazado")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit"}}>✗ rechazar</button>
                 </div>
               </div>
-            ))}
+              );})}
           </div>);
         })}
       </div>
@@ -1302,6 +1374,28 @@ function ProspectosPg({pros,sPros,users,addN}){
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
         <Bt v="s" onClick={()=>sPendingMove(null)}>Cancelar</Bt>
         <Bt v="p" disabled={confirmDisabled} onClick={confirmMove}>Confirmar</Bt>
+      </div>
+    </Md>
+
+    <Md open={showAdd} onClose={()=>{sShowAdd(false);resetAddForm();}} title="Agregar prospecto manual">
+      <Fd label="Nombre del negocio"><input value={addName} onChange={e=>sAddName(e.target.value)} placeholder="Ej: Restaurante El Fogón"/></Fd>
+      <Fd label="Ubicación">
+        <div style={{display:"flex",gap:6}}>
+          {AREAS_L.map(([k,l])=>(<button key={k} onClick={()=>sAddArea(k)} style={{fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:7,border:"1px solid "+(addArea===k?"var(--accent)":"var(--border)"),background:addArea===k?"var(--accent)":"var(--bg3)",color:addArea===k?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
+        </div>
+      </Fd>
+      <Fd label="Categoría">
+        <div style={{display:"flex",gap:6}}>
+          {CATS_L.map(([k,l])=>(<button key={k} onClick={()=>sAddCategory(k)} style={{fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:7,border:"1px solid "+(addCategory===k?"var(--accent)":"var(--border)"),background:addCategory===k?"var(--accent)":"var(--bg3)",color:addCategory===k?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
+        </div>
+      </Fd>
+      <Fd label="Instagram (opcional)"><input value={addInstagram} onChange={e=>sAddInstagram(e.target.value)} placeholder="usuario o link de instagram"/></Fd>
+      <Fd label="Sitio web (opcional)"><input value={addWebsite} onChange={e=>sAddWebsite(e.target.value)} placeholder="https://..."/></Fd>
+      <Fd label="Teléfono (opcional)"><input value={addPhone} onChange={e=>sAddPhone(e.target.value)} placeholder="+56 9..."/></Fd>
+      <Fd label="Link de Google Maps (opcional)"><input value={addMaps} onChange={e=>sAddMaps(e.target.value)} placeholder="https://maps.google.com/..."/></Fd>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
+        <Bt v="s" onClick={()=>{sShowAdd(false);resetAddForm();}}>Cancelar</Bt>
+        <Bt v="p" disabled={addDisabled} onClick={submitAdd}>Agregar</Bt>
       </div>
     </Md>
   </div>);
