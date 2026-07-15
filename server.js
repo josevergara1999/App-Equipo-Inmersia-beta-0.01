@@ -866,10 +866,15 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
     if(!await isValidIgId(igId))return res.status(403).json({error:'cuenta no autorizada'});
     const token=await getMetaToken();
     if(!token)return res.json({error:'Meta no conectado'});
-    const days=Math.min(parseInt(req.query.days)||30,180);
-    const until=Math.floor(Date.now()/1000);
-    const since=until-days*24*60*60;
-    const prevSince=since-days*24*60*60;
+    // Explicit range (unix seconds) overrides the relative "last N days" mode —
+    // lets Atlas pull fixed historical windows (e.g. comparing two past quarters)
+    // instead of always ending "now".
+    const qSince=parseInt(req.query.since),qUntil=parseInt(req.query.until);
+    const hasRange=Number.isFinite(qSince)&&Number.isFinite(qUntil)&&qUntil>qSince;
+    const days=hasRange?Math.round((qUntil-qSince)/86400):Math.min(parseInt(req.query.days)||30,180);
+    const until=hasRange?qUntil:Math.floor(Date.now()/1000);
+    const since=hasRange?qSince:until-days*24*60*60;
+    const prevSince=since-(until-since);
     const B=`https://graph.facebook.com/v19.0`;
     const T=`access_token=${token}`;
     // profile_views and impressions were dropped from this list — both are deprecated by
@@ -905,7 +910,8 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
     const mediaPosts=mediaR.data||[];
     const topPost=mediaPosts.length>0?[...mediaPosts].sort((a,b)=>((b.like_count||0)+(b.comments_count||0))-((a.like_count||0)+(a.comments_count||0)))[0]:null;
     res.json({
-      company:profileR.name,username:profileR.username,period:`${days} días`,
+      company:profileR.name,username:profileR.username,
+      period:hasRange?`${new Date(since*1000).toISOString().slice(0,10)} a ${new Date(until*1000).toISOString().slice(0,10)}`:`${days} días`,
       followers:profileR.followers_count,followerGrowth,prevFollowerGrowth,
       reach:totals.reach||0,prevReach:prevTotals.reach||0,
       interactions:totals.total_interactions||0,
