@@ -622,12 +622,19 @@ app.get("/api/meta/exchange",requireAuth,async(req,res)=>{
   }catch(err){res.status(500).json({error:err.message});}
 });
 
-// Fetch metrics broken down by 30-day windows → returns [{label,reach,total_interactions,...}, ...]
+// Fetch metrics broken down by CALENDAR months (not 30-day blocks — those drift off
+// month boundaries over long ranges, producing duplicate/skipped labels like two
+// "Oct 24" chunks and no "Feb 25") → returns [{label,reach,total_interactions,...}, ...]
 async function fetchMonthly(base,igId,tvMetrics,token,since,until){
-  const CHUNK=30*24*60*60;
   const months=[];
-  let s=since;
-  while(s<until){const u=Math.min(s+CHUNK,until);months.push([s,u]);s=u;}
+  let cur=new Date(Date.UTC(new Date(since*1000).getUTCFullYear(),new Date(since*1000).getUTCMonth(),1));
+  while(cur.getTime()/1000<until){
+    const next=new Date(Date.UTC(cur.getUTCFullYear(),cur.getUTCMonth()+1,1));
+    const cs=Math.max(since,Math.floor(cur.getTime()/1000));
+    const cu=Math.min(until,Math.floor(next.getTime()/1000));
+    if(cu>cs)months.push([cs,cu]);
+    cur=next;
+  }
   const results=await Promise.all(months.map(async([cs,cu])=>{
     const date=new Date(cs*1000);
     const label=date.toLocaleDateString("es-CL",{month:"short",year:"2-digit"})
