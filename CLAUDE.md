@@ -121,11 +121,27 @@ material. El botón "+ Nueva pieza" crea contenido a mano.
 
 Contenido trabaja sobre `tasks`; Org Semanal sobre `planners[].items`. Los une **`itemId`**.
 
-"Guardar y sincronizar" reconstruye las tareas de la semana a partir de los items. **Antes las
-borraba y recreaba de cero**, y en cada guardado se perdían archivos, votos, comentarios y la
-respuesta del cliente, además de cambiar los ids y romper los guiones vinculados. Ahora se
-reconocen por `itemId` y se conservan. Regla añadida: **una vez que la pieza salió al portal,
-mandan su estado y su fecha de publicación por sobre lo que diga el planner.**
+**Se confirma pieza por pieza, desde su propia tarjeta.** El botón "Guardar y sincronizar" de
+toda la semana ya no existe: hacía dos cosas a la vez (grabar el planner y volcarlo al
+calendario), así que había que acordarse de pulsarlo para no perder lo escrito y de paso subían
+al calendario piezas a medio llenar. Ahora:
+
+- El planner **se guarda solo** (efecto de `planners` en `Main`, con las mismas guardas que
+  `tasks`). Confirmar es decidir que la pieza sale, no la forma de no perder el trabajo.
+- `confirmarItem()` vuelca **una** pieza a `tasks` y avisa a su producción más los admins.
+- `confirmadaSig` es la firma de los campos que se vuelcan. Si cambia alguno, la pieza vuelve a
+  quedar por confirmar. Los items sin firma pero con tarea son de antes de este cambio y se dan
+  por confirmados.
+
+Las tareas se reconocen por `itemId` y se conservan; **antes se borraban y recreaban de cero**, y
+en cada guardado se perdían archivos, votos, comentarios y la respuesta del cliente, además de
+cambiar los ids y romper los guiones vinculados. Regla que sigue vigente: **una vez que la pieza
+salió al portal, mandan su estado y su fecha de publicación por sobre lo que diga el planner.**
+
+Borrar un item **borra también su tarea** (`borrarTareasDe`). Antes solo desaparecía del planner
+y la tarea quedaba huérfana en Contenido para siempre; lo tapaba de rebote el guardado global,
+que recreaba la semana entera. Contenido detecta las que quedaron sueltas (`huerfanas`) y ofrece
+limpiarlas, pero solo con `planners` cargado: con la lista vacía, todo parecería huérfano.
 
 Al crear una pieza desde Contenido se escribe en los dos lados a la vez (item + tarea con el
 mismo `itemId`).
@@ -139,8 +155,26 @@ dentro de 12 h.
 
 Disparadores en la app: asignación de tarea, paso a producción, listo para votar, alguien pide
 cambios, aprobación unánime del equipo, envío al cliente, respuesta del cliente, reunión,
-evento, planificación semanal guardada, y pago a un integrante (privado, solo a quien lo
-recibe). **Al que ejecuta la acción nunca le llega su propio aviso.**
+evento, confirmación de una pieza en Org Semanal, y pago a un integrante (privado, solo a quien
+lo recibe). **Al que ejecuta la acción nunca le llega su propio aviso.**
+
+### Suscripciones en iOS — por qué se "perdían"
+
+**`pushsubscriptionchange` no dispara de forma fiable en iOS.** Es un hueco documentado de
+WebKit, sin respuesta de Apple. Por eso el handler del service worker es un extra, y lo que de
+verdad sostiene la suscripción es que **la app la vuelve a registrar cada vez que abre** (upsert
+por endpoint, en `PushBtn`). Si se quita eso, el push se cae solo y la única salida es que cada
+persona pulse el botón de nuevo.
+
+Cuando el endpoint sí rota, quien se re-suscribe es el service worker, que **no conoce a la
+persona**: solo sabe cuál era el endpoint anterior. Manda `renewedFrom` y el servidor hereda de
+ahí el correo. Sin eso la suscripción entra anónima, deja de calzar con `onlyEmails` y la persona
+sigue suscrita sin recibir nada.
+
+El estado dormido del servidor **no puede** invalidar una suscripción: el push va del servidor a
+Apple y de Apple al teléfono; la suscripción vive en el navegador. No mezclar los dos problemas.
+Y no montar un keep-alive contra Render: el plan gratuito da 750 h/mes por workspace y
+mantenerlo despierto las agota, con lo que el servicio queda **suspendido** el resto del mes.
 
 Por horario, en el servidor: resumen personal al empezar el día (ventana 08:00–20:00 hora de
 Chile, una vez al día), IVA el 20, días de grabación, y recordatorios de reunión y evento la
@@ -176,8 +210,14 @@ en GitHub Pages. Tiene el botón "Portal" en la barra superior.
 ## Trampas conocidas (todas costaron un rato)
 
 - **`position: fixed` dentro del árbol de la app se rompe.** Cualquier ancestro con
-  `transform`, `filter` o `will-change` lo vuelve relativo a ese ancestro. La barra inferior
-  del celular se monta con `ReactDOM.createPortal` en el `<body>`.
+  `transform`, `filter` o `will-change` lo vuelve relativo a ese ancestro. Todo lo que ocupa la
+  pantalla entera se monta en el `<body>` con el helper `Portal`: los modales (`Md`), la barra
+  inferior del celular y los overlays de página.
+- **Cuidado con `animation-fill-mode: forwards` (o `both`) en animaciones que tocan
+  `transform`.** El efecto queda aplicado para siempre y en iOS eso convierte al elemento en
+  ancestro de referencia de los `fixed` que cuelguen de él. `.d-in` usaba `both` y el modal de
+  Contenido se centraba a media altura del documento: se veía el fondo borroso y ningún diálogo.
+  Usar `backwards`, que evita el parpadeo inicial sin retener nada al terminar.
 - **Zona segura del iPhone.** El viewport declara `viewport-fit=cover`, así que la app se
   dibuja bajo la barra de estado. Todo lo anclado arriba o abajo necesita
   `env(safe-area-inset-top/bottom)`.
@@ -198,7 +238,14 @@ en GitHub Pages. Tiene el botón "Portal" en la barra superior.
 Rediseño aplicado a Dashboard, Org Semanal, Guionado y Contenido. **Faltan Pagos y el portal
 del cliente** (export en `~/Downloads/Inmersia Portal Cliente.dc.html`).
 
-Sin probar con uso real: la subida de archivos a Storage y las invitaciones de Meet.
+Sin probar con uso real: las invitaciones de Meet.
+
+**La subida a Storage responde 400 y falta cerrar el diagnóstico.** El error ya no es opaco:
+`explicarStorage()` traduce la respuesta de Supabase a la causa concreta (bucket inexistente,
+MIME no permitido, tope de tamaño, llave sin permiso de escritura) y `/api/upload/status`
+comprueba que el bucket exista de verdad, no solo que esté la llave — con la llave puesta y el
+bucket sin crear, la app decía "listo" y la subida moría después. La sospecha es que el bucket
+`contenido` no está creado en Supabase; el aviso en Contenido lo dirá.
 
 **Nunca subir al repo**: `.env`, `public/__mocktest*.html`, `public/__demo_media/` (videos
 reales de clientes) ni ningún `client_secret_*.json`.

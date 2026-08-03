@@ -444,13 +444,27 @@ app.get("/api/push/key", (req, res) => res.json({ publicKey: VAPID_PUB, ready: p
 
 app.post("/api/push/subscribe", requireAuth, async (req, res) => {
   try {
-    const { subscription, email, gmail, name } = req.body || {};
+    const { subscription, email, gmail, name, renewedFrom } = req.body || {};
     if (!subscription?.endpoint) return res.status(400).json({ error: "subscription inválida" });
     const subs = await loadSubs();
-    const rest = subs.filter(s => s.subscription.endpoint !== subscription.endpoint);
-    rest.push({ subscription, email: email || "", gmail: gmail || "", name: name || "", createdAt: new Date().toISOString() });
+    // Cuando iOS rota el endpoint, quien vuelve a suscribirse es el service worker, y ahí no
+    // hay sesión ni perfil: lo único que sabe es cuál era el endpoint anterior. Si no se
+    // hereda el correo, la suscripción queda anónima y deja de calzar con los avisos
+    // dirigidos a esa persona — que son casi todos. El resultado era una suscripción viva a
+    // la que no llegaba nada, y había que volver a activar el botón a mano.
+    const previa = renewedFrom ? subs.find(s => s.subscription.endpoint === renewedFrom) : null;
+    const rest = subs.filter(s =>
+      s.subscription.endpoint !== subscription.endpoint &&
+      s.subscription.endpoint !== renewedFrom);          // el endpoint viejo ya no sirve
+    rest.push({
+      subscription,
+      email: email || previa?.email || "",
+      gmail: gmail || previa?.gmail || "",
+      name: name || previa?.name || "",
+      createdAt: new Date().toISOString(),
+    });
     await saveSubs(rest);
-    res.json({ ok: true, total: rest.length });
+    res.json({ ok: true, total: rest.length, heredada: !!previa });
   } catch (err) { console.error("push subscribe:", err); res.status(500).json({ error: err.message }); }
 });
 
@@ -1576,6 +1590,28 @@ function storageKey() {
   // La subida a Storage necesita service_role: la publishable key no puede escribir.
   return process.env.SUPABASE_SERVICE_KEY || "";
 }
+const storageUrl = () => process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+
+// Supabase manda el motivo real dentro del cuerpo, y devuelve 400 para cosas muy distintas
+// entre sí: bucket que no existe, tipo de archivo no permitido, archivo sobre el tope del
+// bucket. Un "Storage respondió 400" a secas no dejaba saber cuál de las tres era, así que
+// no había por dónde empezar a arreglarlo.
+function explicarStorage(status, detail) {
+  let d = {};
+  try { d = JSON.parse(detail); } catch (_) {}
+  const m = `${d.error || ""} ${d.message || ""}`.toLowerCase();
+  if (m.includes("bucket not found"))
+    return `El bucket "${CONTENT_BUCKET}" no existe en Supabase Storage. Hay que crearlo y marcarlo como público.`;
+  if (m.includes("mime"))
+    return `Supabase rechazó el tipo de archivo. Revisa los "Allowed MIME types" del bucket "${CONTENT_BUCKET}".`;
+  if (status === 413 || m.includes("maximum allowed size") || m.includes("payload too large"))
+    return `El archivo pasa el tope de tamaño del bucket "${CONTENT_BUCKET}". Se sube en la configuración del bucket.`;
+  if (status === 403 || m.includes("unauthorized") || m.includes("row-level security"))
+    return "La llave de Supabase no puede escribir en Storage: SUPABASE_SERVICE_KEY tiene que ser la service_role.";
+  if (m.includes("invalid") && m.includes("key"))
+    return "A Supabase no le sirvió el nombre del archivo.";
+  return `Storage respondió ${status}${d.message ? ": " + d.message : ""}`;
+}
 
 app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) => {
   try {
@@ -1583,7 +1619,7 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
     const key = storageKey();
     if (!key) return res.status(503).json({ error: "storage_no_configurado" });
 
-    const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+    const sbUrl = storageUrl();
     const safeName = (req.file.originalname || "archivo")
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
@@ -1603,7 +1639,7 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
     if (!r.ok) {
       const detail = await r.text();
       console.error("Storage upload failed:", r.status, detail);
-      return res.status(502).json({ error: `Storage respondió ${r.status}`, detail: detail.slice(0, 300) });
+      return res.status(502).json({ error: explicarStorage(r.status, detail), detail: detail.slice(0, 300) });
     }
 
     res.json({
@@ -1620,8 +1656,45 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
 
 // Permite al frontend saber si puede subir video o si tiene que limitarse a imágenes
 // pequeñas en base64 (fallback cuando el bucket todavía no está configurado).
-app.get("/api/upload/status", requireAuth, (req, res) => {
-  res.json({ ready: !!storageKey(), bucket: CONTENT_BUCKET });
+// Tener la llave no basta: con la llave puesta y el bucket sin crear, esto respondía
+// "listo" y la subida moría después con un 400 que no explicaba nada. Se comprueba el
+// bucket de verdad, con un caché corto para no consultarlo en cada carga de la app.
+let bucketCache = null;   // { at, data }
+async function estadoStorage() {
+  if (bucketCache && Date.now() - bucketCache.at < 60_000) return bucketCache.data;
+  const key = storageKey();
+  let data;
+  if (!key) {
+    data = { ready: false, bucket: CONTENT_BUCKET, motivo: "falta SUPABASE_SERVICE_KEY en el servidor" };
+  } else {
+    try {
+      const r = await fetch(`${storageUrl()}/storage/v1/bucket/${CONTENT_BUCKET}`, {
+        headers: { Authorization: `Bearer ${key}`, apikey: key },
+      });
+      if (r.status === 404) {
+        data = { ready: false, bucket: CONTENT_BUCKET, motivo: `el bucket "${CONTENT_BUCKET}" no existe en Supabase Storage` };
+      } else if (!r.ok) {
+        data = { ready: false, bucket: CONTENT_BUCKET, motivo: `Supabase respondió ${r.status} al consultar el bucket` };
+      } else {
+        const b = await r.json().catch(() => ({}));
+        data = {
+          ready: true,
+          bucket: CONTENT_BUCKET,
+          publico: !!b.public,
+          topeBytes: b.file_size_limit || null,
+          tiposPermitidos: b.allowed_mime_types || null,
+        };
+      }
+    } catch (err) {
+      data = { ready: false, bucket: CONTENT_BUCKET, motivo: "no se pudo consultar Supabase: " + err.message };
+    }
+  }
+  bucketCache = { at: Date.now(), data };
+  return data;
+}
+
+app.get("/api/upload/status", requireAuth, async (req, res) => {
+  res.json(await estadoStorage());
 });
 
 // ===============================

@@ -95,7 +95,13 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
 .halo{position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:0}
 .halo-cian{background:conic-gradient(from var(--haloAng),transparent 0deg,rgba(111,231,242,.55) 38deg,rgba(255,255,255,.75) 55deg,rgba(111,231,242,.55) 72deg,transparent 130deg,transparent 360deg);animation:haloSpin 4s linear infinite}
 .halo-rojo{background:conic-gradient(from var(--haloAng),transparent 0deg,rgba(255,107,107,.65) 38deg,rgba(255,255,255,.8) 55deg,rgba(255,107,107,.65) 72deg,transparent 130deg,transparent 360deg);animation:haloSpin 3s linear infinite}
-.d-in{animation:cardIn .28s ease both}
+/* `backwards`, no `both`: con fill-mode hacia adelante el efecto de cardIn (que anima
+   transform) queda aplicado para siempre, y en iOS eso convierte a la página en el
+   ancestro de referencia de cualquier position:fixed que cuelgue de ella. Los overlays
+   se anclaban al alto completo del documento en vez de al viewport. `backwards` conserva
+   el estado inicial antes de arrancar —que es lo que evita el parpadeo— sin retener nada
+   al terminar. */
+.d-in{animation:cardIn .28s ease backwards}
 .d-hov{transition:border-color .2s,background .2s}
 .d-hov:hover{border-color:rgba(111,231,242,.45)!important}
 .blink-slow{animation:slowBlink 1.8s ease-in-out infinite}
@@ -371,7 +377,13 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
 function Av({u,sz=28}){return<div title={u?.name} style={{width:sz,height:sz,borderRadius:"50%",background:u?.color||"#666",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:sz*.36,fontWeight:600,color:"var(--bg)",flexShrink:0,letterSpacing:".02em"}}>{u?.avatar||"?"}</div>}
 function Bt({children,v="p",onClick:oc,style:s,disabled:d,icon}){const vs={p:{background:"var(--accent)",color:"var(--bg)",padding:"9px 16px",fontSize:14,fontWeight:600},s:{background:"var(--bg3)",color:"var(--tx)",padding:"8px 14px",fontSize:13,border:"1px solid var(--border)"},g:{background:"transparent",color:"var(--tx2)",padding:"5px 8px",fontSize:13},d:{background:"transparent",color:"var(--danger)",padding:"8px 14px",fontSize:13,border:"1px solid rgba(255,90,78,.3)"},go:{background:"var(--gold)",color:"var(--bg)",padding:"9px 18px",fontSize:14,fontWeight:700}};return<button disabled={d} onClick={oc} style={{opacity:d?0.4:1,borderRadius:10,display:"inline-flex",alignItems:"center",gap:7,letterSpacing:"-0.005em",...vs[v],...s}}>{icon&&<Ic n={icon} s={15}/>}{children}</button>}
 function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:999,fontSize:12,fontWeight:600,color:cl||"var(--tx2)",background:b||(cl?cl+"22":"var(--bg4)"),whiteSpace:"nowrap",lineHeight:1,...s}}>{children}</span>}
-function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(5,7,10,.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div>)}
+// Todo lo que ocupa la pantalla entera se monta en el <body>, nunca dentro del árbol de la
+// app: basta un ancestro con transform (una animación de entrada, por ejemplo) para que el
+// position:fixed pase a medirse contra ese ancestro. En Contenido el modal terminaba
+// centrado a media altura del documento —fuera de la pantalla— y solo se veía el fondo
+// borroso. Es la misma razón por la que la barra inferior del celular vive aquí.
+function Portal({children:ch}){return ReactDOM.createPortal(ch,document.body)}
+function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<Portal><div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(5,7,10,.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"calc(14px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px))",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>)}
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
 function NotesBox({initial,onSave}){const[v,sV]=useState(initial||"");return(<div style={{display:"flex",gap:6,alignItems:"flex-start",marginTop:2}}><textarea value={v} onChange={e=>sV(e.target.value)} placeholder="Notas de seguimiento (reuniones, acuerdos, proximos pasos...)" style={{flex:1,minHeight:50,fontSize:12,padding:"7px 10px",borderRadius:7,resize:"vertical",fontFamily:"inherit"}}/><Bt v="s" onClick={()=>onSave(v)} style={{padding:"7px 12px",fontSize:11,flexShrink:0,alignSelf:"flex-start"}}>💾 Guardar</Bt></div>)}
 
@@ -399,15 +411,27 @@ function PushBtn({user,tile}){
     // En iOS la Push API solo existe si la app se abrió desde la pantalla de inicio
     if(esIOS()&&!enPantallaInicio())return sSt("instalar");
     if(!("serviceWorker" in navigator)||!("PushManager" in window))return sSt("no-soportado");
-    const cfg=await API.pushKey().catch(()=>({ready:false}));
-    if(!cfg.ready)return sSt("no-soportado");
+    let sub=null;
     try{
       const reg=await navigator.serviceWorker.ready;
-      const sub=await reg.pushManager.getSubscription();
-      if(sub)return sSt("on");
+      sub=await reg.pushManager.getSubscription();
     }catch(_){}
+    if(sub){
+      sSt("on");
+      // Red de seguridad: si el navegador tiene suscripción, se vuelve a registrar en cada
+      // apertura. Es un upsert por endpoint, cuesta una petición, y deja al servidor con el
+      // correo correcto aunque la suscripción se haya renovado por su cuenta mientras la app
+      // estaba cerrada. Sin esto la única forma de recuperarla era pulsar el botón a mano.
+      if(user?.email)API.pushSubscribe(sub.toJSON(),user.email,user.gmail||"",user.name).catch(()=>{});
+      return;
+    }
+    // Se consulta el servidor recién ahora: si Render está despertando, la llamada falla y
+    // antes eso se traducía en "no-soportado", que esconde el botón justo cuando hace falta.
+    const cfg=await API.pushKey().catch(()=>null);
+    if(!cfg)return sSt("off");
+    if(!cfg.ready)return sSt("no-soportado");
     sSt(Notification.permission==="denied"?"denegado":"off");
-  })();},[]);
+  })();},[user?.email]);
 
   const activar=async()=>{
     sSt("trabajando");sMsg("");
@@ -514,7 +538,7 @@ function ZoomLayer(){
   if(!z)return null;
   const f=z.files[z.i],src=fSrc(f),many=z.files.length>1;
   const navBtn=extra=>({position:"absolute",top:"50%",transform:"translateY(-50%)",width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(8px)",...extra});
-  return(<div onClick={()=>sZ(null)} style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(4,6,9,.93)",backdropFilter:"blur(10px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:20}}>
+  return(<Portal><div onClick={()=>sZ(null)} style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(4,6,9,.93)",backdropFilter:"blur(10px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:20}}>
     <button onClick={()=>sZ(null)} title="Cerrar (Esc)" style={{position:"absolute",top:"calc(18px + env(safe-area-inset-top, 0px))",right:18,width:42,height:42,borderRadius:"50%",background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(8px)"}}><Ic n="x" s={20} c="#fff"/></button>
     {many&&z.i>0&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i-1}));}} style={navBtn({left:18})}><Ic n="chev_l" s={22} c="#fff"/></button>}
     {many&&z.i<z.files.length-1&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i+1}));}} style={navBtn({right:18})}><Ic n="chev_r" s={22} c="#fff"/></button>}
@@ -526,7 +550,7 @@ function ZoomLayer(){
     <div onClick={e=>e.stopPropagation()} style={{fontSize:12.5,color:"rgba(255,255,255,.62)",textAlign:"center"}}>
       {f.name||""}{many?` · ${z.i+1} de ${z.files.length}`:""}
     </div>
-  </div>);
+  </div></Portal>);
 }
 
 // Botón de lupa que se superpone a cualquier miniatura
@@ -728,7 +752,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   },[]);
 
   // Save to Supabase on changes — skip initial empty state save, never save empty if we had data
-  const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);
+  const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);const initTrackP=useRef(false);
   const hadData=useRef({cos:false,tasks:false,planners:false});
   useEffect(()=>{if(cos.length>0)hadData.current.cos=true;},[cos]);
   useEffect(()=>{if(tasks.length>0)hadData.current.tasks=true;},[tasks]);
@@ -745,6 +769,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     }catch(e){addN("❌ Error: "+e.message);}};
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0){console.warn("BLOCKED: refusing to save empty companies");return;}dbSave("companies",cos);localStorage.setItem("inm_companies_backup",JSON.stringify(cos));},[cos,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackT.current){initTrackT.current=true;return;}if(calDirty)return;if(tasks.length===0&&hadData.current.tasks){console.warn("Skipping save: would erase tasks");return;}dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
+  // El planner se guarda solo, como todo lo demás. Antes lo único que lo grababa era el
+  // botón "Guardar y sincronizar" de Org Semanal: si alguien escribía la semana entera y
+  // no lo pulsaba, al recargar no quedaba nada. Ahora confirmar una pieza es decidir que
+  // sale al calendario, no la única forma de no perder lo escrito.
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackP.current){initTrackP.current=true;return;}if(planners.length===0&&hadData.current.planners){console.warn("Skipping save: would erase planners");return;}dbSave("planners",planners);},[planners,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
 
@@ -2086,9 +2115,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const [leftover,sLeftover]=useState([]);
   const [dragOver,sDragOver]=useState(false);
   const [stReady,sStReady]=useState(true);
+  const [stMotivo,sStMotivo]=useState("");
   const [dzOpen,sDzOpen]=useState(false);
   const fileRef=useRef(null);
-  useEffect(()=>{API.uploadStatus().then(d=>sStReady(!!d.ready));},[]);
+  useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
@@ -2113,6 +2143,22 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     const dest=[...new Map(gente.filter(u=>u&&u.id!==cu?.id).map(u=>[u.id,u])).values()];
     if(!avisar||!dest.length)return;
     avisar({type:"contenido",title:titulo,body:cuerpo,to:correosDe(dest),url:"/",important:!!importante,dedupKey:clave||null});
+  };
+
+  // Piezas que quedaron sueltas: su item se borró en Org Semanal pero la tarea sobrevivió,
+  // así que siguen apareciendo aquí para siempre. Ya no se generan nuevas —borrar en el
+  // planner ahora borra las dos cosas—, pero hay que poder limpiar las que quedaron. Solo
+  // se calcula con los planners cargados: con la lista vacía, todo parecería huérfano.
+  const huerfanas=useMemo(()=>{
+    if(!planners?.length)return[];
+    const vivos=new Set(planners.flatMap(p=>(p.items||[]).map(i=>String(i.id))));
+    return tasks.filter(t=>t.itemId!==undefined&&t.itemId!==null&&t.plannerTag&&!vivos.has(String(t.itemId)));
+  },[tasks,planners]);
+  const limpiarHuerfanas=()=>{
+    if(!confirm("Se eliminan "+huerfanas.length+" pieza"+(huerfanas.length===1?"":"s")+" que ya no existen en Org Semanal:\n\n"+huerfanas.map(t=>"· "+(t.title||"Sin título")).join("\n")+"\n\n¿Eliminar?"))return;
+    const fuera=new Set(huerfanas.map(t=>t.id));
+    sT(prev=>{const r=prev.filter(t=>!fuera.has(t.id));DB.save("tasks",r);return r;});
+    addN("🧹 "+huerfanas.length+" pieza"+(huerfanas.length===1?"":"s")+" fuera de Contenido");
   };
 
   // ── Crear una pieza a mano ──
@@ -2324,6 +2370,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </div>
         <span style={{fontSize:13.5,fontWeight:600,lineHeight:1.35,position:"relative"}}>{t.title||"Sin título…"}</span>
 
+        {/* De quién es y quién la tiene. La tarjeta mostraba solo tipo, fecha y título, así
+            que había que abrirla para saber a quién le tocaba. */}
+        {(()=>{
+          const enc=(t.responsable||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
+          return(
+            <div style={{position:"relative",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:10.5,color:D.tx4}}>
+              {t.company&&<span style={{fontWeight:600,color:D.tx3}}>{t.company}</span>}
+              {t.company&&<span style={{opacity:.45}}>·</span>}
+              {enc.length
+                ? enc.map(u=>(
+                    <span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 8px",borderRadius:999,background:(u.color||D.peri)+"1a",border:"1px solid "+(u.color||D.peri)+"4d",color:D.tx2,fontWeight:600}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:u.color||D.peri,flexShrink:0}}/>{u.name}
+                    </span>))
+                : <span style={{fontStyle:"italic"}}>Sin encargado</span>}
+            </div>);
+        })()}
+
         {f0&&isImg(f0)&&<div onClick={()=>openZoom(t.files,0)} title="Toca para agrandar" style={{position:"relative",width:"100%",height:130,borderRadius:9,cursor:"zoom-in",backgroundImage:'url("'+fSrc(f0)+'")',backgroundSize:"cover",backgroundPosition:"center",backgroundRepeat:"no-repeat",backgroundColor:D.bg,border:"1px solid "+D.line3}}/>}
         {f0&&isVid(f0)&&<div onClick={()=>openZoom(t.files,0)} title="Toca para agrandar" style={{cursor:"zoom-in",position:"relative"}}>
           <MiniVid src={fSrc(f0)} h={130}/>
@@ -2387,7 +2450,14 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     </div>
 
     {!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
-      <b>⚠️ Almacenamiento sin configurar.</b> Falta el bucket de Supabase Storage, así que por ahora solo se pueden subir archivos de menos de 3 MB (no alcanza para reels). Ver <code>SUPABASE_SERVICE_KEY</code> en la configuración del servidor.
+      <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
+    </div>}
+
+    {huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <span style={{flex:"1 1 220px",minWidth:0}}>
+        <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Org Semanal.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
+      </span>
+      <button onClick={limpiarHuerfanas} style={{flexShrink:0,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px solid rgba(239,217,160,.5)",color:"#EFD9A0",fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>Eliminarlas</button>
     </div>}
 
     {!co?<div style={{textAlign:"center",padding:48,color:D.tx3}}>No hay empresas cargadas.</div>:(<>
@@ -3196,7 +3266,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
   return(<div>
     {/* IVA REMINDER POPUP */}
-    {showIvaReminder&&(<div style={{position:"fixed",inset:0,background:"rgba(5,7,10,.6)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+    {showIvaReminder&&(<Portal><div style={{position:"fixed",inset:0,background:"rgba(5,7,10,.6)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>
       <div className="su" style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:28,maxWidth:380,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
         <div style={{display:"inline-flex",padding:14,borderRadius:12,background:"rgba(255,155,61,.1)",marginBottom:14}}><Ic n="alert" s={32} c="var(--gold)"/></div>
         <div style={{fontSize:18,fontWeight:600,marginBottom:6}}>Recordatorio de IVA</div>
@@ -3207,7 +3277,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
           <Bt v="p" onClick={()=>{dismissIva();sTab("billing");}} icon="payments">Ver facturación</Bt>
         </div>
       </div>
-    </div>)}
+    </div></Portal>)}
 
     {/* HEADER */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
@@ -3711,80 +3781,126 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   const addItem=(day)=>{const ni2={id:String(Date.now())+Math.floor(Math.random()*1000),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
-  const removeItem=async(id)=>{if(!confirm("¿Eliminar este contenido?"))return;const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
+  // Borrar una pieza aquí también la saca de Contenido. Antes solo desaparecía del planner
+  // y su tarea quedaba huérfana: la pieza seguía en Contenido para siempre, porque nada
+  // volvía a mirarla. El barrido lo hacía de rebote el viejo "Guardar y sincronizar", que
+  // recreaba la semana entera, y solo si alguien se acordaba de pulsarlo.
+  const borrarTareasDe=(ids)=>{
+    const set=new Set(ids.map(String));
+    sT(prev=>{
+      const result=prev.filter(t=>!(t.itemId!==undefined&&set.has(String(t.itemId))));
+      if(result.length!==prev.length)DB.save("tasks",result);
+      return result;
+    });
+  };
+  const removeItem=async(id)=>{
+    const tarea=tasks.find(t=>String(t.itemId)===String(id));
+    const enPortal=tarea&&["en_aprobacion","aprobado","publicado"].includes(tarea.state);
+    const aviso=enPortal
+      ? "Esta pieza ya salió al portal del cliente. Si la eliminas se va también de Contenido, con sus votos, archivos y la respuesta del cliente. ¿Eliminar igual?"
+      : tarea ? "Se elimina del planner y también de Contenido. ¿Eliminar?"
+      : "¿Eliminar este contenido?";
+    if(!confirm(aviso))return;
+    const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
+    borrarTareasDe([id]);
     // Safe save: load fresh from Supabase, then update only our weekKey
     try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||[];
       const updated=freshPlanners.some(p=>p.weekKey===weekKey)?freshPlanners.map(p=>p.weekKey===weekKey?{...p,items:newItems}:p):[...freshPlanners,{weekKey,companyId:selCo,companyName:co?.name||"",items:newItems}];
       await DB.save("planners",updated);sPlanners(updated);
     }catch(e){console.error("Safe remove error:",e);}};
-  const clearWeek=async()=>{if(!confirm("¿Limpiar TODA la semana de "+co?.name+"? Esto no se puede deshacer."))return;updatePlan([]);
+  const clearWeek=async()=>{
+    const conTarea=items.filter(it=>tasks.some(t=>String(t.itemId)===String(it.id))).length;
+    if(!confirm("¿Limpiar TODA la semana de "+co?.name+"?"+(conTarea?" Se van también las "+conTarea+" pieza"+(conTarea===1?"":"s")+" que ya están en Contenido.":"")+" Esto no se puede deshacer."))return;
+    const idsFuera=items.map(it=>it.id);
+    updatePlan([]);
+    borrarTareasDe(idsFuera);
     try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||[];
       const updated=freshPlanners.map(p=>p.weekKey===weekKey?{...p,items:[]}:p);
       await DB.save("planners",updated);sPlanners(updated);addN("🗑 Semana limpiada");
     }catch(e){console.error("Safe clear error:",e);}};
   const moveItem=(itemId,toDay)=>{updatePlan(items.map(it=>it.id===itemId?{...it,day:toDay,order:dayItems(toDay).length}:it));sDragItem(null);sDragOver(null);};
 
-  // Save planner AND sync to calendar
-  const savePlan=async()=>{
-    // Load fresh from Supabase to avoid wiping other companies' data
-    try{const fresh=await DB.loadAll();const freshPlanners=fresh.planners||planners;
-    const all=freshPlanners.some(p=>p.weekKey===weekKey)?freshPlanners.map(p=>p.weekKey===weekKey?{...plan,items}:p):[...freshPlanners,{...plan,items}];
-    await DB.save("planners",all);sPlanners(all);
+  // ── Confirmación pieza por pieza ────────────────────────────────────────────
+  // Antes había un solo botón para toda la semana, que hacía dos cosas a la vez: grabar el
+  // planner y volcarlo al calendario. Eso obligaba a acordarse de pulsarlo para no perder
+  // lo escrito, y mandaba al calendario piezas a medio llenar. Ahora el planner se guarda
+  // solo (ver el efecto de `planners` en Main) y cada tarjeta decide cuándo sale.
+  const[confirmando,sConfirmando]=useState(null);
 
-    // Sync items to calendar tasks
+  // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
+  // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
+  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador"]);
+  const confirmada=it=>{
+    if(it.confirmadaSig)return it.confirmadaSig===firmaItem(it);
+    // Piezas de semanas anteriores a este cambio: no tienen firma, pero si ya tienen su
+    // tarea en Contenido es que en su momento se sincronizaron. Se dan por confirmadas para
+    // no marcar como pendiente media agenda vieja; en cuanto se confirmen una vez quedan
+    // con firma y a partir de ahí sí se detectan los cambios.
+    return tasks.some(t=>String(t.itemId)===String(it.id));
+  };
+  const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h).toString(36);};
+
+  const confirmarItem=async(it)=>{
+    const titulo=(it.title||"").trim();
+    if(!titulo&&!(it.description||"").trim()){addN("⚠️ Escribe al menos un título para confirmar la pieza");return;}
+    sConfirmando(it.id);
     const plannerTag="planner_"+weekKey;
-    sT(prev=>{
-      // Cada pieza se reconoce por `itemId` en vez de recrearse de cero. Antes esto
-      // borraba todas las tareas de la semana y las volvía a crear: cada vez que alguien
-      // guardaba se perdían los archivos subidos, los votos, los comentarios y la
-      // respuesta del cliente, y las piezas cambiaban de id rompiendo el guión vinculado.
-      const cleaned=prev.filter(t=>t.plannerTag!==plannerTag);
-      const previas=prev.filter(t=>t.plannerTag===plannerTag);
-      const newTasks=items.filter(it=>it.title||it.description).map(it=>{
-        const vieja=previas.find(t=>String(t.itemId)===String(it.id));
-        // Una vez que salió al cliente, manda lo que pasó en el portal: su fecha de
-        // publicación y su estado, no lo que diga el planner.
-        const enElPortal=vieja&&["en_aprobacion","aprobado","publicado"].includes(vieja.state);
-        return{
-        ...(vieja||{}),
-        id:vieja?vieja.id:(Date.now()+Math.random()*10000|0),
-        itemId:it.id,
-        title:it.title||(TT[it.type]?.l||"Contenido")+" "+co?.name,
-        company:co?.name||"",
-        companyId:parseInt(selCo)||0,
-        type:it.type,
-        description:it.description+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
-        responsable:it.production||[],
-        date:enElPortal&&vieja.date?vieja.date:it.day,
-        state:enElPortal?vieja.state
-          :(it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":(vieja?vieja.state:"no_realizado")),
-        comments:vieja?vieja.comments||[]:[],
-        votes:vieja?vieja.votes||{}:{},
-        clientApproval:vieja?vieja.clientApproval||null:null,
-        files:vieja?vieja.files||[]:[],
-        plannerTag
-      };});
-      const result=[...cleaned,...newTasks];
-      DB.save("tasks",result);
-      return result;
-    });
+    const vieja=tasks.find(t=>String(t.itemId)===String(it.id));
+    // Una vez que la pieza salió al portal manda lo que pasó allá —su estado y su fecha de
+    // publicación—, no lo que diga el planner.
+    const enElPortal=vieja&&["en_aprobacion","aprobado","publicado"].includes(vieja.state);
+    const tarea={
+      ...(vieja||{}),
+      id:vieja?vieja.id:(Date.now()+Math.random()*10000|0),
+      itemId:it.id,
+      title:titulo||(TT[it.type]?.l||"Contenido")+" "+(co?.name||""),
+      company:co?.name||"",
+      companyId:parseInt(selCo)||0,
+      type:it.type,
+      description:(it.description||"")+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
+      responsable:it.production||[],
+      date:enElPortal&&vieja.date?vieja.date:it.day,
+      state:enElPortal?vieja.state
+        :(it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":(vieja?vieja.state:"no_realizado")),
+      comments:vieja?vieja.comments||[]:[],
+      votes:vieja?vieja.votes||{}:{},
+      clientApproval:vieja?vieja.clientApproval||null:null,
+      files:vieja?vieja.files||[]:[],
+      plannerTag,
+    };
+    const sig=firmaItem(it);
+    const nuevosItems=items.map(x=>x.id===it.id?{...x,confirmadaSig:sig,confirmadaAt:new Date().toISOString()}:x);
+    try{
+      // El planner se graba contra lo que hay ahora mismo en Supabase para no pisar otras
+      // empresas ni otras semanas que alguien haya tocado mientras tanto.
+      const fresh=await DB.loadAll();
+      const fp=fresh.planners||planners;
+      const np={...plan,items:nuevosItems,weekKey,companyId:selCo,companyName:co?.name||""};
+      const all=fp.some(p=>p.weekKey===weekKey)?fp.map(p=>p.weekKey===weekKey?np:p):[...fp,np];
+      await DB.save("planners",all);sPlanners(all);
 
-    addN("✅ Plan guardado y sincronizado al calendario");
+      sT(prev=>{
+        const idx=prev.findIndex(t=>String(t.itemId)===String(it.id));
+        const result=idx>=0?prev.map((t,i)=>i===idx?{...tarea,id:t.id}:t):[...prev,tarea];
+        DB.save("tasks",result);
+        return result;
+      });
 
-    // Aviso de que la semana quedó cerrada. Involucrados = todos los que aparecen en
-    // producción de algún contenido de la semana, más los admins. Una sola notificación
-    // con la lista deduplicada: el admin que además produce recibe un aviso, no dos.
-    const enProduccion=[...new Set(items.flatMap(it=>it.production||[]))];
-    const dest=[...new Map([...users.filter(u=>enProduccion.includes(u.id)),...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()].filter(u=>u.id!==cu?.id);
-    const conTitulo=items.filter(it=>it.title||it.description).length;
-    if(avisar&&dest.length)avisar({
-      type:"planificacion",
-      title:"📋 Planificación semanal lista",
-      body:(co?co.name:"")+" · semana del "+(weekDays[0]?.ds||"")+" — "+conTitulo+" contenido"+(conTitulo===1?"":"s")+" en el calendario.",
-      to:correosDe(dest),url:"/",
-      dedupKey:"plan_"+weekKey+"_"+td(),
-    });
-    }catch(e){console.error("Save plan error:",e);addN("❌ Error al guardar");}
+      addN(vieja?"✅ Cambios confirmados en «"+tarea.title+"»":"✅ «"+tarea.title+"» ya está en Contenido");
+
+      // Aviso por pieza: producción de esa tarjeta más los admins, en una sola lista
+      // deduplicada para que el admin que además produce reciba uno y no dos. Nunca a quien
+      // confirma: ya sabe lo que acaba de hacer.
+      const dest=[...new Map([...users.filter(u=>(it.production||[]).includes(u.id)),...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()].filter(u=>u.id!==cu?.id);
+      if(avisar&&dest.length)avisar({
+        type:"asignacion",
+        title:vieja?"📝 Pieza actualizada":"📋 Nueva pieza confirmada",
+        body:tarea.title+" · "+(co?.name||"")+(it.day?" · "+it.day:""),
+        to:correosDe(dest),url:"/",
+        dedupKey:"item_"+it.id+"_"+hash(sig),
+      });
+    }catch(e){console.error("Confirmar item error:",e);addN("❌ No se pudo confirmar: "+e.message);}
+    sConfirmando(null);
   };
 
   const dupWeek=()=>{const nextOff=wkOff+1;const now2=new Date();now2.setDate(now2.getDate()+nextOff*7);const dow2=now2.getDay();const mon2=dow2===0?6:dow2-1;
@@ -3947,7 +4063,16 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               </div>
               <button onClick={dupWeek} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Duplicar →</button>
               {items.length>0&&<button onClick={clearWeek} style={{padding:"9px 16px",borderRadius:999,background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.35)",color:D.rojo,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Limpiar</button>}
-              <button onClick={savePlan} style={{padding:"9px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Guardar y sincronizar</button>
+              {/* Donde estaba "Guardar y sincronizar" ahora solo se informa cómo va la
+                  semana: guardar dejó de ser algo que haya que pedir, y quién sale al
+                  calendario lo decide cada tarjeta. */}
+              {(()=>{
+                const conTexto=items.filter(it=>(it.title||"").trim()||(it.description||"").trim());
+                const pend=conTexto.filter(it=>!confirmada(it)).length;
+                if(pend)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.32)",color:"#EFD9A0",fontSize:12.5,fontWeight:600}}>{pend} sin confirmar</span>;
+                if(conTexto.length)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(168,226,107,.06)",border:"1px solid "+STATES.listo.c+"4d",color:STATES.listo.c,fontSize:12.5,fontWeight:600}}>Todo confirmado ✓</span>;
+                return null;
+              })()}
             </div>
           </div>
 
@@ -4057,6 +4182,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
                     <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
+                    {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
+                    {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
+                      <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:"#EFD9A0",flexShrink:0}}/>}
                     <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
@@ -4191,6 +4319,35 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                             </div>}
                       </div>
                     </div>
+
+                    {/* Confirmar la pieza. Es lo que reemplaza al "Guardar y sincronizar" de
+                        toda la semana: hasta que no se confirma, la pieza vive solo en el
+                        planner y no aparece en Contenido. Lo escrito no se pierde igual,
+                        porque el planner se guarda solo. */}
+                    {(()=>{
+                      const lista=confirmada(it);
+                      const yaEsta=tasks.some(t=>String(t.itemId)===String(it.id));
+                      const vacia=!(it.title||"").trim()&&!(it.description||"").trim();
+                      const trabajando=confirmando===it.id;
+                      return(
+                        <div style={{position:"relative",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:12,borderTop:"1px solid "+D.line3}}>
+                          <span style={{flex:"1 1 160px",minWidth:0,fontSize:11.5,fontWeight:600,lineHeight:1.45,color:lista?STATES.listo.c:yaEsta?"#EFD9A0":D.tx4}}>
+                            {lista?"Confirmada · está en Contenido"
+                              :yaEsta?"Tiene cambios sin confirmar"
+                              :vacia?"Ponle un título para poder confirmarla"
+                              :"Sin confirmar · todavía no aparece en Contenido"}
+                          </span>
+                          {/* Sigue pulsable cuando ya está confirmada: sirve para reenviarla
+                              a Contenido si algo quedó desincronizado. Repetirla no duplica
+                              nada —la tarea se reconoce por itemId— y el aviso no se repite
+                              dentro de las 12 h si no cambió el contenido. */}
+                          <button disabled={vacia||trabajando} onClick={()=>confirmarItem(it)}
+                            title={lista?"Volver a mandarla a Contenido":undefined}
+                            style={{flexShrink:0,padding:"9px 18px",borderRadius:999,background:lista?"transparent":D.cian,border:"1px solid "+(lista?D.line2:D.cian),color:lista?D.tx4:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:vacia||trabajando?"default":"pointer",opacity:vacia?.45:1}}>
+                            {trabajando?"Confirmando…":lista?"Confirmada ✓":yaEsta?"Confirmar cambios":"Confirmar pieza"}
+                          </button>
+                        </div>);
+                    })()}
                   </div>
                 </div>);
             })}
@@ -4249,7 +4406,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     {/* SELECTOR DE DÍA DE GRABACIÓN
         Al reescribir el bloque de días este panel se había perdido, así que el botón
         "+ Día grabación" fijaba el estado pero no mostraba nada. */}
-    {showGrabPicker&&(<div onClick={()=>{sShowGrabPicker(null);sGrabTime("");}} style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
+    {showGrabPicker&&(<Portal><div onClick={()=>{sShowGrabPicker(null);sGrabTime("");}} style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{width:"min(460px,100%)",...D_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(2,3,8,.7)"}}>
         <div style={{...D_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:16,maxHeight:"84vh",overflow:"auto"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -4286,13 +4443,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           </div>
         </div>
       </div>
-    </div>)}
+    </div></Portal>)}
 
     {/* LIGHTBOX */}
-    {lightbox&&(<div onClick={()=>sLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",backdropFilter:"blur(8px)"}}>
+    {lightbox&&(<Portal><div onClick={()=>sLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",backdropFilter:"blur(8px)"}}>
       <button onClick={()=>sLightbox(null)} style={{position:"absolute",top:"calc(20px + env(safe-area-inset-top, 0px))",right:20,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:36,height:36,borderRadius:18,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
       <img src={lightbox} onClick={e=>e.stopPropagation()} style={{maxWidth:"92vw",maxHeight:"90vh",objectFit:"contain",borderRadius:8,cursor:"default"}}/>
-    </div>)}
+    </div></Portal>)}
   </div>);
 }
 
@@ -4449,7 +4606,7 @@ function PerfilModal({open,onClose,user,co,onToast}){
 
   const colorDrive=i=>[PC.cian,PC.peri,PC.lav][i%3];
 
-  return(<div onClick={onClose} style={{position:"fixed",inset:0,zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
+  return(<Portal><div onClick={onClose} style={{position:"fixed",inset:0,zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
     <div onClick={ev=>ev.stopPropagation()} style={{width:"min(440px,100%)",...PC_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(2,3,8,.7)"}}>
       <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:18,maxHeight:"84vh",overflow:"auto",boxSizing:"border-box"}}>
 
@@ -4505,7 +4662,7 @@ function PerfilModal({open,onClose,user,co,onToast}){
 
       </div>
     </div>
-  </div>);
+  </div></Portal>);
 }
 
 // ═══ PORTAL CLIENTE ═════════════════════════════════════════════
@@ -4668,7 +4825,7 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
     <p style={{margin:"14px 0 0",textAlign:"center",fontSize:12,color:PC.tx4}}>Al aprobar, la pieza queda lista para agendar en Planificar</p>
 
     {/* Rechazar siempre pide motivo: es lo que le llega al equipo */}
-    {rejFor&&(<div onClick={()=>sRejFor(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
+    {rejFor&&(<Portal><div onClick={()=>sRejFor(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
       <div onClick={ev=>ev.stopPropagation()} style={{width:"min(440px,100%)",...PC_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(2,3,8,.7)"}}>
         <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:14}}>
           <div style={{fontSize:17,fontWeight:600,color:PC.tx}}>¿Por qué lo rechazas?</div>
@@ -4682,7 +4839,7 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
           </div>
         </div>
       </div>
-    </div>)}
+    </div></Portal>)}
   </div>);
 }
 
@@ -4868,17 +5025,17 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
     </>)}
 
     {/* BARRA DE SELECCIÓN (flujo táctil) */}
-    {selTask&&(<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:120,padding:"11px 16px calc(11px + env(safe-area-inset-bottom, 0px))",background:"rgba(11,14,23,.96)",backdropFilter:"blur(12px)",borderTop:"1px solid "+PC.cian,display:"flex",alignItems:"center",gap:10,boxShadow:"0 -6px 24px rgba(0,0,0,.5)"}}>
+    {selTask&&(<Portal><div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:120,padding:"11px 16px calc(11px + env(safe-area-inset-bottom, 0px))",background:"rgba(11,14,23,.96)",backdropFilter:"blur(12px)",borderTop:"1px solid "+PC.cian,display:"flex",alignItems:"center",gap:10,boxShadow:"0 -6px 24px rgba(0,0,0,.5)"}}>
       {selTask.files&&selTask.files[0]&&isImg(selTask.files[0])&&<img src={fSrc(selTask.files[0])} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:12.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selTask.title}</div>
         <div style={{fontSize:11,color:PC.cian}}>Ahora toca el día donde quieres publicarlo</div>
       </div>
       <button onClick={()=>sSel(null)} style={{padding:"8px 16px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:12.5,cursor:"pointer",flexShrink:0}}>Cancelar</button>
-    </div>)}
+    </div></Portal>)}
 
     {/* MODAL AL SOLTAR */}
-    {modal&&(<div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
+    {modal&&(<Portal><div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
       <div onClick={ev=>ev.stopPropagation()} style={{width:"min(460px,100%)",...PC_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(2,3,8,.7)"}}>
         <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:16,maxHeight:"86vh",overflow:"auto",boxSizing:"border-box"}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -4911,7 +5068,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
           </div>
         </div>
       </div>
-    </div>)}
+    </div></Portal>)}
   </div>);
 }
 

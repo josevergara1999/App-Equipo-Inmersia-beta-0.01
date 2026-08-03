@@ -1,6 +1,6 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = "inmersia-v3";
+const CACHE = "inmersia-v4";
 const ASSETS = ['/', '/index.html', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -80,6 +80,12 @@ self.addEventListener('notificationclick', e => {
 
 // iOS no expone `expirationTime`, así que no se puede anticipar el vencimiento:
 // el único aviso es este evento cuando el endpoint rota.
+function b64ToU8(base64) {
+  const pad = '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
 self.addEventListener('pushsubscriptionchange', e => {
   e.waitUntil((async () => {
     try {
@@ -88,11 +94,15 @@ self.addEventListener('pushsubscriptionchange', e => {
       if (!publicKey) return;
       const sub = await self.registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: publicKey,
+        applicationServerKey: b64ToU8(publicKey),   // Safari no acepta la clave en base64
       });
+      // `renewedFrom` es lo único que identifica a la persona desde aquí: el servidor busca
+      // por ese endpoint y hereda el correo. Sin eso la suscripción entra anónima y no vuelve
+      // a recibir un solo aviso dirigido.
       await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ subscription: sub, renewedFrom: e.oldSubscription ? e.oldSubscription.endpoint : null }),
       });
     } catch (_) {}
