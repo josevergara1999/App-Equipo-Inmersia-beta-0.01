@@ -387,7 +387,10 @@ function b64ToU8(b64){
 const esIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
 const enPantallaInicio=()=>window.navigator.standalone===true||window.matchMedia("(display-mode: standalone)").matches;
 
-function PushBtn({user}){
+// `tile` lo dibuja como una baldosa del menú móvil. La barra lateral no existe bajo 820px,
+// así que sin esto el botón de activar notificaciones era inalcanzable desde el celular —
+// justo el único lugar donde las notificaciones importan.
+function PushBtn({user,tile}){
   const[st,sSt]=useState("cargando");   // cargando|no-soportado|instalar|denegado|off|on|trabajando
   const[msg,sMsg]=useState("");
   const[ayuda,sAyuda]=useState(false);
@@ -432,15 +435,18 @@ function PushBtn({user}){
     sSt("off");sMsg("");
   };
 
-  const fila=(color,icono,texto,onClick)=>(
-    <button onClick={onClick} disabled={!onClick} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color,fontSize:14,fontWeight:500,textAlign:"left",border:"none",cursor:onClick?"pointer":"default",fontFamily:"inherit",width:"100%"}}>
-      <Ic n={icono} s={18}/>{texto}
-    </button>);
+  const fila=(color,icono,texto,onClick,corto)=>(tile
+    ? <button onClick={onClick} disabled={!onClick} style={{background:"var(--bg3)",border:"1px solid "+(st==="on"?"var(--success)":st==="denegado"?"rgba(255,68,68,.3)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color,fontSize:10,fontFamily:"inherit",cursor:onClick?"pointer":"default",width:"100%"}}>
+        <span style={{fontSize:22}}>🔔</span>{corto||texto}
+      </button>
+    : <button onClick={onClick} disabled={!onClick} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color,fontSize:14,fontWeight:500,textAlign:"left",border:"none",cursor:onClick?"pointer":"default",fontFamily:"inherit",width:"100%"}}>
+        <Ic n={icono} s={18}/>{texto}
+      </button>);
 
   if(st==="cargando")return null;
   if(st==="no-soportado")return null;
   if(st==="instalar")return(<>
-    {fila("var(--gold)","bell","Activar notificaciones",()=>sAyuda(true))}
+    {fila("var(--gold)","bell","Activar notificaciones",()=>sAyuda(true),"Activar")}
     <Md open={ayuda} onClose={()=>sAyuda(false)} title="Instala INMERSIA en tu iPhone" width={430}>
       <div style={{fontSize:13.5,color:"var(--tx2)",lineHeight:1.7}}>
         Para recibir notificaciones en el celular, iPhone exige que la app esté en la pantalla de inicio. Es una sola vez:
@@ -457,7 +463,7 @@ function PushBtn({user}){
     </Md>
   </>);
   if(st==="denegado")return(<>
-    {fila("var(--danger)","bell","Notificaciones bloqueadas",()=>sAyuda(true))}
+    {fila("var(--danger)","bell","Notificaciones bloqueadas",()=>sAyuda(true),"Bloqueadas")}
     <Md open={ayuda} onClose={()=>sAyuda(false)} title="Notificaciones bloqueadas" width={430}>
       <div style={{fontSize:13.5,color:"var(--tx2)",lineHeight:1.7}}>
         Rechazaste el permiso en este dispositivo.
@@ -467,13 +473,13 @@ function PushBtn({user}){
       </div>
     </Md>
   </>);
-  if(st==="trabajando")return fila("var(--tx3)","bell","Activando…",null);
+  if(st==="trabajando")return fila("var(--tx3)","bell","Activando…",null,"Activando…");
   if(st==="on")return(<>
-    {fila("var(--success)","bell","Notificaciones ✓",desactivar)}
+    {fila("var(--success)","bell","Notificaciones ✓",desactivar,"Avisos ✓")}
     {msg&&<div style={{fontSize:10.5,color:"var(--tx3)",padding:"0 12px 6px"}}>{msg}</div>}
   </>);
   return(<>
-    {fila("var(--tx2)","bell","Activar notificaciones",activar)}
+    {fila("var(--tx2)","bell","Activar notificaciones",activar,"Activar")}
     {msg&&<div style={{fontSize:10.5,color:"var(--danger)",padding:"0 12px 6px",lineHeight:1.4}}>{msg}</div>}
   </>);
 }
@@ -1128,9 +1134,13 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["contenido","🎨","Contenido"],["payments","💰","Pagos"],["team","👥","Equipo"],["metricas","📈","Métricas"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
                 <span style={{fontSize:22}}>{ic}</span>{l}
               </button>))}
-              <button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:myGcal?"rgba(78,205,196,.1)":"var(--bg3)",border:"1px solid "+(myGcal?"var(--success)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:myGcal?"var(--success)":"var(--tx2)",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>📅</span>{myGcal?"GCal ✓":"GCal"}
-              </button>
+              {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
+                  donde de verdad hace falta el botón. El calendario ya no lleva baldosa:
+                  viene con el inicio de sesión de Google. */}
+              <PushBtn user={cu} tile/>
+              {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(239,217,160,.08)",border:"1px solid rgba(239,217,160,.3)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"#EFD9A0",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>📅</span>Reconectar
+              </button>}
               {isA&&<button onClick={()=>{sPg("payments");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>💰</span>Facturación
               </button>}
