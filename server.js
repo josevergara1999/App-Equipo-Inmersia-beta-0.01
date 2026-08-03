@@ -1606,6 +1606,11 @@ function explicarStorage(status, detail) {
     return `Supabase rechazó el tipo de archivo. Revisa los "Allowed MIME types" del bucket "${CONTENT_BUCKET}".`;
   if (status === 413 || m.includes("maximum allowed size") || m.includes("payload too large"))
     return `El archivo pasa el tope de tamaño del bucket "${CONTENT_BUCKET}". Se sube en la configuración del bucket.`;
+  // "Invalid Compact JWS" = lo que llegó en el Authorization no es un JWT. Pasa al poner una
+  // clave del formato nuevo (`sb_secret_…`/`sb_publishable_…`) donde va la service_role
+  // clásica. Despista porque esa misma clave sí sirve para leer el bucket.
+  if (m.includes("compact jws") || m.includes("jwt"))
+    return `SUPABASE_SERVICE_KEY no es una clave válida para escribir: Storage esperaba la service_role (el JWT largo que empieza por "eyJ") y recibió otra cosa.`;
   if (status === 403 || m.includes("unauthorized") || m.includes("row-level security"))
     return "La llave de Supabase no puede escribir en Storage: SUPABASE_SERVICE_KEY tiene que ser la service_role.";
   if (m.includes("invalid") && m.includes("key"))
@@ -1644,6 +1649,16 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
     if (!r.ok) {
       const detail = await r.text();
       console.error("Storage upload failed:", r.status, detail);
+      // Una llave puede servir para LEER el bucket y no para escribir en él —es exactamente
+      // lo que pasaba: `/api/upload/status` decía "listo" y cada subida moría con 403
+      // "Invalid Compact JWS". Cuando el fallo es de permisos se invalida el estado cacheado
+      // y se responde como si Storage no estuviera configurado, que es la verdad práctica:
+      // así el frontend vuelve a su respaldo en vez de tragarse el error.
+      if (r.status === 401 || r.status === 403 || /invalid compact jws|unauthorized/i.test(detail)) {
+        bucketCache = { at: Date.now(), data: { ready: false, bucket: CONTENT_BUCKET,
+          motivo: "la llave puede leer el bucket pero no escribir en él — SUPABASE_SERVICE_KEY tiene que ser la service_role" } };
+        return res.status(503).json({ error: "storage_no_configurado", motivo: bucketCache.data.motivo });
+      }
       return res.status(502).json({ error: explicarStorage(r.status, detail), detail: detail.slice(0, 300) });
     }
 
