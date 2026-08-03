@@ -210,9 +210,20 @@ const API={
     const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo actualizar");return d;
   },
   async pushKey(){const r=await fetch("/api/push/key");return r.json();},
+  // Se recuerda el endpoint propio para poder decirle al servidor cuál reemplaza esta
+  // suscripción. iOS rota el endpoint cada pocas horas y el anterior no siempre devuelve 410,
+  // así que sin esto la lista acumula una entrada muerta por rotación: en un solo día un mismo
+  // iPhone llegó a tener tres, y los envíos salían por triplicado.
   async pushSubscribe(subscription,email,gmail,name){
-    const r=await fetch("/api/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subscription,email,gmail,name})});
-    const d=await r.json();if(d.error)throw new Error(d.error);return d;
+    let renewedFrom=null;
+    try{
+      const prev=localStorage.getItem("inm_push_endpoint");
+      if(prev&&prev!==subscription.endpoint)renewedFrom=prev;
+    }catch(_){}
+    const r=await fetch("/api/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subscription,email,gmail,name,renewedFrom})});
+    const d=await r.json();if(d.error)throw new Error(d.error);
+    try{localStorage.setItem("inm_push_endpoint",subscription.endpoint);}catch(_){}
+    return d;
   },
   async pushUnsubscribe(endpoint){try{await fetch("/api/push/unsubscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint})});}catch(e){}},
   async pushTest(email){const r=await fetch("/api/push/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});return r.json();},
