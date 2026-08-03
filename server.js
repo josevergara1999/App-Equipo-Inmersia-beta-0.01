@@ -943,16 +943,34 @@ app.post("/api/meta/advisor", requireAuth, async (req, res) => {
 // vez del scope completo de calendario: alcanza para lo que hace la app y en la pantalla de
 // permisos de Google se lee mucho menos invasivo.
 const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-const authURL = (state, consent) =>
+
+// La app queda accesible por más de un dominio (el de Render y el propio de INMERSIA). La
+// URL de retorno tiene que ser la del dominio por el que entró la persona: si se fija una
+// sola, quien entre por el otro termina con la sesión abierta en un dominio distinto al
+// que estaba usando. Se valida contra una lista blanca a propósito — confiar en la
+// cabecera Host permitiría desviar el código de autorización a un dominio ajeno.
+const HOSTS_OK = new Set([
+  "app-equipo-inmersia-beta-0-01.onrender.com",
+  "portal.inmersia.cl",
+  "localhost:10000",
+]);
+function redirectURI(req) {
+  const host = String(req?.headers?.["x-forwarded-host"] || req?.headers?.host || "").toLowerCase();
+  if (!HOSTS_OK.has(host)) return process.env.GOOGLE_REDIRECT_URI;
+  const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "https" : "http";
+  return `${proto}://${host}/api/auth/callback/google`;
+}
+
+const authURL = (state, consent, req) =>
   `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}` +
-  `&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code` +
+  `&redirect_uri=${encodeURIComponent(redirectURI(req))}&response_type=code` +
   `&scope=${encodeURIComponent(GCAL_SCOPE + " openid email profile")}` +
   `&state=${state}&access_type=offline&include_granted_scopes=true` +
   (consent ? "&prompt=consent" : "");
 
-app.get("/api/auth/google-login", (req, res) => res.redirect(authURL("login", false)));
+app.get("/api/auth/google-login", (req, res) => res.redirect(authURL("login", false, req)));
 // Reconectar a mano, para cuando alguien revocó el permiso o entró antes de este cambio.
-app.get("/api/auth/google", (req, res) => res.redirect(authURL("gcal", true)));
+app.get("/api/auth/google", (req, res) => res.redirect(authURL("gcal", true, req)));
 
 app.get("/api/auth/callback/google", async (req, res) => {
   const { code, state } = req.query;
@@ -962,7 +980,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: process.env.GOOGLE_REDIRECT_URI, grant_type: "authorization_code" })
+      body: JSON.stringify({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: redirectURI(req), grant_type: "authorization_code" })
     });
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) { console.log("TOKEN ERROR:", tokenData); return res.send("Error obteniendo token"); }
@@ -982,7 +1000,7 @@ app.get("/api/auth/callback/google", async (req, res) => {
       await sbPut("gcal_tokens", guardados);
       console.log("GCal refresh_token guardado para:", userData.email);
     } else if (state === "login" && !guardados[userData.email]?.refresh_token) {
-      return res.redirect(authURL("login2", true));
+      return res.redirect(authURL("login2", true, req));
     }
 
     if (state === "gcal") {
