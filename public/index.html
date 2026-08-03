@@ -2272,6 +2272,34 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     finally{sBusy(false);sProg("");sCorrFor(null);if(corrRef.current)corrRef.current.value="";}
   };
 
+  // Sacar una pieza de Contenido. Hay dos cosas distintas viviendo en la misma lista y no se
+  // borran igual:
+  //   · Los huecos que genera el plan de la empresa (sin itemId ni plannerTag) son cupos, no
+  //     piezas. Se devuelven a "no realizado", que es su estado natural: desaparecen de la
+  //     vista y el cupo sigue disponible. Borrarlos le quitaría un post al plan de la empresa.
+  //   · Las piezas de verdad se borran, y si vienen de Org Semanal también se quita su item
+  //     del planner para que no reaparezcan en la próxima confirmación.
+  const eliminarPieza=async t=>{
+    const esHueco=t.itemId==null&&!t.plannerTag&&!(t.files||[]).length;
+    if(esHueco){
+      if(!confirm("«"+(t.title||"Sin título")+"» es un cupo del plan de "+(co?.name||"la empresa")+", no una pieza creada.\n\nSe devuelve a «no realizado»: desaparece de aquí y el cupo queda libre para usarlo más adelante.\n\n¿Continuar?"))return;
+      sT(p=>{const r=p.map(x=>x.id===t.id?{...x,state:"no_realizado",responsable:[],votes:{},comments:[]}:x);DB.save("tasks",r);return r;});
+      addN("↩️ «"+(t.title||"Pieza")+"» volvió a ser un cupo libre");
+      return;
+    }
+    const enPortal=["en_aprobacion","aprobado","publicado"].includes(t.state);
+    if(!confirm("¿Eliminar «"+(t.title||"Sin título")+"»?"+(enPortal?"\n\nOJO: ya salió al portal del cliente. Se pierden sus votos, archivos y la respuesta del cliente.":"")+(t.itemId!=null?"\n\nTambién se quita de Org Semanal.":"")+"\n\nEsto no se puede deshacer."))return;
+    sT(p=>{const r=p.filter(x=>x.id!==t.id);DB.save("tasks",r);return r;});
+    // Su item en el planner tiene que irse también: si no, la próxima confirmación la revive.
+    if(t.itemId!=null&&sPlanners){
+      sPlanners(prev=>{
+        const np=prev.map(pl=>({...pl,items:(pl.items||[]).filter(i=>String(i.id)!==String(t.itemId))}));
+        DB.save("planners",np);return np;
+      });
+    }
+    addN("🗑 «"+(t.title||"Pieza")+"» eliminada");
+  };
+
   // Subir material a una pieza concreta (etapas Borrador y En producción)
   const perRef=useRef(null);
   const[perFor,sPerFor]=useState(null);
@@ -2367,6 +2395,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           {t.extraSlot&&<span style={{fontSize:10,fontWeight:600,color:D.lav}}>Adicional</span>}
           {rev&&m.k!=="aprobado"&&<span style={{fontSize:10,fontWeight:600,color:D.peri}}>✎ Corregido</span>}
           <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:10,color:D.tx4}}>{diaLbl(t.date)}</span>
+          <button onClick={()=>eliminarPieza(t)} title="Eliminar esta pieza" style={{width:24,height:24,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>
+            <Ic n="trash" s={12} c={D.tx4}/>
+          </button>
         </div>
         <span style={{fontSize:13.5,fontWeight:600,lineHeight:1.35,position:"relative"}}>{t.title||"Sin título…"}</span>
 
