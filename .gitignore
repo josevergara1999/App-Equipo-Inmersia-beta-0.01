@@ -1,0 +1,18 @@
+# Dependencias
+node_modules/
+
+# Secretos — NUNCA subir. SUPABASE_SERVICE_KEY da acceso total a la base de datos.
+.env
+.env.*
+!.env.example
+
+# Archivos de demo/pruebas locales (generados, no forman parte de la app)
+public/__mocktest*.html
+public/__demo_media/
+
+# Respaldos puntuales de datos: son fotos del contenido de Supabase, no código.
+backup-*.json
+
+# Sistema
+.DS_Store
+Thumbs.db
