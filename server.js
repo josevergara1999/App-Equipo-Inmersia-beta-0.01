@@ -688,7 +688,11 @@ const responsablesDe = t => porIds(Array.isArray(t.responsable) ? t.responsable 
 async function repasoDiario(forzar) {
   try {
     if (!forzar) {
-      if (horaMinCL() < 8) return { skip: "muy temprano" };
+      // Ventana de 08:00 a 20:00. El límite de abajo es obvio; el de arriba evita que un
+      // despliegue o un arranque nocturno mande "tu día" a las once de la noche. Si el
+      // servidor estuvo dormido todo el día, el resumen se salta y sale al día siguiente.
+      const h = horaMinCL();
+      if (h < 8 || h >= 20) return { skip: "fuera de horario" };
       if ((await sbGet("notif_daily", "")) === hoyCL()) return { skip: "ya corrió hoy" };
     }
     const hoy = hoyCL();
