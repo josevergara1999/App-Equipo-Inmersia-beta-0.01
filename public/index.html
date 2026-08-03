@@ -4123,8 +4123,19 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       description:(it.description||"")+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
       responsable:it.production||[],
       date:enElPortal&&vieja.date?vieja.date:it.day,
-      state:enElPortal?vieja.state
-        :(it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":(vieja?vieja.state:"no_realizado")),
+      // Los estados del planner y los de las tareas no son la misma lista, así que hay que
+      // traducirlos. Antes solo se contemplaban "aprobado" y "publicado" y todo lo demás caía
+      // en "no_realizado", que es justo el estado que Contenido no dibuja: la pieza se creaba
+      // invisible mientras la tarjeta decía "está en Contenido".
+      //
+      // Confirmar una pieza significa que sale, así que el peor caso es "en producción" —
+      // nunca "no_realizado". Que aparezca en la etapa Listo lo decide tener material, no el
+      // estado, y eso lo resuelve `etapaDe`.
+      state:enElPortal?vieja.state:({
+        publicado:"publicado",
+        aprobado:"aprobado",
+        en_aprobacion:"en_aprobacion",
+      }[it.state]||"en_proceso"),
       comments:vieja?vieja.comments||[]:[],
       // Los votos del planner se propagan, pero el voto emitido en Contenido manda: es donde
       // se decide el envío al portal.
