@@ -290,6 +290,50 @@ const EXTRAS=[
 
 const TT={post:{l:"Post",c:"#9BB4FF",i:"📸"},historia:{l:"Historia",c:"#C9BFFF",i:"📱"},reel:{l:"Reel",c:"#6FE7F2",i:"🎬"},video_pro:{l:"Video Pro",c:"#8FF2C2",i:"🎥"},visita:{l:"Visita",c:"#F2A8C4",i:"📍"},custom:{l:"Custom",c:"#EFD9A0",i:"⭐"},repost:{l:"Repost",c:"#C9CFDC",i:"🔄"}};
 const SS={no_realizado:{l:"No realizado",c:"#8886a0",b:"#1a1a2e"},en_proceso:{l:"En proceso",c:"#ffd93d",b:"#2a2520"},en_aprobacion:{l:"En aprobacion",c:"#ff6b6b",b:"#2a1a1a"},aprobado:{l:"Aprobado",c:"#4ecdc4",b:"#1a2a28"},publicado:{l:"Publicado",c:"#6bcbff",b:"#1a2030"}};
+
+// ═══ CUPOS DEL PLAN ═════════════════════════════════════════════
+// El cupo es un número, no una cosa. Antes cada unidad del plan se materializaba como una
+// tarea vacía ("Post 1 Fauna", "Historia 3 Fauna"…) que ocupaba sitio en la fila `tasks`,
+// aparecía en las listas sin que nadie la hubiera pedido y, si alguien la movía de estado,
+// se quedaba anclada para siempre. Ahora no se crea nada: lo disponible se calcula.
+//
+//   disponible = incluido − (piezas reales del mes + ajuste de arranque)
+//
+// El ajuste existe porque el conteo real se lleva fuera de la app: al empezar el mes se
+// escribe a mano cuántas van consumidas y de ahí en adelante baja solo.
+const mesKey=(y,m)=>y+"-"+String(m+1).padStart(2,"0");   // m es 0-11, como en Date
+
+// Lo que incluye el plan de una empresa, por tipo. `incluido` manda sobre la plantilla del
+// plan: los planes se negocian caso a caso y tienen que poder editarse sin tocar el código.
+const incluidoDe=co=>({...(PLANS[co?.plan]?.tasks||{}),...(co?.tasks||{}),...(co?.incluido||{})});
+
+// Las piezas que cuentan contra el cupo son las reales: las que alguien creó. Se imputan al
+// mes de su fecha. Las que todavía no tienen fecha son trabajo del mes en curso pendiente de
+// agendar, así que cuentan solo ahí: imputarlas a cualquier mes que se mirara hacía que una
+// pieza sin agendar apareciera consumida en todos los meses a la vez.
+const usadasEnMes=(tasks,coId,y,m)=>{
+  const h=new Date(), esMesActual=(y===h.getFullYear()&&m===h.getMonth());
+  const o={};
+  (tasks||[]).forEach(t=>{
+    if(String(t.companyId)!==String(coId))return;
+    if(t.extraSlot)return;                       // los adicionales se cobran aparte
+    if(t.date){const p=String(t.date).split("-");if(+p[0]!==y||+p[1]!==m+1)return;}
+    else if(!esMesActual)return;
+    o[t.type]=(o[t.type]||0)+1;
+  });
+  return o;
+};
+
+const saldoDe=(co,tasks,y,m)=>{
+  const inc=incluidoDe(co);
+  const usadas=usadasEnMes(tasks,co?.id,y,m);
+  const ajuste=(co?.ajuste||{})[mesKey(y,m)]||{};
+  const tipos=[...new Set([...Object.keys(inc),...Object.keys(usadas)])].filter(k=>TT[k]);
+  return tipos.map(k=>{
+    const incluido=inc[k]||0, usado=(usadas[k]||0)+(ajuste[k]||0);
+    return{tipo:k,incluido,usado,libre:incluido-usado};
+  }).sort((a,b)=>b.incluido-a.incluido);
+};
 const MO=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const WD=["L","M","X","J","V","S","D"];
 let _i=200;const ni=()=>++_i;const fP=n=>"$"+n.toLocaleString("es-CL");
@@ -384,6 +428,33 @@ function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inlin
 // borroso. Es la misma razón por la que la barra inferior del celular vive aquí.
 function Portal({children:ch}){return ReactDOM.createPortal(ch,document.body)}
 function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<Portal><div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(5,7,10,.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"calc(14px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px))",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>)}
+// Barra de cupos del mes. Se usa igual en Contenido y en Org Semanal: es el mismo dato y
+// tiene que decir lo mismo en los dos sitios.
+function Cupos({co,tasks,y,m,compact}){
+  const saldo=useMemo(()=>co?saldoDe(co,tasks,y,m):[],[co,tasks,y,m]);
+  if(!co||!saldo.length)return null;
+  const agotados=saldo.filter(s=>s.libre<=0&&s.incluido>0).length;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:compact?"8px 12px":"11px 14px",borderRadius:12,background:PC.panel,border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),marginBottom:compact?10:14}}>
+      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
+        {MO[m]} · disponible
+      </span>
+      {saldo.map(s=>{
+        const c=TT[s.tipo]?.c||PC.tx3;
+        const sinCupo=s.libre<=0;
+        return(
+          <span key={s.tipo} title={s.incluido+" incluidas · "+s.usado+" usadas"}
+            style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:999,background:sinCupo?"rgba(255,139,139,.08)":c+"14",border:"1px solid "+(sinCupo?"rgba(255,139,139,.45)":c+"40"),fontSize:11.5,fontWeight:600,color:sinCupo?PC.rojo:PC.tx2}}>
+            <b style={{fontFamily:"var(--font-mono)",fontSize:12.5,color:sinCupo?PC.rojo:c}}>{s.libre}</b>
+            {TT[s.tipo]?.l||s.tipo}
+            {s.incluido>0&&<span style={{opacity:.5,fontSize:10}}>de {s.incluido}</span>}
+          </span>);
+      })}
+      {agotados>0&&<span style={{fontSize:11,color:PC.rojo,fontWeight:600,flexBasis:"100%"}}>
+        Sin cupo en {agotados===1?"un tipo":agotados+" tipos"}: lo que se cree de más va como adicional.
+      </span>}
+    </div>);
+}
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
 function NotesBox({initial,onSave}){const[v,sV]=useState(initial||"");return(<div style={{display:"flex",gap:6,alignItems:"flex-start",marginTop:2}}><textarea value={v} onChange={e=>sV(e.target.value)} placeholder="Notas de seguimiento (reuniones, acuerdos, proximos pasos...)" style={{flex:1,minHeight:50,fontSize:12,padding:"7px 10px",borderRadius:7,resize:"vertical",fontFamily:"inherit"}}/><Bt v="s" onClick={()=>onSave(v)} style={{padding:"7px 12px",fontSize:11,flexShrink:0,alignSelf:"flex-start"}}>💾 Guardar</Bt></div>)}
 
@@ -800,8 +871,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const correosDe=us=>[...new Set((us||[]).flatMap(u=>[u.email,u.gmail]).filter(Boolean))];
   const avisar=useCallback(n=>{API.notifsCreate(n).then(()=>setTimeout(cargarNotifs,400));},[cargarNotifs]);
 
-  const genTasks=(co)=>{const taskDef=co.tasks||(PLANS[co.plan]?.tasks)||{};const o=[];
-    Object.entries(taskDef).forEach(([t,c])=>{for(let i=1;i<=c;i++)o.push({id:ni(),title:(TT[t]?.l||t)+" "+i+" "+co.name,company:co.name,companyId:co.id,type:t,description:"",responsable:[],date:null,state:"no_realizado",comments:[],votes:{},files:[]});});return o;};
+  // `genTasks` ya no existe. Materializaba cada unidad del plan como una tarea vacía, y esas
+  // tareas fantasma ocupaban sitio en la fila `tasks`, salían en las listas sin que nadie las
+  // pidiera y se quedaban ancladas si alguien las movía de estado. Lo incluido en el plan es
+  // ahora un número que se compara contra las piezas reales: ver `saldoDe`.
   const myNotifs=useMemo(()=>notifs.filter(n=>!n.for||n.for===cu.id),[notifs,cu]);
   const upT=(id,u)=>sT(p=>p.map(t=>t.id!==id?t:{...t,...u,...(u.state==="en_aprobacion"?{votes:{},clientApproval:null}:{})}));
   const delT=id=>sT(p=>p.map(t=>t.id!==id?t:{...t,date:null,description:"",responsable:[],state:"no_realizado",comments:[],votes:{},clientApproval:null,files:[],publishTime:null}));
@@ -834,10 +907,42 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   const hDrop=day=>{if(!drag||!day)return;const d={...drag};sDr(null);sCalDirty(true);const ds=cY+"-"+String(cM+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");if(d.tp==="task")upT(d.id,{date:ds});else if(d.tp==="extra"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;if(coId)addEx(d.exId,ds,coId);}else if(d.tp==="repost"){const coId=fCo!=="all"?cos.find(c=>String(c.id)===String(fCo))?.id:cos[0]?.id;const co=cos.find(c=>c.id===coId);sT(p=>[...p,{id:ni(),title:"Repost "+(co?.name||""),company:co?.name||"",companyId:coId||0,type:"repost",description:"",responsable:[],date:ds,state:"no_realizado",comments:[],votes:{},files:[]}]);}};
   const hDropP=()=>{if(drag?.tp==="task"){const d={...drag};sDr(null);sCalDirty(true);upT(d.id,{date:null});}};
-  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np}:c));const co=cos.find(c=>c.id===coId);if(co){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);return[...keep,...genTasks({...co,plan:np})];});addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);}};
+  // Cambiar de plan ya no toca las tareas: solo cambia cuántas unidades incluye, y eso se
+  // refleja solo en el cálculo de cupos. Antes borraba y recreaba las piezas sin fecha.
+  const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np,incluido:undefined}:c));const co=cos.find(c=>c.id===coId);if(co)addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);};
   const delCo=coId=>{if(cos.length<=1){addN("❌ No puedes eliminar la última empresa");return;}sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
-  const regenTasks=coId=>{const co=cos.find(c=>c.id===coId);if(!co)return;sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(coId)||t.date);const fresh=genTasks(co);const next=[...keep,...fresh];DB.save("tasks",next);return next;});addN("🔄 Tareas regeneradas: "+co.name);};
+  // Limpieza de los cupos fantasma que dejó el modelo viejo: tareas sin fecha, sin material y
+  // sin item en Org Semanal. Cualquier cosa que tenga algo dentro no se toca.
+  const limpiarCupos=coId=>{const co=cos.find(c=>c.id===coId);if(!co)return;
+    sT(p=>{
+      // El patrón importa: genTasks creaba exactamente "<Tipo> <n> <Empresa>". Sin exigirlo,
+      // la limpieza se llevaría por delante cualquier tarea que alguien escribió a mano y
+      // dejó vacía, que no es lo mismo que un cupo generado.
+      const PAT=/^(Post|Historia|Reel|Video Pro|Visita|Custom|Repost) \d+ /i;
+      const fantasma=t=>String(t.companyId)===String(coId)&&!t.date&&!(t.files||[]).length&&t.itemId==null&&!t.plannerTag&&["no_realizado","en_proceso"].includes(t.state)&&PAT.test(t.title||"");
+      const cuantas=p.filter(fantasma).length;
+      if(!cuantas){addN("No quedan cupos vacíos en "+co.name);return p;}
+      const next=p.filter(t=>!fantasma(t));DB.save("tasks",next);
+      addN("🧹 "+cuantas+" cupo(s) vacío(s) fuera de "+co.name);
+      return next;});};
   const toggleFt=(coId,ft)=>sCos(p=>p.map(c=>c.id===coId?{...c,[ft]:!c[ft]}:c));
+
+  // Cupos: lo incluido vive en la empresa (`incluido`) y pisa a la plantilla del plan. El
+  // ajuste es por mes, para arrancar con lo que ya venía consumido del registro de fuera.
+  const hoyY=new Date().getFullYear(), hoyM=new Date().getMonth();
+  const setIncluido=(co,tipo,n)=>{
+    const v=Math.max(0,n|0);
+    sCos(p=>p.map(c=>c.id!==co.id?c:{...c,incluido:{...incluidoDe(c),[tipo]:v}}));
+  };
+  const ajustarUsadas=(co,tipo,delta)=>{
+    const k=mesKey(hoyY,hoyM);
+    sCos(p=>p.map(c=>{
+      if(c.id!==co.id)return c;
+      const mes={...((c.ajuste||{})[k]||{})};
+      mes[tipo]=Math.max(0,(mes[tipo]||0)+delta);
+      return{...c,ajuste:{...(c.ajuste||{}),[k]:mes}};
+    }));
+  };
   const chRole=(uid,r)=>{sU(p=>p.map(u=>u.id===uid?{...u,role:r}:u));};
 
   // GCal OAuth
@@ -1001,17 +1106,42 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     <button onClick={()=>{if(confirm("Eliminar "+c.name+"?"))delCo(c.id)}} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:7,padding:6,color:"var(--tx3)",cursor:"pointer"}}><Ic n="trash" s={14}/></button>
                   </div>
                 </div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{pl&&Object.entries(pl.tasks).slice(0,4).map(([tp,cnt])=><Bg key={tp} color={TT[tp]?.c} style={{fontSize:10}}>{cnt} {TT[tp]?.l}</Bg>)}</div>
-                  <span className="num" style={{fontSize:12,color:"var(--tx3)"}}>{done}/{ct.length}</span>
+                {/* Cupos del mes. "Incluido" es lo que contrata el cliente y se edita aquí,
+                    porque los planes se negocian caso a caso. "Usado" se cuenta solo de las
+                    piezas reales; el ± ajusta lo que ya venía consumido de fuera de la app,
+                    que es como se lleva el registro hoy. */}
+                <div style={{marginBottom:10,padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".16em",textTransform:"uppercase",color:"var(--tx3)"}}>Incluye por mes</span>
+                    <span style={{fontSize:11,color:"var(--tx3)"}}>{MO[hoyM]}</span>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {saldoDe(c,tasks,hoyY,hoyM).map(s=>(
+                      <div key={s.tipo} style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:TT[s.tipo]?.c,flexShrink:0}}/>
+                        <span style={{flex:"1 1 auto",fontSize:12,color:"var(--tx2)",fontWeight:600}}>{TT[s.tipo]?.l||s.tipo}</span>
+                        <button onClick={()=>setIncluido(c,s.tipo,s.incluido-1)} title="Menos incluidas" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1,padding:0}}>−</button>
+                        <span className="num" title="Incluidas en el plan" style={{minWidth:22,textAlign:"center",fontSize:13,fontWeight:700,color:"var(--tx)"}}>{s.incluido}</span>
+                        <button onClick={()=>setIncluido(c,s.tipo,s.incluido+1)} title="Más incluidas" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1,padding:0}}>+</button>
+                        <span title={s.usado+" usadas este mes"} style={{minWidth:74,textAlign:"right",fontSize:11,fontWeight:600,color:s.libre<=0&&s.incluido>0?"var(--danger)":"var(--tx3)"}}>
+                          quedan {s.libre}
+                        </span>
+                        <button onClick={()=>ajustarUsadas(c,s.tipo,1)} title="Marcar una como ya usada (registro de fuera de la app)" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:11,lineHeight:1,padding:0}}>▾</button>
+                        <button onClick={()=>ajustarUsadas(c,s.tipo,-1)} title="Devolver una al cupo" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:11,lineHeight:1,padding:0}}>▴</button>
+                      </div>))}
+                    {!saldoDe(c,tasks,hoyY,hoyM).length&&<span style={{fontSize:11.5,color:"var(--tx3)"}}>Este plan no tiene nada definido. Usa el + para agregar lo que incluye.</span>}
+                  </div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)"}}>
+                    {Object.keys(TT).filter(k=>!saldoDe(c,tasks,hoyY,hoyM).some(s=>s.tipo===k)).map(k=>(
+                      <button key={k} onClick={()=>setIncluido(c,k,1)} style={{padding:"3px 9px",borderRadius:999,background:"transparent",border:"1px dashed var(--border)",color:"var(--tx3)",fontFamily:"inherit",fontSize:10.5,cursor:"pointer"}}>+ {TT[k].l}</button>))}
+                  </div>
                 </div>
-                <div style={{height:3,background:"var(--bg4)",borderRadius:2,overflow:"hidden",marginBottom:10}}><div style={{width:(ct.length?done/ct.length*100:0)+"%",height:"100%",background:c.color,transition:"width .4s"}}/></div>
                 <div style={{display:"flex",gap:10}}>
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasLoyalty?"var(--success)":"var(--tx3)"}}><input type="checkbox" checked={c.hasLoyalty||false} onChange={()=>toggleFt(c.id,"hasLoyalty")} style={{width:14,height:14,padding:0}}/><Ic n="loyalty" s={14}/>Fidelización</label>
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasMeta?"var(--accent2)":"var(--tx3)"}}><input type="checkbox" checked={c.hasMeta||false} onChange={()=>toggleFt(c.id,"hasMeta")} style={{width:14,height:14,padding:0}}/><Ic n="meta" s={14}/>Meta</label>
                 </div>
                 <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
-                  <button onClick={()=>{if(confirm("¿Regenerar tareas sin fecha para "+c.name+"? Las tareas ya agendadas se mantienen."))regenTasks(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🔄 Regenerar tareas</button>
+                  <button onClick={()=>{if(confirm("¿Borrar los cupos vacíos que dejó el sistema viejo en "+c.name+"?\n\nSon las piezas sin fecha, sin material y sin nada en Org Semanal (\"Post 1 "+c.name+"\", \"Historia 3 "+c.name+"\"…). Ya no hacen falta: los cupos ahora son un número.\n\nLo que tenga cualquier cosa dentro no se toca."))limpiarCupos(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🧹 Limpiar cupos vacíos</button>
                 </div>
                 {(c.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)"}}>
                   {(c.links||[]).map(lk=><a key={lk.id} href={lk.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,fontSize:11,fontWeight:600,color:"var(--accent)",textDecoration:"none"}}>🔗 {lk.name}</a>)}
@@ -1019,7 +1149,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div>);})}
           </div>
-          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};const newCos=[...cos,nc];const newTasks=[...tasks,...genTasks(nc)];sCos(newCos);sT(newTasks);DB.save("companies",newCos);DB.save("tasks",newTasks);
+          <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};const newCos=[...cos,nc];sCos(newCos);DB.save("companies",newCos);
             // Auto-create client user for this company
             const clientId=nId+1;const clientUser={id:clientId,name:nc.name,email:nc.name.toLowerCase().replace(/\s+/g,""),role:"cliente",avatar:nc.name.slice(0,2).toUpperCase(),color:nc.color||"#9d6bff",pass:"1234",companyName:nc.name};
             sGU(prev=>[...prev,clientUser]);
@@ -1061,7 +1191,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                 if(editCo._igId!==undefined)updates.igId=editCo._igId;
                 if(linksDirty)updates.links=editCoLinks;
                 sCos(p=>p.map(c=>c.id===editCo.id?{...c,...updates}:c));
-                if(editCo._tasks){sT(p=>{const keep=p.filter(t=>String(t.companyId)!==String(editCo.id)||t.date);return[...keep,...genTasks({...editCo,...updates})];});}
+                // Cambiar lo que incluye el plan ya no recrea tareas: solo cambia el número
+                // contra el que se calculan los cupos.
+                if(editCo._tasks)updates.incluido={...editCo._tasks};
                 addN("✅ "+editCo.name+" actualizada");sEC(null);
               }}>Guardar</Bt>
             </div>
@@ -1622,9 +1754,10 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
 }
 
 // ═══ CONTENIDO (lado Inmersia) ══════════════════════════════════
-// El equipo sube el material terminado contra los slots que el plan ya generó
-// (genTasks crea "Post 1 Huemul", "Reel 1 Huemul"... sin fecha). Subir un archivo a un
-// slot es lo que define su tipo — el cliente no elige si algo es post, historia o reel.
+// El plan define cuántas piezas de cada tipo entran en el mes, pero eso es un número, no una
+// lista de tareas vacías: ver `saldoDe`. Subir por lote crea una pieza por archivo mientras
+// quede cupo; lo que sobra se crea aparte como adicional, con un clic explícito, porque se
+// factura distinto.
 // ═══ DASHBOARD ══════════════════════════════════════════════════
 // Paneles del rediseño 2026. Dos almacenes nuevos en Supabase:
 //   · `eventos`  → hitos por marca (grabaciones, lanzamientos, campañas)
@@ -2186,14 +2319,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     sT(p=>[...p,{id:ni(),itemId,plannerTag:"planner_"+wk,title:titulo,company:co.name,companyId:co.id,
       type:nf.type,description:"",responsable:[],date:dia,state:"en_proceso",
       comments:[],votes:{},files:[],clientApproval:null}]);
-    addN("✅ Pieza creada en "+co.name+" · "+dia);
+    // El cupo avisa, no bloquea: a veces se produce de más y eso se factura como adicional.
+    // Quien lo decide es el equipo, no la app.
+    const quedaban=libreDe(nf.type);
+    addN(quedaban>0
+      ?"✅ Pieza creada en "+co.name+" · "+dia+" · quedan "+(quedaban-1)+" "+(TT[nf.type]?.l||nf.type)
+      :"⚠️ Pieza creada, pero "+co.name+" ya no tenía cupo de "+(TT[nf.type]?.l||nf.type)+" este mes: va como adicional");
     sNueva(false);sNf({title:"",type:"post",date:td()});
   };
 
   const coTasks=useMemo(()=>tasks.filter(t=>String(t.companyId)===String(selCo)),[tasks,selCo]);
   const hasFiles=t=>!!(t.files&&t.files.length);
-  const freeSlots=type=>coTasks.filter(t=>t.type===type&&!t.date&&!hasFiles(t)&&["no_realizado","en_proceso"].includes(t.state));
-  const slotCounts=useMemo(()=>{const o={};Object.keys(TT).forEach(k=>{const n=freeSlots(k).length;if(n)o[k]=n;});return o;},[coTasks]);
+  // El cupo dejó de ser una lista de tareas vacías y pasó a ser un número: lo que incluye el
+  // plan menos lo que ya se hizo este mes.
+  const hoyY=new Date().getFullYear(), hoyM=new Date().getMonth();
+  const saldo=useMemo(()=>co?saldoDe(co,tasks,hoyY,hoyM):[],[co,tasks,hoyY,hoyM]);
+  const libreDe=tp=>Math.max(0,saldo.find(s=>s.tipo===tp)?.libre??0);
+  const slotCounts=useMemo(()=>{const o={};saldo.forEach(s=>{if(s.libre>0)o[s.tipo]=s.libre;});return o;},[saldo]);
 
   // A qué etapa pertenece cada pieza
   const etapaDe=t=>{
@@ -2207,20 +2349,27 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const porEtapa=useMemo(()=>{const o={};CONT_META.forEach(m=>o[m.k]=[]);
     coTasks.forEach(t=>{const e=etapaDe(t);if(e&&o[e])o[e].push(t);});return o;},[coTasks]);
 
+  // Antes esto repartía los archivos entre las tareas vacías que había creado el plan. Ya no
+  // hay tareas vacías: cada archivo crea su pieza. Lo que entra en el cupo del mes se crea
+  // como pieza del plan; lo que sobra espera un clic, porque una pieza fuera del plan se
+  // factura aparte y no es una decisión que deba tomar sola la app.
   const handleFiles=async fileList=>{
     const files=Array.from(fileList||[]);if(!files.length||!co)return;
-    const free=freeSlots(upType);
-    const n=Math.min(files.length,free.length);
+    const libre=libreDe(upType);
+    const n=Math.min(files.length,libre);
     sBusy(true);sLeftover([]);
     try{
+      const yaHay=coTasks.filter(t=>t.type===upType).length;
+      const creadas=[];
       for(let i=0;i<n;i++){
         sProg(`Subiendo ${i+1} de ${n}…`);
         const meta=await API.upload(files[i],selCo);
-        const sid=free[i].id;
-        sT(p=>p.map(t=>t.id===sid?{...t,files:[...(t.files||[]),meta]}:t));
+        creadas.push({id:ni(),title:(TT[upType]?.l||upType)+" "+(yaHay+i+1)+" "+co.name,company:co.name,companyId:selCo,type:upType,description:"",responsable:[],date:null,state:"no_realizado",comments:[],votes:{},files:[meta]});
       }
+      if(creadas.length)sT(p=>{const r=[...p,...creadas];DB.save("tasks",r);return r;});
       if(files.length>n)sLeftover(files.slice(n));
-      if(n){addN(`✅ ${n} archivo(s) subidos a ${co.name}`);avisarListas(n);}
+      if(n){addN(`✅ ${n} pieza(s) nuevas en ${co.name}`);avisarListas(n);}
+      else if(files.length)addN(`⚠️ ${co.name} no tiene cupo de ${TT[upType]?.l||upType} este mes — puedes crearlas como adicionales`);
     }catch(e){addN("❌ "+e.message);}
     finally{sBusy(false);sProg("");if(fileRef.current)fileRef.current.value="";}
   };
@@ -2364,7 +2513,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     <div style={{fontSize:26,marginBottom:8}}>{busy?"⏳":"📤"}</div>
     <div style={{fontSize:13.5,fontWeight:600,marginBottom:4}}>{busy?prog:"Arrastra los archivos aquí o haz clic"}</div>
     <div style={{fontSize:12,color:D.tx3}}>
-      {busy?"No cierres la pestaña":`Se asignarán como ${TT[upType]?.l} · ${freeSlots(upType).length} slot(s) libre(s) en el plan`}
+      {busy?"No cierres la pestaña":`Se crean como ${TT[upType]?.l} · quedan ${libreDe(upType)} en el plan de este mes`}
     </div>
   </div>);
 
@@ -2479,6 +2628,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
       </div>
     </div>
+
+    <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>
 
     {!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
       <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
@@ -3857,6 +4008,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // lo escrito, y mandaba al calendario piezas a medio llenar. Ahora el planner se guarda
   // solo (ver el efecto de `planners` en Main) y cada tarjeta decide cuándo sale.
   const[confirmando,sConfirmando]=useState(null);
+  const hoyY=new Date().getFullYear(), hoyM=new Date().getMonth();
 
   // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
   // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
@@ -3922,7 +4074,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         return result;
       });
 
-      addN(vieja?"✅ Cambios confirmados en «"+tarea.title+"»":"✅ «"+tarea.title+"» ya está en Contenido");
+      // Al confirmar una pieza nueva se consume cupo del mes. Se avisa si ya no queda, pero
+      // no se impide: producir de más es una decisión del equipo, y se factura aparte.
+      const libre=vieja?null:(saldoDe(co,tasks,hoyY,hoyM).find(s=>s.tipo===it.type)?.libre??null);
+      addN(vieja?"✅ Cambios confirmados en «"+tarea.title+"»"
+        :libre!==null&&libre<=0?"⚠️ «"+tarea.title+"» está en Contenido, pero "+(co?.name||"la empresa")+" ya no tenía cupo de "+(TT[it.type]?.l||it.type)+" este mes"
+        :"✅ «"+tarea.title+"» ya está en Contenido"+(libre!==null?" · quedan "+(libre-1)+" "+(TT[it.type]?.l||it.type):""));
 
       // Aviso por pieza: producción de esa tarjeta más los admins, en una sola lista
       // deduplicada para que el admin que además produce reciba uno y no dos. Nunca a quien
@@ -4125,7 +4282,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             </div>
           </div>
 
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:16,minHeight:26}}>
+          <div style={{marginTop:16}}>
+            <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
+          </div>
+
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",minHeight:26}}>
             {Object.entries(TT).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;if(!c)return null;return(
               <span key={k} style={{padding:"5px 13px",borderRadius:999,background:v.c+"14",border:"1px solid "+v.c+"59",color:v.c,fontFamily:"var(--font-mono)",fontSize:11,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase"}}>{c} {v.l}{c>1?"S":""}</span>);})}
           </div>

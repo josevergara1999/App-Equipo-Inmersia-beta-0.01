@@ -89,7 +89,31 @@ se pueden subir reels: el tope queda en 3 MB) y las tres de `VAPID_*` (sin ellas
 
 ## Modelo de dominio
 
-**Empresas** tienen un plan que define cuántas piezas de cada tipo se generan solas.
+**Empresas** tienen un plan que define **cuántas piezas de cada tipo entran en el mes**.
+
+### Los cupos son un número, no una cosa
+
+`genTasks` ya no existe. Materializaba cada unidad del plan como una tarea vacía —"Post 1
+Fauna", "Historia 3 Fauna"— y esas tareas fantasma ocupaban sitio en la fila `tasks`, salían en
+las listas sin que nadie las pidiera y, si alguien las movía de estado, se quedaban ancladas
+para siempre sin forma de sacarlas. Eran 72 de 139 tareas. Ahora:
+
+```
+disponible = incluido − (piezas reales del mes + ajuste de arranque)
+```
+
+- `incluidoDe(co)`: lo que contrata el cliente, por tipo. `co.incluido` pisa a la plantilla de
+  `PLANS`, porque los planes se negocian caso a caso y tienen que editarse sin tocar el código.
+  Se ajusta con los ± de la tarjeta de la empresa.
+- `usadasEnMes()`: cuenta las piezas reales. Se imputan al mes de su fecha; **las que no tienen
+  fecha cuentan solo en el mes en curso** — si contaran en cualquier mes que se mirara, una
+  pieza sin agendar aparecería consumida en todos a la vez.
+- `co.ajuste[mes]`: lo que ya venía consumido de fuera de la app, que es como se lleva el
+  registro real. Se mete a mano al empezar el mes y de ahí en adelante baja solo.
+- `<Cupos>` muestra el saldo en Contenido y Org Semanal, con el tipo agotado en rojo.
+
+**El cupo avisa, no bloquea.** Producir de más se factura como adicional (`extraSlot`), y esa
+es una decisión del equipo, no de la app.
 
 **Tipos** (`TT`): `post`, `historia`, `reel`, `video_pro`, `visita`, `custom`, `repost`.
 
@@ -113,9 +137,12 @@ La página **Contenido** muestra cinco etapas apiladas, no un tablero de columna
    anterior se guarda en `revisions` para que el cliente vea el antes y el después.
 5. **Aprobado por cliente** — cerrada.
 
-Los huecos vacíos que genera el plan **no se muestran**: existen por debajo para repartir los
-archivos que se suben en lote y para contar los cupos, y aparecen recién cuando tienen
-material. El botón "+ Nueva pieza" crea contenido a mano.
+Aquí solo hay piezas reales: el plan ya no genera huecos (ver *Los cupos son un número*). Se
+crean con "+ Nueva pieza", desde Org Semanal, o soltando varios archivos a la vez —cada archivo
+crea su pieza mientras quede cupo del mes; lo que sobra se crea como adicional con un clic
+aparte, porque se factura distinto. La papelera de cada tarjeta borra la pieza y, si venía de
+Org Semanal, también su item; si es un cupo vacío del sistema viejo, lo libera en vez de
+destruirlo.
 
 ### Sincronización con Org Semanal — leer antes de tocar
 
