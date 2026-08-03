@@ -515,7 +515,7 @@ function ZoomLayer(){
   const f=z.files[z.i],src=fSrc(f),many=z.files.length>1;
   const navBtn=extra=>({position:"absolute",top:"50%",transform:"translateY(-50%)",width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(8px)",...extra});
   return(<div onClick={()=>sZ(null)} style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(4,6,9,.93)",backdropFilter:"blur(10px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:20}}>
-    <button onClick={()=>sZ(null)} title="Cerrar (Esc)" style={{position:"absolute",top:18,right:18,width:42,height:42,borderRadius:"50%",background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(8px)"}}><Ic n="x" s={20} c="#fff"/></button>
+    <button onClick={()=>sZ(null)} title="Cerrar (Esc)" style={{position:"absolute",top:"calc(18px + env(safe-area-inset-top, 0px))",right:18,width:42,height:42,borderRadius:"50%",background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(8px)"}}><Ic n="x" s={20} c="#fff"/></button>
     {many&&z.i>0&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i-1}));}} style={navBtn({left:18})}><Ic n="chev_l" s={22} c="#fff"/></button>}
     {many&&z.i<z.files.length-1&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i+1}));}} style={navBtn({right:18})}><Ic n="chev_r" s={22} c="#fff"/></button>}
     <div onClick={e=>e.stopPropagation()} style={{maxWidth:"100%",maxHeight:"84vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1085,7 +1085,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         </div>
       {/* FLOATING SAVE BUTTON */}
-      {calDirty&&<div style={{position:"fixed",bottom:isMob?70:20,right:20,zIndex:998,display:"flex",gap:8,animation:"slideUp .3s ease"}}>
+      {calDirty&&<div style={{position:"fixed",bottom:isMob?"calc(70px + env(safe-area-inset-bottom, 0px))":20,right:20,zIndex:998,display:"flex",gap:8,animation:"slideUp .3s ease"}}>
         <button onClick={()=>{sT(tasks);sCalDirty(false);addN("Cambios descartados");window.location.reload();}} style={{padding:"12px 18px",background:"var(--bg4)",color:"var(--tx2)",borderRadius:12,fontSize:12,fontWeight:600,border:"1px solid var(--border)",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(0,0,0,.4)"}}>✕ Descartar</button>
         <button onClick={()=>{DB.save("tasks",tasks);DB.save("extras",extras);sCalDirty(false);addN("✅ Calendario guardado");}} style={{padding:"12px 24px",background:"var(--accent)",color:"#fff",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(168,226,107,.4)",display:"flex",alignItems:"center",gap:6}}>💾 Guardar cambios</button>
       </div>}
@@ -2983,7 +2983,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
                     </span>))}
                   <div style={{position:"relative"}}>
                     <button onClick={()=>sMovOpen(movOpen===ln.id?null:ln.id)} style={{padding:"4px 10px",borderRadius:6,background:"transparent",border:"1px dashed rgba(255,139,139,.35)",color:D.rojo,fontFamily:"inherit",fontSize:10.5,fontWeight:600,cursor:"pointer"}}>+ Mov. cámara</button>
-                    {movOpen===ln.id&&<div style={{position:"absolute",top:"calc(100% + 5px)",left:0,zIndex:30,minWidth:140,borderRadius:10,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:5,display:"flex",flexDirection:"column",gap:1}}>
+                    {movOpen===ln.id&&<div style={{position:"absolute",top:"calc(100% + 5px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:140,borderRadius:10,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:5,display:"flex",flexDirection:"column",gap:1}}>
                       {disp.length===0&&<span style={{fontSize:11,color:D.tx4,padding:"6px 10px"}}>Sin más movimientos</span>}
                       {disp.map(mo=>(
                         <button key={mo} onClick={()=>{mut(x=>{const l=x.subs[subIdx].lineas[i];l.movs=[...(l.movs||[]),mo];});sMovOpen(null);}} style={{padding:"6px 10px",borderRadius:7,background:"transparent",border:"none",color:D.tx2,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>{mo}</button>))}
@@ -3876,7 +3876,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 <button onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                   <Ic n="companies" s={13} c={D.tx2}/>Drive<span style={{fontSize:9}}>▾</span>
                 </button>
-                {driveOpen&&<div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:30,minWidth:210,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+                {driveOpen&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:210,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
                   {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"8px 10px"}}>Esta empresa no tiene carpetas.</span>}
                   {(co?.links||[]).map(l=>(
                     <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,color:D.tx2,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
@@ -4023,7 +4023,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                           <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{prodSel.length?prodSel.map(u=>u.name).join(", "):"Producción"}</span>
                           <span style={{fontSize:9,flexShrink:0}}>▾</span>
                         </button>
-                        {prodOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:30,minWidth:180,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+                        {prodOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:180,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
                           {users.map(u=>{const on=(it.production||[]).includes(u.id);return(
                             <button key={u.id} onClick={()=>updateItem(it.id,{production:on?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 10px",borderRadius:8,background:"transparent",border:"none",color:on?D.tx:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>
                               <span style={{width:7,height:7,borderRadius:"50%",background:u.color||D.peri,flexShrink:0}}/>
@@ -4040,7 +4040,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                           <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{drvSel.length?drvSel.map(d=>d.name).join(", "):"Drive"}</span>
                           <span style={{fontSize:9,flexShrink:0}}>▾</span>
                         </button>
-                        {drvOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:30,minWidth:220,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+                        {drvOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:220,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
                           <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,padding:"6px 10px 4px"}}>Asignar drive a este contenido</span>
                           {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"4px 10px 8px"}}>Esta empresa no tiene carpetas.</span>}
                           {(co?.links||[]).map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
@@ -4230,7 +4230,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
     {/* LIGHTBOX */}
     {lightbox&&(<div onClick={()=>sLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",backdropFilter:"blur(8px)"}}>
-      <button onClick={()=>sLightbox(null)} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:36,height:36,borderRadius:18,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+      <button onClick={()=>sLightbox(null)} style={{position:"absolute",top:"calc(20px + env(safe-area-inset-top, 0px))",right:20,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:36,height:36,borderRadius:18,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
       <img src={lightbox} onClick={e=>e.stopPropagation()} style={{maxWidth:"92vw",maxHeight:"90vh",objectFit:"contain",borderRadius:8,cursor:"default"}}/>
     </div>)}
   </div>);
@@ -4808,7 +4808,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
     </>)}
 
     {/* BARRA DE SELECCIÓN (flujo táctil) */}
-    {selTask&&(<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:120,padding:"11px 16px",background:"rgba(11,14,23,.96)",backdropFilter:"blur(12px)",borderTop:"1px solid "+PC.cian,display:"flex",alignItems:"center",gap:10,boxShadow:"0 -6px 24px rgba(0,0,0,.5)"}}>
+    {selTask&&(<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:120,padding:"11px 16px calc(11px + env(safe-area-inset-bottom, 0px))",background:"rgba(11,14,23,.96)",backdropFilter:"blur(12px)",borderTop:"1px solid "+PC.cian,display:"flex",alignItems:"center",gap:10,boxShadow:"0 -6px 24px rgba(0,0,0,.5)"}}>
       {selTask.files&&selTask.files[0]&&isImg(selTask.files[0])&&<img src={fSrc(selTask.files[0])} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:12.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selTask.title}</div>
@@ -4959,8 +4959,8 @@ function ClientView({user:cu,onLogout:ol}){
 
       <ZoomLayer/>
       <PerfilModal open={perfil} onClose={()=>sPerfil(false)} user={cu} co={co} onToast={sToast}/>
-      {busy&&<div className="blink-slow" style={{position:"fixed",top:0,left:0,right:0,height:3,background:PC.cian,zIndex:200}}/>}
-      {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",zIndex:300,background:PC.panel,border:"1px solid "+PC.line2,borderRadius:999,padding:"10px 20px",fontSize:13,fontWeight:600,color:PC.tx,boxShadow:"0 8px 28px rgba(0,0,0,.5)",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
+      {busy&&<div className="blink-slow" style={{position:"fixed",top:"env(safe-area-inset-top, 0px)",left:0,right:0,height:3,background:PC.cian,zIndex:200}}/>}
+      {toast&&<div style={{position:"fixed",top:"calc(70px + env(safe-area-inset-top, 0px))",left:"50%",transform:"translateX(-50%)",zIndex:300,background:PC.panel,border:"1px solid "+PC.line2,borderRadius:999,padding:"10px 20px",fontSize:13,fontWeight:600,color:PC.tx,boxShadow:"0 8px 28px rgba(0,0,0,.5)",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
 
       <div style={{maxWidth:780,margin:"0 auto",padding:pad,paddingBottom:90,boxSizing:"border-box"}}>
         <div style={{display:"flex",gap:isMob?18:26,marginBottom:26,borderBottom:"1px solid "+PC.line}}>
