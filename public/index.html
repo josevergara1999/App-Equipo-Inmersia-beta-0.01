@@ -338,6 +338,19 @@ const usadasEnMes=(tasks,coId,y,m)=>{
 // corrección `clientApproval` se pone a null. En esos dos momentos parecía una pieza cualquiera
 // en producción, así que confirmarla desde Org Semanal devolvía los archivos del planner —es
 // decir, la versión que el cliente ya había rechazado— y borraba la corrección.
+// A quién avisar de una acción. Por defecto, a todos menos a quien la hizo: ya lo sabe, y
+// recibir eco de lo propio convierte el teléfono en un espejo. Pero cuando alguien trabaja
+// solo eso deja la app en silencio total y parece rota —fue exactamente lo que pasó—, así que
+// hay un interruptor por persona para recibir también lo suyo.
+//
+// Se lee del almacenamiento en el momento de avisar, no en el render: estos filtros corren
+// dentro de los callbacks de cada acción, no mientras se pinta.
+const ecoPropio=()=>{try{return localStorage.getItem("inm_eco_propio")==="1";}catch(_){return false;}};
+const otrosQueYo=(lista,cu)=>{
+  const l=(lista||[]).filter(Boolean);
+  return ecoPropio()?l:l.filter(u=>u.id!==cu?.id);
+};
+
 const salioAlPortal=t=>!!t&&(
   ["en_aprobacion","aprobado","publicado"].includes(t.state)
   ||!!t.clientApproval
@@ -516,6 +529,8 @@ function PushBtn({user,tile}){
   const[st,sSt]=useState("cargando");   // cargando|no-soportado|instalar|denegado|off|on|trabajando
   const[msg,sMsg]=useState("");
   const[ayuda,sAyuda]=useState(false);
+  const[eco,sEco]=useState(ecoPropio);
+  const togEco=()=>{const v=!eco;try{localStorage.setItem("inm_eco_propio",v?"1":"0");}catch(_){}sEco(v);sMsg(v?"Ahora también recibes lo tuyo":"");};
 
   useEffect(()=>{(async()=>{
     // En iOS la Push API solo existe si la app se abrió desde la pantalla de inicio
@@ -611,6 +626,19 @@ function PushBtn({user,tile}){
   if(st==="on")return(<>
     {fila("var(--success)","bell","Notificaciones ✓",desactivar,"Avisos ✓")}
     {msg&&<div style={{fontSize:10.5,color:"var(--tx3)",padding:"0 12px 6px"}}>{msg}</div>}
+    {/* Normalmente no se recibe eco de lo propio: ya lo sabes y el teléfono se vuelve un
+        espejo. Pero trabajando solo eso deja la app en silencio y parece rota, así que se
+        puede activar — sirve para comprobar que los avisos salen de verdad. */}
+    {tile
+      ? <button onClick={togEco} style={{background:"var(--bg3)",border:"1px solid "+(eco?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:eco?"var(--accent)":"var(--tx3)",fontSize:10,fontFamily:"inherit",width:"100%",cursor:"pointer"}}>
+          <span style={{fontSize:22}}>{eco?"🔁":"🔇"}</span>Lo mío
+        </button>
+      : <button onClick={togEco} title="Recibir también los avisos de las acciones que haces tú" style={{display:"flex",alignItems:"center",gap:9,padding:"7px 12px",borderRadius:8,background:"transparent",border:"none",color:eco?"var(--accent)":"var(--tx3)",fontSize:12,fontWeight:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+          <span style={{width:26,height:15,borderRadius:999,background:eco?"var(--accent)":"var(--bg4)",position:"relative",flexShrink:0,transition:"background .2s"}}>
+            <span style={{position:"absolute",top:2,left:eco?13:2,width:11,height:11,borderRadius:"50%",background:eco?"var(--bg)":"var(--tx3)",transition:"left .2s"}}/>
+          </span>
+          Avisarme también de lo mío
+        </button>}
   </>);
   return(<>
     {fila("var(--tx2)","bell","Activar notificaciones",activar,"Activar")}
@@ -1299,7 +1327,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       <Md open={newTk} onClose={()=>sNTk(false)} title="Nueva Tarea"><TskForm cos={cos} users={users} onSave={t=>{
         sT(p=>[...p,{...t,id:ni(),state:"no_realizado",comments:[],votes:{},files:[]}]);
         // Quien queda como encargado se entera al tiro, no cuando abre la app.
-        const enc=users.filter(u=>(t.responsable||[]).includes(u.id)&&u.id!==cu.id);
+        const enc=otrosQueYo(users.filter(u=>(t.responsable||[]).includes(u.id)),cu);
         if(enc.length)avisar({type:"asignacion",title:"📋 Te asignaron una tarea",body:t.title+(t.company?" · "+t.company:"")+(t.date?" · "+t.date:""),to:correosDe(enc),url:"/"});
         sNTk(false);}}/></Md>
       <Md open={shGcal} onClose={()=>sShGcal(false)} title="Google Calendar" width={400}>
@@ -1907,7 +1935,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
   // Reuniones y eventos: además de los que se apuntan, siempre los admins. Se juntan en
   // UNA sola lista deduplicada por id, así el admin que además va a la reunión recibe un
   // aviso, no dos.
-  const conAdmins=gente=>[...new Map([...gente,...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()].filter(u=>u.id!==cu?.id);
+  const conAdmins=gente=>otrosQueYo([...new Map([...gente,...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()],cu);
 
   // ── Agenda de reuniones ─────────────────────────────────────────
   const [agF,sAgF]=useState({title:"",companyId:"",date:td(),time:"10:00",attendees:[],minutos:60,conMeet:true,extra:""});
@@ -2294,7 +2322,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
-  const otrosVotantes=()=>equipo.filter(u=>u.id!==cu?.id);
+  const otrosVotantes=()=>otrosQueYo(equipo,cu);
   const avisarListas=n=>{
     const dest=otrosVotantes();
     if(!avisar||!co||!n||!dest.length)return;
@@ -2303,7 +2331,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       to:correosDe(dest),url:"/"});
   };
   const avisarEquipo=(titulo,cuerpo,importante,clave)=>{
-    const dest=(users||[]).filter(u=>u.role!=="cliente"&&u.id!==cu?.id);
+    const dest=otrosQueYo((users||[]).filter(u=>u.role!=="cliente"),cu);
     if(!avisar||!dest.length)return;
     avisar({type:"contenido",title:titulo,body:cuerpo,to:correosDe(dest),url:"/",important:!!importante,dedupKey:clave||null});
   };
@@ -2312,7 +2340,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const encargados=t=>(users||[]).filter(u=>u.role!=="cliente"&&(Array.isArray(t.responsable)?t.responsable:[t.responsable]).includes(u.id));
   const adminsEq=()=>(users||[]).filter(u=>u.role==="admin");
   const avisarA=(gente,titulo,cuerpo,importante,clave)=>{
-    const dest=[...new Map(gente.filter(u=>u&&u.id!==cu?.id).map(u=>[u.id,u])).values()];
+    const dest=[...new Map(otrosQueYo(gente,cu).map(u=>[u.id,u])).values()];
     if(!avisar||!dest.length)return;
     avisar({type:"contenido",title:titulo,body:cuerpo,to:correosDe(dest),url:"/",important:!!importante,dedupKey:clave||null});
   };
@@ -4125,7 +4153,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       // Aviso por pieza: producción de esa tarjeta más los admins, en una sola lista
       // deduplicada para que el admin que además produce reciba uno y no dos. Nunca a quien
       // confirma: ya sabe lo que acaba de hacer.
-      const dest=[...new Map([...users.filter(u=>(it.production||[]).includes(u.id)),...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()].filter(u=>u.id!==cu?.id);
+      const dest=otrosQueYo([...new Map([...users.filter(u=>(it.production||[]).includes(u.id)),...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()],cu);
       if(avisar&&dest.length)avisar({
         type:"asignacion",
         title:vieja?"📝 Pieza actualizada":"📋 Nueva pieza confirmada",
@@ -4259,7 +4287,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     const gu=guionId?guiones.find(x=>String(x.id)===String(guionId)):null;
     if(avisar)avisar({type:"grabacion",title:"🎬 Nuevo día de grabación",
       body:(gu?gu.title:"Día de grabación")+" · "+day+(time?" "+time:"")+(co?" · "+co.name:""),
-      to:correosDe((users||[]).filter(u=>u.id!==cu?.id)),url:"/"});
+      to:correosDe(otrosQueYo(users,cu)),url:"/"});
   };
   const unlinkGrab=(day,entryId)=>guardarGrabs({...grabs,[weekKey]:(grabs[weekKey]||[]).filter(e=>e.id!==entryId)});
   const dayGrabEntries=(day)=>(grabs[weekKey]||[]).filter(e=>e.day===day).map(e=>({...e,guion:e.guionId?guiones.find(g=>String(g.id)===String(e.guionId)):null}));
