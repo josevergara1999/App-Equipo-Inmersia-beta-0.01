@@ -4087,6 +4087,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // solo (ver el efecto de `planners` en Main) y cada tarjeta decide cuándo sale.
   const[confirmando,sConfirmando]=useState(null);
   const hoyY=new Date().getFullYear(), hoyM=new Date().getMonth();
+  // Aquí también se sube material, así que aquí también hay que avisar si el almacenamiento
+  // no está disponible. Sin archivo no se puede marcar Listo ni enviar al portal —y el portal
+  // tampoco muestra piezas sin material—, con lo que un fallo de Storage bloquea el flujo
+  // entero sin decir por qué.
+  const[stReady,sStReady]=useState(true);
+  const[stMotivo,sStMotivo]=useState("");
+  useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
 
   // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
   // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
@@ -4374,6 +4381,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           </div>
 
           <div style={{marginTop:16}}>
+            {!stReady&&<div style={{marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+              <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
+            </div>}
             <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
           </div>
 
