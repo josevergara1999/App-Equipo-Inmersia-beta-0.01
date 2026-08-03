@@ -246,6 +246,31 @@ dominio, hay que sumarlo ahí y en Google Cloud.
 La web pública (`inmersiaperformance.cl`) es otro repo: `~/GitHub/inmersia-web`, HTML estático
 en GitHub Pages. Tiene el botón "Portal" en la barra superior.
 
+### El ping de las 8 a la 1 — no es tráfico raro
+
+Render duerme el plan gratuito tras **15 minutos** sin tráfico y tarda **~1 minuto** en volver.
+Dormido no es solo lento: **el proceso se detiene**, así que los `setInterval` de `repasoDiario`
+y `repasoCorto` no corren y **los recordatorios por horario no salen**. El aviso de "reunión en
+una hora" no se manda si nadie abrió la app en los 15 minutos previos.
+
+Por eso hay un cron externo (cron-job.org) que pega a `/api/health` cada 10 min, **de 08:00 a
+00:50 hora de Chile**. Ese endpoint es el correcto para esto: es público, solo devuelve
+booleanos de configuración y no toca Supabase.
+
+La ventana no es capricho, es presupuesto: el tier gratuito da **750 h/mes por workspace** y al
+agotarlas Render **suspende** el servicio hasta el mes siguiente.
+
+```
+24/7            744 h/mes (mes de 31 días)  → 6 h de margen: demasiado al filo
+08:00 – 01:00   527 h/mes                   → 223 h de margen
+```
+
+De madrugada duerme, que no le molesta a nadie. Si algún día se agrega otro servicio al mismo
+workspace, **rehacer esta cuenta**: las horas se comparten. La salida soportada, si esto deja de
+alcanzar, es cambiar el *instance type* del servicio a uno de pago — ojo, subir el plan del
+workspace **no** quita las limitaciones de las instancias Free, hay que cambiar el tipo del
+servicio.
+
 ## Trampas conocidas (todas costaron un rato)
 
 - **`position: fixed` dentro del árbol de la app se rompe.** Cualquier ancestro con
