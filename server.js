@@ -818,10 +818,13 @@ app.get("/api/test", (req, res) => {
 });
 
 app.get("/api/health", (req, res) => {
+  // Solo booleanos: sirve para diagnosticar qué falta configurar sin exponer ningún valor.
   res.json({
     gemini: !!process.env.GEMINI_API_KEY,
     email: !!process.env.RESEND_API_KEY,
-    push: pushReady
+    push: pushReady,
+    storage: !!storageKey(),
+    google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
   });
 });
 
