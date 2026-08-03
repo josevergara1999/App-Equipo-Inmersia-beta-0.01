@@ -951,7 +951,7 @@ const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 // cabecera Host permitiría desviar el código de autorización a un dominio ajeno.
 const HOSTS_OK = new Set([
   "app-equipo-inmersia-beta-0-01.onrender.com",
-  "portal.inmersia.cl",
+  "portal.inmersiaperformance.cl",
   "localhost:10000",
 ]);
 function redirectURI(req) {
