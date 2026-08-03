@@ -1,129 +1,204 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
 
-## Commands
+## Comandos
 
 ```bash
-# Run server (production)
-npm start
-
-# Run server with auto-restart on file change
-npm run dev
+npm start      # servidor
+npm run dev    # servidor con reinicio automático
 ```
 
-The server listens on `PORT` env var (default 10000). There is no build step — the frontend is served as a static file from `public/`.
+Escucha en `PORT` (10000 por defecto). **No hay build**: el frontend se sirve tal cual desde
+`public/`.
 
-## Architecture
+## Antes de tocar `public/index.html`, lee esto
 
-This is a **single-file React SPA + Express backend** — no bundler, no build pipeline.
-
-### Frontend (`public/index.html`)
-A single ~3400-line HTML file. React 18, ReactDOM, and Babel Standalone are loaded from CDN. All JSX is transpiled in the browser at runtime via `<script type="text/babel">`. There are no separate component files — every component, hook, and utility lives inline in that one file.
-
-Because Babel runs in the browser, a JSX syntax error is a blank page with no build-time
-warning. To check before reloading, run the page's own Babel copy over the script block:
+Babel transpila **en el navegador**. Un error de sintaxis JSX no da aviso al guardar: da una
+**página en blanco**. Valida siempre antes de recargar:
 
 ```js
-// node, from repo root
+// node, desde la raíz del repo
 const Babel = require("./public/index_files/babel.min.js.descarga");
 const html = require("fs").readFileSync("public/index.html", "utf8");
 const code = html.match(/<script[^>]*type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
-Babel.transform(code, { presets: ["react"] }); // throws with a line number on error
+Babel.transform(code, { presets: ["react"] }); // lanza con el número de línea
 ```
 
-Key architectural patterns:
-- All state lives in the root `Main` component with `useState`/`useMemo`/`useRef`
-- Data is loaded on mount from Supabase via `DB.loadAll()` and saved debounced (800ms) via `dbSave(key, value)`
-- Guards prevent saving empty arrays when Supabase had data (`initTrack*` refs and `hadData` ref)
-- `localStorage` is used as a backup for companies and GCal tokens
-- The `API` object routes all AI/backend calls through the Express server (never directly to external APIs from the frontend)
+El archivo pasa de las 4.900 líneas y **todo vive ahí**: componentes, hooks y utilidades. Para
+reescribir una sección grande conviene escribir el componente completo aparte y empalmarlo con
+un script de Node (buscando `function XPg(` y el `function` siguiente) en vez de encadenar
+muchas ediciones pequeñas.
 
-Component naming uses short aliases: `Ic` (icon), `Av` (avatar), `Bt` (button), `Bg` (badge/pill), `Md` (modal), `Fd` (form field).
+## Arquitectura
 
-Three CSS themes are toggled via `body[data-variant]` attribute (A=Oak & Sage dark, B=Night & Coral dark, C=Light Linen light). All colors use CSS custom properties (`--bg`, `--accent`, `--tx`, etc.).
+**SPA de React en un solo archivo + backend Express.** Sin bundler. React 18, ReactDOM y Babel
+Standalone vienen de CDN.
+
+- Todo el estado vive en el componente raíz `Main` (`useState`/`useMemo`/`useRef`).
+- Los datos se cargan al montar con `DB.loadAll()` y se guardan con `dbSave(key, value)`
+  (debounce de 800 ms).
+- Hay guardas para no pisar Supabase con arrays vacíos (`initTrack*` y `hadData`).
+- El objeto `API` enruta **todas** las llamadas externas por el servidor. Nunca llames a una
+  API externa desde el frontend.
+
+Alias de componentes: `Ic` (icono), `Av` (avatar), `Bt` (botón), `Bg` (píldora), `Md` (modal),
+`Fd` (campo de formulario).
+
+### Diseño visual
+
+Paleta en las constantes `PC` / `D` (fondo `#05060B`, cian `#6FE7F2`, peri `#9BB4FF`, lavanda
+`#C9BFFF`, rojo `#FF8B8B`). Helpers: `D_CARD`, `D_MARCO`, `dPill`, `dGrupo`, `dNav`. El tema es
+único; el conmutador de variantes se quitó y `body[data-variant]` queda fijo en `A`.
+
+Las secciones nuevas salen de exports de Claude Design (`~/Downloads/*.dc.html`). **Ese
+archivo tiene dos partes y hay que leer las dos**: el markup con `<sc-if>`/`<sc-for>`, y más
+abajo el método `…Vals()` con los tintes, los mapas de color y las reglas de transición. Leer
+solo el markup produce trabajo que hay que rehacer.
 
 ### Backend (`server.js`)
-Express server that:
-- Proxies AI requests to Google Gemini 2.5 Flash (`/api/ai/generate`, `/api/generate-acta`, `/api/loyalty/generate-push`, `/api/meta/advisor`)
-- Handles email notifications via Resend API (`/api/notify`)
-- Manages Google OAuth2 flow for login and Calendar access (`/api/auth/google*`, `/api/auth/callback/google`)
-- Syncs tasks to Google Calendar using stored refresh tokens (`/api/gcal/sync`)
-- Uploads content files to Supabase Storage (`/api/upload`, `/api/upload/status`)
-- Exposes Meta Ads / Instagram insights and the Atlas voice-assistant API (`/api/meta/*`, `/api/atlas/*`)
-- Serves the static frontend from `public/`
 
-Most `/api/*` routes are behind `requireAuth`, which checks an HMAC token in the HttpOnly
-`_iauth` cookie. **That cookie is only issued by the Google OAuth callback** — the
-email+password form in `Login` matches against `INIT_USERS` client-side and never touches
-the server, so password-only users (and all `cliente` accounts) cannot reach authed
-endpoints. Atlas routes use a separate `x-atlas-key` header instead.
+- Gemini 2.5 Flash (`/api/ai/generate`, `/api/generate-acta`, `/api/meta/advisor`)
+- Correo con Resend (`/api/notify`)
+- OAuth de Google, login **y** calendario en el mismo paso (`/api/auth/google*`)
+- Calendario y reuniones con Meet (`/api/gcal/*`)
+- Subida a Supabase Storage (`/api/upload`, `/api/upload/status`)
+- Centro de notificaciones y web push (`/api/notifs*`, `/api/push/*`)
+- Meta Ads / Instagram y Atlas (`/api/meta/*`, `/api/atlas/*`)
 
-### Database (Supabase)
-A single `app_data` table with `key` / `value` / `updated_at` columns, used as a key-value store. Keys in use: `companies`, `tasks`, `extras`, `meetings`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`, `gcal_tokens`, `prospects`. Uploaded content files live in Supabase **Storage** (bucket `contenido`), not in this table. GCal OAuth tokens (with refresh tokens) are also stored here for server-side calendar sync.
+Casi todas las rutas van tras `requireAuth`, que valida un HMAC en la cookie HttpOnly
+`_iauth`. La emiten tanto el callback de Google como `/api/auth/login`. Atlas usa la cabecera
+`x-atlas-key` aparte.
 
-### Environment Variables
-| Variable | Purpose |
-|---|---|
-| `GEMINI_API_KEY` | Google Gemini API |
-| `RESEND_API_KEY` | Email via Resend |
-| `GOOGLE_CLIENT_ID` | Google OAuth |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth |
-| `GOOGLE_REDIRECT_URI` | Google OAuth callback URL |
-| `SUPABASE_URL` | Supabase project URL (also hardcoded in frontend as fallback) |
-| `SUPABASE_KEY` | Supabase publishable key (also hardcoded in frontend) |
-| `SUPABASE_SERVICE_KEY` | Supabase service_role key — **required for content upload**; the publishable key cannot write to Storage |
-| `SUPABASE_BUCKET` | Storage bucket for uploaded content (default `contenido`) |
-| `ATLAS_API_KEY` | Shared secret for the `/api/atlas/*` routes |
-| `APP_URL` | Base URL for email links |
-| `PORT` | Server port (default 10000) |
+`TEAM` en `server.js` es un **espejo de `INIT_USERS`** (mismos ids): el servidor necesita
+traducir ids a correos por su cuenta, sin nadie con la app abierta. Si entra o sale alguien del
+equipo, hay que tocar los dos lados.
 
-## Domain Model
+### Base de datos (Supabase)
 
-**Companies** have a plan (`pro_emprende`, `society`, `basic`, `medium`, `full`, `custom`) that defines how many tasks of each type get generated automatically.
+Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
+Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
+`gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
+`notif_daily`, `user_creds`. Los binarios van al **Storage** (bucket `contenido`), nunca a esta
+tabla.
 
-**Task types** (`TT`): `post`, `historia`, `reel`, `video_pro`, `visita`, `custom`, `repost`
+### Variables de entorno
 
-**Task states** (`SS`): `no_realizado` → `en_proceso` → `en_aprobacion` → `aprobado` → `publicado`
+Ver `.env.example`, que está al día. Las que suelen faltar: `SUPABASE_SERVICE_KEY` (sin ella no
+se pueden subir reels: el tope queda en 3 MB) y las tres de `VAPID_*` (sin ellas no hay push).
 
-**User roles**: `admin` (full access), `editor` (create/edit tasks), `visualizador` (read-only), `Sales` (Prospectos tab only, plus the default pages), `cliente` (client portal only)
+## Modelo de dominio
 
-## Content approval & scheduling flow
+**Empresas** tienen un plan que define cuántas piezas de cada tipo se generan solas.
 
-The team produces content, the **client** decides when it publishes. One task carries the
-whole lifecycle — `state` and `date` are independent, which is what makes "approved but
-not yet scheduled" representable:
+**Tipos** (`TT`): `post`, `historia`, `reel`, `video_pro`, `visita`, `custom`, `repost`.
 
-1. `genTasks()` creates empty slots per plan (`Post 1 Huemul`…), `state:"no_realizado"`, `date:null`.
-2. **Contenido page** (team): pick a company and a type, drop files. Each file fills the next
-   free slot of that type — attaching a file to a slot is what defines the piece as post /
-   historia / reel; the client never chooses the type. Leftover files beyond the plan's slots
-   require an explicit click and are flagged `extraSlot:true` (they affect billing).
-3. "Enviar a aprobación" flips those tasks to `en_aprobacion`.
-4. **Client portal, "Por aprobar"**: a swipe deck (`SwipeDeck`). Right = approve → `aprobado`.
-   Left = opens a mandatory reason box → `en_proceso` + the reason in `clientApproval.comment`
-   and `comments`, so the piece returns to the team's Contenido page with the motive shown.
-5. **Client portal, "Planificar"** (`PlanBoard`): approved tasks with no `date` sit in a bank.
-   Dragging one onto a day (or tapping piece → tapping day on touch) opens a modal asking for
-   an optional `caption` and `publishTime`, then writes `date`. Scheduled pieces can be moved,
-   edited or dragged back to the bank at any time. `publicado` pieces are shown but locked.
+**Roles**: `admin`, `editor`, `visualizador`, `Sales` (solo Prospectos), `cliente` (solo su
+portal). Aparte del rol, `vota: true` marca a quienes deciden si una pieza sale al cliente
+(Cleme, Gali, Javi, Jose) — se lee con el helper `votantes()`.
 
-Fields added by this flow: `caption` (client's copy for the post), `publishTime` (`"HH:MM"`),
-`extraSlot`, and `files[]` entries shaped `{name, type, url}` (`url` from Supabase Storage;
-legacy/fallback entries use base64 `data` instead — read them via the `fSrc()` helper).
+## Flujo de contenido
 
-Two constraints worth knowing before changing this:
-- **Never store video as base64 in a task.** All tasks live in one `app_data` row that
-  `DB.loadAll()` pulls in full on every page load for every user. `/api/upload` exists to keep
-  binaries out of that row; without `SUPABASE_SERVICE_KEY` the frontend falls back to base64
-  and refuses files over 3 MB.
-- **`DB.loadAll()` fetches every company's tasks and filters client-side**, so a client's
-  browser receives other clients' content. Fixing that needs row-level filtering, not a UI change.
+El equipo produce, **el cliente decide cuándo se publica**. Una sola tarea lleva todo el ciclo:
+`state` y `date` son independientes, y eso es lo que permite representar "aprobada pero sin
+agendar".
 
-**Extras** are ad-hoc billable items (videos, sessions, Meta Ads campaigns) attached to a company and date.
+La página **Contenido** muestra cinco etapas apiladas, no un tablero de columnas:
 
-When a company's plan changes (`updCoP`), tasks for that company are regenerated via `genTasks()` — existing scheduled tasks are kept, unscheduled ones replaced.
+1. **En producción** — sin material todavía.
+2. **Listo** — tiene archivo. Aquí se abre la votación: **solo cuando los cuatro votantes
+   aprobaron** aparece el botón para enviar al portal.
+3. **Enviado al portal** — en la bandeja del cliente.
+4. **Rechazado por cliente** — vuelve con el motivo; se sube la corrección y la versión
+   anterior se guarda en `revisions` para que el cliente vea el antes y el después.
+5. **Aprobado por cliente** — cerrada.
 
-## Deployment
+Los huecos vacíos que genera el plan **no se muestran**: existen por debajo para repartir los
+archivos que se suben en lote y para contar los cupos, y aparecen recién cuando tienen
+material. El botón "+ Nueva pieza" crea contenido a mano.
 
-Deployed on Render. The `public/index_files/` folder contains cached/offline copies of the CDN scripts for the PWA service worker (`sw.js`) and manifest (`manifest.json`).
+### Sincronización con Org Semanal — leer antes de tocar
+
+Contenido trabaja sobre `tasks`; Org Semanal sobre `planners[].items`. Los une **`itemId`**.
+
+"Guardar y sincronizar" reconstruye las tareas de la semana a partir de los items. **Antes las
+borraba y recreaba de cero**, y en cada guardado se perdían archivos, votos, comentarios y la
+respuesta del cliente, además de cambiar los ids y romper los guiones vinculados. Ahora se
+reconocen por `itemId` y se conservan. Regla añadida: **una vez que la pieza salió al portal,
+mandan su estado y su fecha de publicación por sobre lo que diga el planner.**
+
+Al crear una pieza desde Contenido se escribe en los dos lados a la vez (item + tarea con el
+mismo `itemId`).
+
+## Notificaciones
+
+El push es el aviso del momento; `app_data.notifs` es el historial, que **se guarda siempre**
+aunque el push falle. Lectura por persona. Toda escritura pasa por una cola: dos avisos
+simultáneos sobre una fila única se pisaban entre sí. `dedupKey` evita repetir el mismo aviso
+dentro de 12 h.
+
+Disparadores en la app: asignación de tarea, paso a producción, listo para votar, alguien pide
+cambios, aprobación unánime del equipo, envío al cliente, respuesta del cliente, reunión,
+evento, planificación semanal guardada, y pago a un integrante (privado, solo a quien lo
+recibe). **Al que ejecuta la acción nunca le llega su propio aviso.**
+
+Por horario, en el servidor: resumen personal al empezar el día (ventana 08:00–20:00 hora de
+Chile, una vez al día), IVA el 20, días de grabación, y recordatorios de reunión y evento la
+mañana del día y una hora antes (repaso cada 10 min, ventana de 45–75 min).
+
+Reuniones y eventos avisan **siempre también a los admins**, en una sola lista deduplicada por
+id para que el admin que además está apuntado reciba un aviso y no dos.
+
+## Reuniones con Google Meet
+
+Al agendar se crea el evento con enlace de Meet y Google manda la invitación a cada invitado
+(`conferenceDataVersion=1` genera el enlace, `sendUpdates=all` despacha los correos).
+
+**El organizador es siempre la cuenta de INMERSIA**, fijado en el servidor y no aceptado por
+parámetro: si se pudiera elegir desde el navegador, cualquiera con sesión podría crear eventos
+en el calendario personal de otro del equipo.
+
+El permiso de calendario se pide en el mismo inicio de sesión con Google, con el scope acotado
+a `calendar.events`. Si Google rechaza el refresh con `invalid_grant`, el token se borra y la
+app pide reconectar en vez de fallar en silencio.
+
+## Dominios y despliegue
+
+Render, con despliegue automático al hacer push a `main`. La app responde en **dos dominios a
+la vez**: el de Render y `portal.inmersiaperformance.cl`. La URL de retorno de Google se deriva
+del dominio por el que entró la persona, **validada contra una lista blanca** en `server.js`
+(confiar en la cabecera Host permitiría desviar el código de autorización). Si agregas un
+dominio, hay que sumarlo ahí y en Google Cloud.
+
+La web pública (`inmersiaperformance.cl`) es otro repo: `~/GitHub/inmersia-web`, HTML estático
+en GitHub Pages. Tiene el botón "Portal" en la barra superior.
+
+## Trampas conocidas (todas costaron un rato)
+
+- **`position: fixed` dentro del árbol de la app se rompe.** Cualquier ancestro con
+  `transform`, `filter` o `will-change` lo vuelve relativo a ese ancestro. La barra inferior
+  del celular se monta con `ReactDOM.createPortal` en el `<body>`.
+- **Zona segura del iPhone.** El viewport declara `viewport-fit=cover`, así que la app se
+  dibuja bajo la barra de estado. Todo lo anclado arriba o abajo necesita
+  `env(safe-area-inset-top/bottom)`.
+- **Desplegables anclados a la derecha** se salen de la pantalla en el teléfono cuando su botón
+  está a la izquierda de la tarjeta. Anclarlos a la izquierda y limitar el ancho.
+- **El service worker no debe tocar el video.** Interceptar peticiones con `Range` deja el
+  reproductor en negro, y una respuesta 206 no se puede guardar en Cache Storage.
+- **Nunca guardar video en base64 en una tarea.** Todas las tareas viven en una fila que
+  `DB.loadAll()` trae entera en cada carga, para todos los usuarios.
+- **`DB.loadAll()` trae las tareas de todas las empresas** y filtra en el cliente: el navegador
+  de un cliente recibe contenido de otros. Arreglarlo requiere filtrado por fila, no un cambio
+  de UI.
+- **Los iconos se generan midiendo, no a ojo.** El recorte escrito a mano cortaba el arco
+  inferior del logo.
+
+## Estado y pendientes
+
+Rediseño aplicado a Dashboard, Org Semanal, Guionado y Contenido. **Faltan Pagos y el portal
+del cliente** (export en `~/Downloads/Inmersia Portal Cliente.dc.html`).
+
+Sin probar con uso real: la subida de archivos a Storage y las invitaciones de Meet.
+
+**Nunca subir al repo**: `.env`, `public/__mocktest*.html`, `public/__demo_media/` (videos
+reales de clientes) ni ningún `client_secret_*.json`.
