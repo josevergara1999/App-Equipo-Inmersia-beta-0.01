@@ -236,7 +236,7 @@ const API={
     catch(e){throw new Error("No se pudo contactar el servidor para subir el archivo");}
     if(d.url)return{name:d.name,type:d.type,url:d.url,size:d.size};
     if(d.error==="storage_no_configurado"){
-      if(file.size>3*1024*1024)throw new Error("Falta configurar el almacenamiento (bucket de Supabase). Mientras tanto solo se pueden subir archivos de menos de 3 MB.");
+      if(file.size>3*1024*1024)throw new Error((d.motivo?"Almacenamiento no disponible: "+d.motivo+". ":"Falta configurar el almacenamiento (bucket de Supabase). ")+"Mientras tanto solo se pueden subir archivos de menos de 3 MB.");
       const data=await new Promise((res,rej)=>{const rd=new FileReader();rd.onload=e=>res(e.target.result);rd.onerror=rej;rd.readAsDataURL(file);});
       return{name:file.name,type:file.type,data,size:file.size};
     }
@@ -3829,7 +3829,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
   // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
-  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador"]);
+  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||"")]);
   const confirmada=it=>{
     if(it.confirmadaSig)return it.confirmadaSig===firmaItem(it);
     // Piezas de semanas anteriores a este cambio: no tienen firma, pero si ya tienen su
@@ -3863,9 +3863,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       state:enElPortal?vieja.state
         :(it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":(vieja?vieja.state:"no_realizado")),
       comments:vieja?vieja.comments||[]:[],
-      votes:vieja?vieja.votes||{}:{},
+      // Los votos del planner se propagan, pero el voto emitido en Contenido manda: es donde
+      // se decide el envío al portal.
+      votes:{...(it.votes||{}),...(vieja?.votes||{})},
       clientApproval:vieja?vieja.clientApproval||null:null,
-      files:vieja?vieja.files||[]:[],
+      // El material que el equipo sube en Org Semanal es el que tiene que verse en Contenido.
+      // Sin esto la pieza llegaba sin preview: solo la caja con su tipo. Una vez que salió al
+      // portal mandan los de la tarea, que pueden ser correcciones posteriores al planner.
+      files:enElPortal?(vieja.files||[]):((it.files||[]).length?it.files:(vieja?vieja.files||[]:[])),
       plannerTag,
     };
     const sig=firmaItem(it);
@@ -3971,11 +3976,24 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   const [drvOpen,sDrvOpen]=useState(null);    // desplegable de drive
   const [guionOpen,sGuionOpen]=useState({});  // panel de guión por día
 
-  // File handlers (base64 — no quality loss)
-  const handleFiles=(itemId,field,e)=>{const files=Array.from(e.target.files);if(!files.length)return;
-    Promise.all(files.map(f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=ev=>res({name:f.name,type:f.type,data:ev.target.result,date:td()});r.onerror=rej;r.readAsDataURL(f);}))).then(results=>{
-      updateItem(itemId,{[field]:[...(items.find(it=>it.id===itemId)?.[field]||[]),...results]});
-    });};
+  // Los archivos van a Supabase Storage y en el item queda solo la URL. Antes se guardaban
+  // en base64 dentro del propio item, o sea dentro de la fila `planners`, que `DB.loadAll()`
+  // trae entera en cada carga y para todos los usuarios: un solo reel la infla decenas de MB.
+  // Es la misma trampa que ya estaba documentada para `tasks`. `API.upload` cae a base64 por
+  // su cuenta solo si el bucket no está configurado y el archivo es chico.
+  const[subiendo,sSubiendo]=useState(null);
+  const handleFiles=async(itemId,field,e)=>{
+    const files=Array.from(e.target.files||[]);if(!files.length)return;
+    e.target.value="";                    // permite volver a elegir el mismo archivo
+    sSubiendo(itemId);
+    try{
+      const subidos=[];
+      for(const f of files)subidos.push({...(await API.upload(f,selCo)),date:td()});
+      const actual=items.find(it=>it.id===itemId)?.[field]||[];
+      updateItem(itemId,{[field]:[...actual,...subidos]});
+    }catch(err){addN("❌ "+err.message);}
+    sSubiendo(null);
+  };
   const removeFile=(itemId,field,idx)=>{const it=items.find(x=>x.id===itemId);if(!it)return;updateItem(itemId,{[field]:(it[field]||[]).filter((_,i)=>i!==idx)});};
 
   const[guiones,sGuionesLocal]=useState([]);
@@ -4262,9 +4280,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                               <span onClick={()=>openZoom(it.refs,i)} title="Toca para ver" style={{fontSize:12,fontWeight:600,color:D.lav,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"zoom-in"}}>{rf.name||"Referencia"}</span>
                               <button onClick={()=>removeFile(it.id,"refs",i)} style={{width:18,height:18,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>✕</button>
                             </div>))}
-                          <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                            + Anclar referencia
-                            <input type="file" multiple accept="image/*,video/*" style={{display:"none"}} onChange={e=>handleFiles(it.id,"refs",e)}/>
+                          <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:subiendo===it.id?"default":"pointer"}}>
+                            {subiendo===it.id?"Subiendo…":"+ Anclar referencia"}
+                            <input type="file" multiple accept="image/*,video/*" disabled={subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"refs",e)}/>
                           </label>
                         </div>
                       </div>
@@ -4273,9 +4291,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       <div style={{display:"flex",flexDirection:"column",gap:6,flex:"1 1 220px",minWidth:0}}>
                         <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Aprobación</span>
                         {!(it.files||[]).length
-                          ? <label style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",width:"fit-content"}}>
-                              <Ic n="inbox" s={14} c={D.tx4}/>Subir contenido para aprobación del equipo
-                              <input type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handleFiles(it.id,"files",e)}/>
+                          ? <label style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:subiendo===it.id?"default":"pointer",width:"fit-content"}}>
+                              <Ic n="inbox" s={14} c={D.tx4}/>{subiendo===it.id?"Subiendo…":"Subir contenido para aprobación del equipo"}
+                              <input type="file" accept="image/*,video/*" disabled={subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"files",e)}/>
                             </label>
                           : <div style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 13px",borderRadius:12,background:"rgba(111,231,242,.04)",border:"1px solid rgba(111,231,242,.3)",maxWidth:"100%",boxSizing:"border-box"}}>
                               <div style={{display:"flex",alignItems:"center",gap:10}}>

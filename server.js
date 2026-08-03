@@ -1616,8 +1616,13 @@ function explicarStorage(status, detail) {
 app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
+    // Si Storage no está disponible —falta la llave o el bucket no existe— se avisa con
+    // `storage_no_configurado` para que el frontend caiga a base64 en los archivos chicos y
+    // se pueda seguir trabajando. Antes solo se comprobaba la llave: con el bucket sin crear
+    // la subida llegaba hasta Supabase y moría en un 400, sin fallback.
+    const est = await estadoStorage();
+    if (!est.ready) return res.status(503).json({ error: "storage_no_configurado", motivo: est.motivo });
     const key = storageKey();
-    if (!key) return res.status(503).json({ error: "storage_no_configurado" });
 
     const sbUrl = storageUrl();
     const safeName = (req.file.originalname || "archivo")
