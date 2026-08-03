@@ -1,6 +1,6 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = 'inmersia-v2';
+const CACHE = "inmersia-v3";
 const ASSETS = ['/', '/index.html', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {
