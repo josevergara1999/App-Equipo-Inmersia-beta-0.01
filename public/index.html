@@ -1053,7 +1053,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* MÉTRICAS */}
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
-        {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu}/>}
+        {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners}/>}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
@@ -2057,8 +2057,10 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
 // Una fila por etapa, en el orden en que avanza una pieza. Las etapas son las mismas
 // de Org Semanal, así que las dos pantallas hablan el mismo idioma.
 const CONT_META=[
-  {k:"borrador",  est:"Borrador",              col:"#8E93A6", desc:"Aún en trabajo interno — el cliente no lo ve."},
-  {k:"produccion",est:"En producción",         col:"#EFD9A0", desc:"El equipo está creando la pieza."},
+  // No hay etapa "Borrador": los huecos vacíos que genera el plan no se muestran, aparecen
+  // recién cuando tienen material. Se siguen usando por debajo para repartir los archivos
+  // que se suben en lote y para contar los cupos del plan.
+  {k:"produccion",est:"En producción",         col:"#EFD9A0", desc:"En manos del equipo, todavía sin material."},
   {k:"listo",     est:"Listo",                 col:"#6FE7F2", desc:"Esperando la votación del equipo."},
   {k:"enviado",   est:"Enviado al portal",     col:"#9BB4FF", desc:"En la bandeja del cliente, sin respuesta aún."},
   {k:"rechazado", est:"Rechazado por cliente", col:"#FF8B8B", desc:"El cliente pidió cambios — sube la corrección."},
@@ -2074,7 +2076,7 @@ const MES_AB=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov",
 const diaLbl=ds=>{if(!ds)return "sin fecha";const p=ds.split("-").map(Number);const dt=new Date(p[0],p[1]-1,p[2]);
   return ["DOM","LUN","MAR","MIÉ","JUE","VIE","SÁB"][dt.getDay()]+" "+p[2]+" "+MES_AB[p[1]-1];};
 
-function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
+function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners}){
   const [selCo,sSelCo]=useState(()=>cos[0]?.id||0);
   useEffect(()=>{if(cos.length&&!cos.find(c=>String(c.id)===String(selCo)))sSelCo(cos[0].id);},[cos]);
   const co=cos.find(c=>String(c.id)===String(selCo));
@@ -2113,6 +2115,35 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
     avisar({type:"contenido",title:titulo,body:cuerpo,to:correosDe(dest),url:"/",important:!!importante,dedupKey:clave||null});
   };
 
+  // ── Crear una pieza a mano ──
+  // Se escribe en los dos lados a la vez: el item del planner (para que aparezca en Org
+  // Semanal, en su día) y la tarea (para que aparezca aquí). Las une `itemId`, que es lo
+  // que evita que "Guardar y sincronizar" las duplique o las pise.
+  const[nueva,sNueva]=useState(false);
+  const[nf,sNf]=useState({title:"",type:"post",date:td()});
+  const lunesDe=ds=>{const q=ds.split("-").map(Number);const d=new Date(q[0],q[1]-1,q[2]);
+    const dow=d.getDay();d.setDate(d.getDate()-(dow===0?6:dow-1));
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const crearPieza=()=>{
+    if(!co)return;
+    const dia=nf.date||td();
+    const wk=lunesDe(dia)+"_"+String(selCo);
+    const itemId=String(Date.now())+Math.floor(Math.random()*1000);
+    const titulo=nf.title.trim()||((TT[nf.type]?.l||"Contenido")+" "+co.name);
+    const item={id:itemId,day:dia,type:nf.type,title:titulo,description:"",strategy:"",production:[],state:"borrador",order:0};
+    sPlanners(prev=>{
+      const i=(prev||[]).findIndex(x=>x.weekKey===wk);
+      const np=i>=0
+        ?(prev.map((x,j)=>j===i?{...x,items:[...(x.items||[]),item]}:x))
+        :[...(prev||[]),{weekKey:wk,companyId:String(selCo),companyName:co.name,items:[item]}];
+      DB.save("planners",np);return np;});
+    sT(p=>[...p,{id:ni(),itemId,plannerTag:"planner_"+wk,title:titulo,company:co.name,companyId:co.id,
+      type:nf.type,description:"",responsable:[],date:dia,state:"en_proceso",
+      comments:[],votes:{},files:[],clientApproval:null}]);
+    addN("✅ Pieza creada en "+co.name+" · "+dia);
+    sNueva(false);sNf({title:"",type:"post",date:td()});
+  };
+
   const coTasks=useMemo(()=>tasks.filter(t=>String(t.companyId)===String(selCo)),[tasks,selCo]);
   const hasFiles=t=>!!(t.files&&t.files.length);
   const freeSlots=type=>coTasks.filter(t=>t.type===type&&!t.date&&!hasFiles(t)&&["no_realizado","en_proceso"].includes(t.state));
@@ -2125,9 +2156,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
     if(t.state==="en_aprobacion")return "enviado";
     if(hasFiles(t))return "listo";
     if(t.state==="en_proceso")return "produccion";
-    return "borrador";
+    return null;   // hueco del plan sin material: no se muestra
   };
-  const porEtapa=useMemo(()=>{const o={};CONT_META.forEach(m=>o[m.k]=[]);coTasks.forEach(t=>o[etapaDe(t)].push(t));return o;},[coTasks]);
+  const porEtapa=useMemo(()=>{const o={};CONT_META.forEach(m=>o[m.k]=[]);
+    coTasks.forEach(t=>{const e=etapaDe(t);if(e&&o[e])o[e].push(t);});return o;},[coTasks]);
 
   const handleFiles=async fileList=>{
     const files=Array.from(fileList||[]);if(!files.length||!co)return;
@@ -2277,9 +2309,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
     const resCol=enContra.length?D.rojo:(unanime?D.cian:D.tx4);
 
     let acc=null;
-    if(m.k==="borrador")acc={label:"Pasar a producción →",fn:()=>{upT(t.id,{state:"en_proceso"});
-      avisarA(encargados(t),"🎬 Pieza en producción","\""+t.title+"\" pasó a producción"+(co?" · "+co.name:"")+". Te toca.",false,"prod_"+t.id);},bg:"transparent",bor:D.line2,col:D.tx2};
-    else if(m.k==="produccion")acc={label:"↑ Sube el contenido para dejarlo listo",fn:()=>pickFor(t.id),bg:"transparent",bor:D.line2,col:D.tx4};
+    if(m.k==="produccion")acc={label:"↑ Sube el contenido para dejarlo listo",fn:()=>pickFor(t.id),bg:"transparent",bor:D.line2,col:D.tx4};
     else if(m.k==="listo"&&unanime)acc={label:"Enviar al portal de "+(co?.name||"")+" →",fn:()=>enviarAlPortal(t),bg:D.cian,bor:D.cian,col:D.bg};
 
     return(<div key={t.id} style={{borderRadius:15,padding:gl?2:0,background:gl?"linear-gradient(160deg, "+m.col+"50, "+m.col+"14 45%, "+m.col+"35)":"transparent"}}>
@@ -2351,6 +2381,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
           {cos.map(c=>{const on=String(selCo)===String(c.id);return(
             <button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 16px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{c.name}</button>);})}
         </div>
+        <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
         <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
       </div>
     </div>
@@ -2413,6 +2444,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu}){
           </div>))}
       </div>
     </>)}
+    {/* NUEVA PIEZA */}
+    <Md open={nueva} onClose={()=>sNueva(false)} title={"Nueva pieza"+(co?" para "+co.name:"")} width={430}>
+      <Fd label="Título"><input value={nf.title} onChange={e=>sNf({...nf,title:e.target.value})} placeholder={"Ej: "+(TT[nf.type]?.l||"Post")+" "+(co?co.name:"")}/></Fd>
+      <Fd label="Tipo"><select value={nf.type} onChange={e=>sNf({...nf,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select></Fd>
+      <Fd label="Día" hint="Es el día en que queda puesta en Org Semanal. El cliente decide después cuándo se publica."><input type="date" value={nf.date} onChange={e=>sNf({...nf,date:e.target.value})}/></Fd>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+        <Bt v="s" onClick={()=>sNueva(false)}>Cancelar</Bt>
+        <Bt v="p" onClick={crearPieza} icon="plus">Crear</Bt>
+      </div>
+    </Md>
+
   </div>);
 }
 
@@ -3667,7 +3709,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     sPlanners(prev=>{const idx=prev.findIndex(p=>p.weekKey===weekKey);if(idx>=0){const u=[...prev];u[idx]=np;return u;}return[...prev,np];});
   };
 
-  const addItem=(day)=>{const ni2={id:Date.now(),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
+  const addItem=(day)=>{const ni2={id:String(Date.now())+Math.floor(Math.random()*1000),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
   const removeItem=async(id)=>{if(!confirm("¿Eliminar este contenido?"))return;const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
     // Safe save: load fresh from Supabase, then update only our weekKey
@@ -3692,22 +3734,36 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     // Sync items to calendar tasks
     const plannerTag="planner_"+weekKey;
     sT(prev=>{
-      // Remove old planner-generated tasks for this week+company
+      // Cada pieza se reconoce por `itemId` en vez de recrearse de cero. Antes esto
+      // borraba todas las tareas de la semana y las volvía a crear: cada vez que alguien
+      // guardaba se perdían los archivos subidos, los votos, los comentarios y la
+      // respuesta del cliente, y las piezas cambiaban de id rompiendo el guión vinculado.
       const cleaned=prev.filter(t=>t.plannerTag!==plannerTag);
-      // Create new tasks from planner items
-      const newTasks=items.filter(it=>it.title||it.description).map(it=>({
-        id:Date.now()+Math.random()*10000|0,
+      const previas=prev.filter(t=>t.plannerTag===plannerTag);
+      const newTasks=items.filter(it=>it.title||it.description).map(it=>{
+        const vieja=previas.find(t=>String(t.itemId)===String(it.id));
+        // Una vez que salió al cliente, manda lo que pasó en el portal: su fecha de
+        // publicación y su estado, no lo que diga el planner.
+        const enElPortal=vieja&&["en_aprobacion","aprobado","publicado"].includes(vieja.state);
+        return{
+        ...(vieja||{}),
+        id:vieja?vieja.id:(Date.now()+Math.random()*10000|0),
+        itemId:it.id,
         title:it.title||(TT[it.type]?.l||"Contenido")+" "+co?.name,
         company:co?.name||"",
         companyId:parseInt(selCo)||0,
         type:it.type,
         description:it.description+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
         responsable:it.production||[],
-        date:it.day,
-        state:it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":"no_realizado",
-        comments:[],votes:{},clientApproval:null,files:[],
+        date:enElPortal&&vieja.date?vieja.date:it.day,
+        state:enElPortal?vieja.state
+          :(it.state==="publicado"?"publicado":it.state==="aprobado"?"aprobado":(vieja?vieja.state:"no_realizado")),
+        comments:vieja?vieja.comments||[]:[],
+        votes:vieja?vieja.votes||{}:{},
+        clientApproval:vieja?vieja.clientApproval||null:null,
+        files:vieja?vieja.files||[]:[],
         plannerTag
-      }));
+      };});
       const result=[...cleaned,...newTasks];
       DB.save("tasks",result);
       return result;
