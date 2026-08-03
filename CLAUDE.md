@@ -19,7 +19,18 @@ The server listens on `PORT` env var (default 10000). There is no build step —
 This is a **single-file React SPA + Express backend** — no bundler, no build pipeline.
 
 ### Frontend (`public/index.html`)
-A single ~2400-line HTML file. React 18, ReactDOM, and Babel Standalone are loaded from CDN. All JSX is transpiled in the browser at runtime via `<script type="text/babel">`. There are no separate component files — every component, hook, and utility lives inline in that one file.
+A single ~3400-line HTML file. React 18, ReactDOM, and Babel Standalone are loaded from CDN. All JSX is transpiled in the browser at runtime via `<script type="text/babel">`. There are no separate component files — every component, hook, and utility lives inline in that one file.
+
+Because Babel runs in the browser, a JSX syntax error is a blank page with no build-time
+warning. To check before reloading, run the page's own Babel copy over the script block:
+
+```js
+// node, from repo root
+const Babel = require("./public/index_files/babel.min.js.descarga");
+const html = require("fs").readFileSync("public/index.html", "utf8");
+const code = html.match(/<script[^>]*type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
+Babel.transform(code, { presets: ["react"] }); // throws with a line number on error
+```
 
 Key architectural patterns:
 - All state lives in the root `Main` component with `useState`/`useMemo`/`useRef`
@@ -38,10 +49,18 @@ Express server that:
 - Handles email notifications via Resend API (`/api/notify`)
 - Manages Google OAuth2 flow for login and Calendar access (`/api/auth/google*`, `/api/auth/callback/google`)
 - Syncs tasks to Google Calendar using stored refresh tokens (`/api/gcal/sync`)
+- Uploads content files to Supabase Storage (`/api/upload`, `/api/upload/status`)
+- Exposes Meta Ads / Instagram insights and the Atlas voice-assistant API (`/api/meta/*`, `/api/atlas/*`)
 - Serves the static frontend from `public/`
 
+Most `/api/*` routes are behind `requireAuth`, which checks an HMAC token in the HttpOnly
+`_iauth` cookie. **That cookie is only issued by the Google OAuth callback** — the
+email+password form in `Login` matches against `INIT_USERS` client-side and never touches
+the server, so password-only users (and all `cliente` accounts) cannot reach authed
+endpoints. Atlas routes use a separate `x-atlas-key` header instead.
+
 ### Database (Supabase)
-A single `app_data` table with `key` / `value` / `updated_at` columns, used as a key-value store. Keys in use: `companies`, `tasks`, `extras`, `meetings`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`, `gcal_tokens`. GCal OAuth tokens (with refresh tokens) are also stored here for server-side calendar sync.
+A single `app_data` table with `key` / `value` / `updated_at` columns, used as a key-value store. Keys in use: `companies`, `tasks`, `extras`, `meetings`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`, `gcal_tokens`, `prospects`. Uploaded content files live in Supabase **Storage** (bucket `contenido`), not in this table. GCal OAuth tokens (with refresh tokens) are also stored here for server-side calendar sync.
 
 ### Environment Variables
 | Variable | Purpose |
@@ -53,6 +72,9 @@ A single `app_data` table with `key` / `value` / `updated_at` columns, used as a
 | `GOOGLE_REDIRECT_URI` | Google OAuth callback URL |
 | `SUPABASE_URL` | Supabase project URL (also hardcoded in frontend as fallback) |
 | `SUPABASE_KEY` | Supabase publishable key (also hardcoded in frontend) |
+| `SUPABASE_SERVICE_KEY` | Supabase service_role key — **required for content upload**; the publishable key cannot write to Storage |
+| `SUPABASE_BUCKET` | Storage bucket for uploaded content (default `contenido`) |
+| `ATLAS_API_KEY` | Shared secret for the `/api/atlas/*` routes |
 | `APP_URL` | Base URL for email links |
 | `PORT` | Server port (default 10000) |
 
@@ -64,7 +86,39 @@ A single `app_data` table with `key` / `value` / `updated_at` columns, used as a
 
 **Task states** (`SS`): `no_realizado` → `en_proceso` → `en_aprobacion` → `aprobado` → `publicado`
 
-**User roles**: `admin` (full access), `editor` (create/edit tasks), `visualizador` (read-only), `cliente` (approval flow only)
+**User roles**: `admin` (full access), `editor` (create/edit tasks), `visualizador` (read-only), `Sales` (Prospectos tab only, plus the default pages), `cliente` (client portal only)
+
+## Content approval & scheduling flow
+
+The team produces content, the **client** decides when it publishes. One task carries the
+whole lifecycle — `state` and `date` are independent, which is what makes "approved but
+not yet scheduled" representable:
+
+1. `genTasks()` creates empty slots per plan (`Post 1 Huemul`…), `state:"no_realizado"`, `date:null`.
+2. **Contenido page** (team): pick a company and a type, drop files. Each file fills the next
+   free slot of that type — attaching a file to a slot is what defines the piece as post /
+   historia / reel; the client never chooses the type. Leftover files beyond the plan's slots
+   require an explicit click and are flagged `extraSlot:true` (they affect billing).
+3. "Enviar a aprobación" flips those tasks to `en_aprobacion`.
+4. **Client portal, "Por aprobar"**: a swipe deck (`SwipeDeck`). Right = approve → `aprobado`.
+   Left = opens a mandatory reason box → `en_proceso` + the reason in `clientApproval.comment`
+   and `comments`, so the piece returns to the team's Contenido page with the motive shown.
+5. **Client portal, "Planificar"** (`PlanBoard`): approved tasks with no `date` sit in a bank.
+   Dragging one onto a day (or tapping piece → tapping day on touch) opens a modal asking for
+   an optional `caption` and `publishTime`, then writes `date`. Scheduled pieces can be moved,
+   edited or dragged back to the bank at any time. `publicado` pieces are shown but locked.
+
+Fields added by this flow: `caption` (client's copy for the post), `publishTime` (`"HH:MM"`),
+`extraSlot`, and `files[]` entries shaped `{name, type, url}` (`url` from Supabase Storage;
+legacy/fallback entries use base64 `data` instead — read them via the `fSrc()` helper).
+
+Two constraints worth knowing before changing this:
+- **Never store video as base64 in a task.** All tasks live in one `app_data` row that
+  `DB.loadAll()` pulls in full on every page load for every user. `/api/upload` exists to keep
+  binaries out of that row; without `SUPABASE_SERVICE_KEY` the frontend falls back to base64
+  and refuses files over 3 MB.
+- **`DB.loadAll()` fetches every company's tasks and filters client-side**, so a client's
+  browser receives other clients' content. Fixing that needs row-level filtering, not a UI change.
 
 **Extras** are ad-hoc billable items (videos, sessions, Meta Ads campaigns) attached to a company and date.
 

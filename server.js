@@ -1,3 +1,8 @@
+// Carga .env en desarrollo local. En Render las variables vienen del entorno y no hay
+// archivo, por eso el require va envuelto: sin esto, dotenv figuraba en package.json
+// pero no se usaba y no había forma de configurar nada fuera de Render.
+try { require("dotenv").config(); } catch (e) { /* dotenv es opcional */ }
+
 const express = require("express");
 const path = require("path");
 const multer = require("multer");
@@ -268,13 +273,538 @@ app.post("/api/notify", requireAuth, async (req, res) => {
       await sendEmail(email, tpl.subject, tpl.html);
     }
 
-    res.json({ ok: true, sent: recipients.length });
+    // Además del correo, notificación push a los mismos destinatarios. El correo se
+    // mantiene como respaldo: el push en iOS es "best effort" y una suscripción puede
+    // morir sin aviso.
+    let push = { sent: 0 };
+    try {
+      push = await sendPush({
+        title: company ? `INMERSIA · ${company}` : "INMERSIA",
+        body: (state || tpl.subject || "").replace(/<[^>]*>/g, "").slice(0, 160) + (taskTitle ? ` — ${taskTitle}` : ""),
+        url: "/",
+        tag: type,
+        important: type === "task_status",
+      }, recipients);
+    } catch (e) { console.error("push desde notify:", e.message); }
+
+    res.json({ ok: true, sent: recipients.length, push });
 
   } catch (err) {
     console.error("Error notify:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
+// ===============================
+// 🔑 LOGIN Y CONTRASEÑAS
+// ===============================
+// Antes el login era 100% de navegador: las contraseñas venían en INIT_USERS dentro del
+// HTML y nunca se emitía cookie de sesión. Por eso solo quien entraba con Google podía
+// usar los endpoints protegidos (push, notificaciones, IA). Aquí se verifica en el
+// servidor y se emite la misma cookie `_iauth` que el OAuth de Google.
+//
+// LÍMITE CONOCIDO: mientras INIT_USERS siga en el HTML con la contraseña por defecto,
+// cualquiera puede leerla viendo el código fuente. Esto arregla la persistencia y la
+// sesión, no convierte el login en algo robusto hasta sacar esa lista del cliente.
+const DEFAULT_PASS = "1234";
+
+async function loadCreds() {
+  const { url, key } = SB();
+  const r = await fetch(`${url}/rest/v1/app_data?key=eq.user_creds&select=value`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  const d = await r.json();
+  return (d?.[0]?.value && typeof d[0].value === "object") ? d[0].value : {};
+}
+async function saveCreds(obj) {
+  const { url, key } = SB();
+  await fetch(`${url}/rest/v1/app_data`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ key: "user_creds", value: obj, updated_at: new Date().toISOString() }),
+  });
+}
+const hashPass = (pass, salt) => crypto.scryptSync(String(pass), salt, 64).toString("hex");
+const normUser = e => String(e || "").trim().toLowerCase();
+
+function setAuthCookie(req, res, email) {
+  // `secure` según el protocolo real: en Render llega por https detrás del proxy, en
+  // local por http. Fijarlo en true haría que el navegador descartara la cookie en local.
+  const https = req.headers["x-forwarded-proto"] === "https" || req.secure;
+  res.cookie("_iauth", signToken(email), {
+    httpOnly: true,
+    secure: https,
+    sameSite: "lax",
+    maxAge: 30 * 24 * 3600000,
+  });
+}
+
+app.post("/api/auth/login", rateLimit(30), async (req, res) => {
+  try {
+    const email = normUser(req.body?.email);
+    const pass = String(req.body?.password || "");
+    if (!email || !pass) return res.status(400).json({ error: "Faltan datos" });
+
+    const creds = await loadCreds();
+    const c = creds[email];
+    // Sin contraseña guardada todavía → vale la de fábrica, para no dejar a nadie fuera
+    const ok = c ? hashPass(pass, c.salt) === c.hash : pass === DEFAULT_PASS;
+    if (!ok) return res.status(401).json({ error: "Credenciales incorrectas" });
+
+    setAuthCookie(req, res, email);
+    res.json({ ok: true, email, usandoClavePorDefecto: !c });
+  } catch (err) { console.error("login:", err); res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/auth/password", requireAuth, rateLimit(20), async (req, res) => {
+  try {
+    const email = normUser(req.body?.email);
+    const actual = String(req.body?.actual || "");
+    const nueva = String(req.body?.nueva || "");
+    if (!email) return res.status(400).json({ error: "Falta el usuario" });
+    if (nueva.length < 6) return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
+    if (nueva === DEFAULT_PASS) return res.status(400).json({ error: "Elige una contraseña distinta a la de fábrica" });
+
+    const creds = await loadCreds();
+    const c = creds[email];
+    const ok = c ? hashPass(actual, c.salt) === c.hash : actual === DEFAULT_PASS;
+    if (!ok) return res.status(401).json({ error: "La contraseña actual no coincide" });
+
+    const salt = crypto.randomBytes(16).toString("hex");
+    creds[email] = { salt, hash: hashPass(nueva, salt), updatedAt: new Date().toISOString() };
+    await saveCreds(creds);
+    setAuthCookie(req, res, email);   // renueva la sesión con la clave nueva
+    res.json({ ok: true });
+  } catch (err) { console.error("password:", err); res.status(500).json({ error: err.message }); }
+});
+
+// ===============================
+// 🔔 WEB PUSH (PWA — iOS 16.4+, Android, escritorio)
+// ===============================
+// Usa el estándar VAPID, el mismo en Safari/Chrome/Firefox. NO requiere cuenta de Apple
+// Developer ni App Store: en iOS basta con que el usuario haga "Añadir a pantalla de
+// inicio" (la Push API no existe en una pestaña normal de Safari).
+const webpush = require("web-push");
+const VAPID_PUB = process.env.VAPID_PUBLIC_KEY || "";
+const VAPID_PRIV = process.env.VAPID_PRIVATE_KEY || "";
+const pushReady = !!(VAPID_PUB && VAPID_PRIV);
+if (pushReady) {
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:inmersiatours@gmail.com", VAPID_PUB, VAPID_PRIV);
+} else {
+  console.log("Web Push desactivado: faltan VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY");
+}
+
+const SB = () => ({
+  url: process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co",
+  key: process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT",
+});
+async function loadSubs() {
+  const { url, key } = SB();
+  const r = await fetch(`${url}/rest/v1/app_data?key=eq.push_subs&select=value`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  const d = await r.json();
+  return Array.isArray(d?.[0]?.value) ? d[0].value : [];
+}
+async function saveSubs(list) {
+  const { url, key } = SB();
+  await fetch(`${url}/rest/v1/app_data`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ key: "push_subs", value: list, updated_at: new Date().toISOString() }),
+  });
+}
+
+// Envía a todas las suscripciones (o a las de ciertos emails) y limpia las muertas.
+async function sendPush(payload, onlyEmails) {
+  if (!pushReady) return { sent: 0, skipped: "sin llaves VAPID" };
+  const subs = await loadSubs();
+  // Una persona puede estar identificada por su correo de INMERSIA o por su Gmail (con el
+  // que entra por Google). Se guardan los dos en la suscripción y basta que calce uno.
+  const wanted = new Set((onlyEmails || []).map(e => String(e).toLowerCase().trim()).filter(Boolean));
+  const target = wanted.size
+    ? subs.filter(s => [s.email, s.gmail].some(e => e && wanted.has(String(e).toLowerCase())))
+    : subs;
+  if (!target.length) return { sent: 0 };
+
+  const body = JSON.stringify(payload).slice(0, 3800); // tope del estándar: 4096 bytes
+  const dead = [];
+  let sent = 0;
+  await Promise.all(target.map(async s => {
+    try {
+      await webpush.sendNotification(s.subscription, body, { TTL: 60 * 60 * 24, urgency: payload.important ? "high" : "normal" });
+      sent++;
+    } catch (err) {
+      // 404/410 = suscripción muerta: se borra y la persona vuelve a activarla al entrar
+      if (err.statusCode === 404 || err.statusCode === 410) dead.push(s.subscription.endpoint);
+      else console.error("Push error:", err.statusCode, err.body || err.message);
+    }
+  }));
+  if (dead.length) await saveSubs(subs.filter(s => !dead.includes(s.subscription.endpoint)));
+  return { sent, removed: dead.length };
+}
+
+app.get("/api/push/key", (req, res) => res.json({ publicKey: VAPID_PUB, ready: pushReady }));
+
+app.post("/api/push/subscribe", requireAuth, async (req, res) => {
+  try {
+    const { subscription, email, gmail, name } = req.body || {};
+    if (!subscription?.endpoint) return res.status(400).json({ error: "subscription inválida" });
+    const subs = await loadSubs();
+    const rest = subs.filter(s => s.subscription.endpoint !== subscription.endpoint);
+    rest.push({ subscription, email: email || "", gmail: gmail || "", name: name || "", createdAt: new Date().toISOString() });
+    await saveSubs(rest);
+    res.json({ ok: true, total: rest.length });
+  } catch (err) { console.error("push subscribe:", err); res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/push/unsubscribe", requireAuth, async (req, res) => {
+  try {
+    const ep = req.body?.endpoint;
+    const subs = await loadSubs();
+    await saveSubs(subs.filter(s => s.subscription.endpoint !== ep));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/push/test", requireAuth, async (req, res) => {
+  const r = await sendPush({
+    title: "INMERSIA",
+    body: req.body?.body || "Notificaciones activadas correctamente ✅",
+    url: "/",
+  }, req.body?.email ? [req.body.email] : null);
+  res.json(r);
+});
+
+// ── Reuniones con Google Meet ────────────────────────────────────────────────
+// La invitación la manda Google Calendar a nombre de la cuenta organizadora, así que esa
+// cuenta (inmersiatours) tiene que haber conectado su calendario una vez desde la app.
+// `conferenceDataVersion=1` es lo que hace que Google genere el enlace de Meet, y
+// `sendUpdates=all` es lo que hace que le llegue el correo a cada invitado.
+const MEET_ORGANIZER = process.env.MEET_ORGANIZER || "inmersiatours@gmail.com";
+const MEET_TZ = "America/Santiago";
+
+app.get("/api/gcal/status", requireAuth, async (req, res) => {
+  try {
+    const email = req.query.email || MEET_ORGANIZER;
+    const tokens = (await sbGet("gcal_tokens", {})) || {};
+    res.json({ organizador: MEET_ORGANIZER, conectado: !!tokens[email]?.refresh_token, email });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/gcal/meeting", requireAuth, async (req, res) => {
+  try {
+    const { title, description, date, time, minutos, invitados } = req.body || {};
+    if (!title || !date || !time) return res.json({ ok: false, msg: "Faltan título, fecha u hora" });
+
+    // El organizador SIEMPRE es la cuenta de INMERSIA, lo cree quien lo cree. No se acepta
+    // por parámetro a propósito: si se pudiera mandar desde el navegador, cualquiera con
+    // sesión podría crear eventos en el calendario personal de otro del equipo, y además la
+    // invitación llegaría a nombre de una persona en vez de la empresa.
+    const quien = MEET_ORGANIZER;
+
+    // Se separan los dos fallos: no haber conectado nunca, o que Google rechace el refresh
+    // (permiso revocado, cliente OAuth mal configurado). El mensaje no es el mismo.
+    const tokens = (await sbGet("gcal_tokens", {})) || {};
+    if (!tokens[quien]?.refresh_token) {
+      return res.json({ ok: false, needsConnect: true, organizador: quien, msg: `Falta conectar el Google Calendar de ${quien}` });
+    }
+    const token = await getGCalAccessToken(quien);
+    if (!token) return res.json({ ok: false, organizador: quien, msg: `Google rechazó el acceso al calendario de ${quien}. Hay que volver a conectarlo.` });
+
+    const [h, m] = String(time).split(":").map(Number);
+    const dur = Math.max(15, +minutos || 60);
+    const fin = new Date(Date.UTC(2000, 0, 1, h, m + dur));
+    const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+
+    const correos = [...new Set((invitados || []).map(e => String(e).trim().toLowerCase()).filter(e => e.includes("@")))];
+    const evento = {
+      summary: title,
+      description: description || "",
+      start: { dateTime: `${date}T${time}:00`, timeZone: MEET_TZ },
+      end: { dateTime: `${date}T${hhmm(fin)}:00`, timeZone: MEET_TZ },
+      attendees: correos.map(email => ({ email })),
+      conferenceData: { createRequest: { requestId: "inm-" + Date.now(), conferenceSolutionKey: { type: "hangoutsMeet" } } },
+      guestsCanModify: false,
+      reminders: { useDefault: true },
+    };
+
+    const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(evento),
+    });
+    const d = await r.json();
+    if (d.error) { console.error("GCal meeting:", d.error); return res.json({ ok: false, msg: d.error.message }); }
+
+    res.json({
+      ok: true,
+      eventId: d.id,
+      meetLink: d.hangoutLink || d.conferenceData?.entryPoints?.find(p => p.entryPointType === "video")?.uri || "",
+      htmlLink: d.htmlLink || "",
+      invitados: correos,
+      organizador: quien,
+    });
+  } catch (err) { console.error("meeting:", err); res.status(500).json({ error: err.message }); }
+});
+
+// ===============================
+// 🔔 CENTRO DE NOTIFICACIONES
+// ===============================
+// El push es el aviso del momento; esto es el historial. Se guarda SIEMPRE, aunque el push
+// falle o la persona no tenga la app instalada, así nada se pierde. Vive en app_data.notifs.
+const NOTIF_MAX = 300;
+const norm = e => String(e || "").toLowerCase().trim();
+
+async function sbGet(key, fallback) {
+  const { url, key: k } = SB();
+  const r = await fetch(`${url}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`, { headers: { apikey: k, Authorization: `Bearer ${k}` } });
+  const d = await r.json();
+  return d?.[0]?.value ?? fallback;
+}
+async function sbPut(key, value) {
+  const { url, key: k } = SB();
+  await fetch(`${url}/rest/v1/app_data`, {
+    method: "POST",
+    headers: { apikey: k, Authorization: `Bearer ${k}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+  });
+}
+
+// Toda escritura pasa por esta cola. Sin ella dos avisos simultáneos leen la misma lista y
+// el segundo pisa al primero — el clásico lost update sobre una fila única.
+let notifChain = Promise.resolve();
+function enCola(fn) {
+  const p = notifChain.then(() => fn());
+  notifChain = p.catch(() => {});
+  return p;
+}
+
+// Crea el aviso y lo manda por push. `to` vacío = para todo el equipo.
+async function crearNotif({ type, title, body, url, to, important, meta, dedupKey }) {
+  return enCola(async () => {
+    const lista = (await sbGet("notifs", [])) || [];
+    const dest = [...new Set((to || []).map(norm).filter(Boolean))];
+    // Un mismo hecho no avisa dos veces en 12 h: los efectos del frontend pueden dispararse
+    // más de una vez por re-render, y nadie quiere el mismo push repetido.
+    if (dedupKey) {
+      const corte = Date.now() - 12 * 3600000;
+      if (lista.some(n => n.dedupKey === dedupKey && new Date(n.ts).getTime() > corte)) {
+        return { ok: true, duplicado: true };
+      }
+    }
+    const n = {
+      id: Date.now() + "" + Math.floor(Math.random() * 1000),
+      ts: new Date().toISOString(),
+      type: type || "info",
+      title: title || "INMERSIA",
+      body: body || "",
+      url: url || "/",
+      to: dest,
+      meta: meta || {},
+      dedupKey: dedupKey || null,
+      read: [],
+    };
+    await sbPut("notifs", [n, ...lista].slice(0, NOTIF_MAX));
+    let push = { sent: 0 };
+    try { push = await sendPush({ title: n.title, body: n.body, url: n.url, tag: n.type, important: !!important }, dest); }
+    catch (e) { console.error("push desde notif:", e.message); }
+    return { ok: true, id: n.id, push };
+  });
+}
+
+app.post("/api/notifs", requireAuth, async (req, res) => {
+  try { res.json(await crearNotif(req.body || {})); }
+  catch (e) { console.error("crear notif:", e); res.status(500).json({ error: e.message }); }
+});
+
+// Devuelve solo lo que le toca a quien pregunta (destinatario explícito o aviso general).
+app.get("/api/notifs", requireAuth, async (req, res) => {
+  try {
+    const cookies = parseCookies(req);
+    const tok = verifyToken(cookies._iauth || (req.headers.authorization || "").replace("Bearer ", "").trim());
+    const yo = norm(tok?.email);
+    const extra = norm(req.query.alt); // el Gmail, cuando entró por Google
+    const mias = ((await sbGet("notifs", [])) || []).filter(n => !n.to?.length || n.to.includes(yo) || (extra && n.to.includes(extra)));
+    res.json({
+      notifs: mias.slice(0, 60),
+      unread: mias.filter(n => !(n.read || []).includes(yo)).length,
+      me: yo,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/notifs/read", requireAuth, async (req, res) => {
+  try {
+    const cookies = parseCookies(req);
+    const tok = verifyToken(cookies._iauth || (req.headers.authorization || "").replace("Bearer ", "").trim());
+    const yo = norm(tok?.email);
+    if (!yo) return res.status(400).json({ error: "sin identidad" });
+    const ids = req.body?.ids;
+    await enCola(async () => {
+      const lista = (await sbGet("notifs", [])) || [];
+      await sbPut("notifs", lista.map(n => {
+        if (ids && !ids.includes(n.id)) return n;
+        const read = n.read || [];
+        return read.includes(yo) ? n : { ...n, read: [...read, yo] };
+      }));
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Espejo de INIT_USERS (public/index.html): mismos ids. El servidor necesita traducir
+// ids a correos para avisar por su cuenta, sin que haya nadie con la app abierta.
+// Si agregas o sacas a alguien del equipo, hay que tocar los dos lados.
+const TEAM = [
+  { id: 2, name: "Cleme", email: "cleme@inmersia.cl", gmail: "clementeignacio19@gmail.com", role: "admin", vota: true },
+  { id: 3, name: "Tiago", email: "tiago@inmersia.cl", role: "editor" },
+  { id: 4, name: "Gali", email: "gali@inmersia.cl", gmail: "gcastilloaguirre@gmail.com", role: "Sales", vota: true },
+  { id: 5, name: "Javi", email: "javi@inmersia.cl", gmail: "j.agutoledo@gmail.com", role: "admin", vota: true },
+  { id: 6, name: "Jose", email: "jose@inmersia.cl", gmail: "jose.vergara.diaz.vr@gmail.com", role: "admin", vota: true },
+  { id: 7, name: "INMERSIA", email: "inmersiatours@gmail.com", gmail: "inmersiatours@gmail.com", role: "admin" },
+];
+const correosDe = us => [...new Set((us || []).flatMap(u => [u.email, u.gmail]).filter(Boolean))];
+const porIds = ids => TEAM.filter(u => (Array.isArray(ids) ? ids : [ids]).includes(u.id));
+// Reuniones y eventos van siempre también a los admins. Se juntan en una sola lista
+// deduplicada por id: el admin que además está apuntado recibe un aviso, no dos.
+const masAdmins = us => [...new Map([...(us || []), ...TEAM.filter(u => u.role === "admin")].map(u => [u.id, u])).values()];
+
+// ── Repasos por horario ───────────────────────────────────────────────────────
+// Se corre al despertar el servidor y cada hora. `notif_daily` guarda el último día
+// procesado, así que aunque Render duerma y arranque tarde, el aviso sale una sola vez.
+const TZ = "America/Santiago";
+const hoyCL = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+// Hora local de Chile en decimal (13.5 = 13:30) y día del mes.
+const horaMinCL = () => {
+  const s = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+  const [h, m] = s.split(":").map(Number);
+  return h + m / 60;
+};
+const diaMesCL = () => +new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "2-digit" }).format(new Date());
+const enMin = hhmm => { const [h, m] = String(hhmm || "00:00").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+const responsablesDe = t => porIds(Array.isArray(t.responsable) ? t.responsable : (t.responsable != null ? [t.responsable] : []));
+
+// ── Repaso diario ─────────────────────────────────────────────────────────────
+// Corre al despertar el servidor y cada hora, pero el cuerpo se ejecuta una sola vez al
+// día: `notif_daily` guarda la última fecha procesada. Así, aunque Render duerma y arranque
+// a media mañana, el resumen sale igual y no sale dos veces.
+async function repasoDiario(forzar) {
+  try {
+    if (!forzar) {
+      if (horaMinCL() < 8) return { skip: "muy temprano" };
+      if ((await sbGet("notif_daily", "")) === hoyCL()) return { skip: "ya corrió hoy" };
+    }
+    const hoy = hoyCL();
+    const manana = new Date(hoy + "T12:00:00");
+    manana.setDate(manana.getDate() + 1);
+    const ds = manana.toISOString().split("T")[0];
+    const hecho = [];
+
+    // 1 · Lo primero de la mañana: qué le toca a cada uno hoy. Se manda igual cuando no
+    //     hay nada — saber que estás libre también es información.
+    const tasks = (await sbGet("tasks", [])) || [];
+    const abierta = t => !["aprobado", "publicado"].includes(t.state);
+    for (const u of TEAM) {
+      const mias = tasks.filter(t => abierta(t) && responsablesDe(t).some(r => r.id === u.id));
+      const hoyMias = mias.filter(t => t.date === hoy);
+      const atrasadas = mias.filter(t => t.date && t.date < hoy);
+      const partes = [];
+      if (hoyMias.length) partes.push(`${hoyMias.length} para hoy`);
+      if (atrasadas.length) partes.push(`${atrasadas.length} atrasada${atrasadas.length === 1 ? "" : "s"}`);
+      await crearNotif({
+        type: "mi_dia",
+        title: partes.length ? "☀️ Tu día" : "☀️ Día despejado",
+        body: partes.length
+          ? partes.join(" · ") + ". " + (hoyMias[0] || atrasadas[0]).title
+          : "No tienes nada agendado para hoy.",
+        to: correosDe([u]), url: "/", important: !!atrasadas.length,
+        dedupKey: "dia_" + u.id + "_" + hoy,
+      });
+    }
+    hecho.push("resumen personal x" + TEAM.length);
+
+    // 2 · IVA: el 20 de cada mes, a los admins.
+    if (diaMesCL() === 20) {
+      await crearNotif({
+        type: "iva", title: "🧾 Hoy vence el IVA",
+        body: "Día 20: hay que declarar y pagar el IVA del mes anterior.",
+        to: correosDe(TEAM.filter(u => u.role === "admin")), url: "/", important: true,
+        dedupKey: "iva_" + hoy.slice(0, 7),
+      });
+      hecho.push("iva");
+    }
+
+    // 3 · Días de grabación de hoy y de mañana.
+    const grabs = (await sbGet("grabs", {})) || {};
+    const guiones = (await sbGet("guiones", [])) || [];
+    for (const g of Object.values(grabs).flat()) {
+      if (g.day !== hoy && g.day !== ds) continue;
+      const gu = guiones.find(x => String(x.id) === String(g.guionId));
+      await crearNotif({
+        type: "grabacion",
+        title: g.day === hoy ? "🎬 Hoy hay grabación" : "🎬 Mañana hay grabación",
+        body: (gu?.title || "Día de grabación") + (g.time ? " · " + g.time : ""),
+        url: "/", important: g.day === hoy,
+        dedupKey: "grab_" + g.id + "_" + g.day + "_" + hoy,
+      });
+      hecho.push("grabacion");
+    }
+
+    // 4 · Reuniones y eventos de hoy, apenas empieza el día.
+    for (const r of ((await sbGet("reuniones", [])) || []).filter(x => x.date === hoy)) {
+      await crearNotif({
+        type: "reunion", title: "🗓 Hoy tienes reunión",
+        body: r.title + (r.time ? " · " + r.time : ""),
+        to: correosDe(masAdmins(porIds(r.attendees))), url: r.meetLink || "/", important: true,
+        dedupKey: "reu_dia_" + r.id + "_" + hoy,
+      });
+      hecho.push("reunion hoy");
+    }
+    for (const e of ((await sbGet("eventos", [])) || []).filter(x => x.date === hoy)) {
+      await crearNotif({
+        type: "evento", title: "📌 Hoy es el evento",
+        body: e.title + ((e.hours || []).length ? " · " + e.hours.join(", ") : ""),
+        to: correosDe(masAdmins(porIds(e.attendees))), url: "/", important: true,
+        dedupKey: "ev_dia_" + e.id + "_" + hoy,
+      });
+      hecho.push("evento hoy");
+    }
+
+    await sbPut("notif_daily", hoy);
+    return { ok: true, hoy, hecho };
+  } catch (e) { console.error("repaso diario:", e.message); return { error: e.message }; }
+}
+
+// ── Repaso corto: "empieza en una hora" ───────────────────────────────────────
+// Cada 10 minutos se busca lo que arranca dentro de 45–75 min. La ventana es ancha a
+// propósito: si el servidor estuvo dormido un rato, el aviso sale igual. El dedupKey
+// impide que se repita aunque la ventana se recorra varias veces.
+async function repasoCorto() {
+  try {
+    const hoy = hoyCL();
+    const ahora = horaMinCL() * 60;
+    const enVentana = hhmm => { const d = enMin(hhmm) - ahora; return d >= 45 && d <= 75; };
+
+    for (const r of ((await sbGet("reuniones", [])) || []).filter(x => x.date === hoy && enVentana(x.time))) {
+      await crearNotif({
+        type: "reunion", title: "⏰ Tu reunión empieza en una hora",
+        body: r.title + " · " + r.time + (r.meetLink ? " · toca para entrar a Meet" : ""),
+        to: correosDe(masAdmins(porIds(r.attendees))), url: r.meetLink || "/", important: true,
+        dedupKey: "reu_1h_" + r.id + "_" + hoy,
+      });
+    }
+    for (const e of ((await sbGet("eventos", [])) || []).filter(x => x.date === hoy && (x.hours || []).some(enVentana))) {
+      await crearNotif({
+        type: "evento", title: "⏰ Tu evento empieza en una hora",
+        body: e.title + " · " + (e.hours || []).find(enVentana),
+        to: correosDe(masAdmins(porIds(e.attendees))), url: "/", important: true,
+        dedupKey: "ev_1h_" + e.id + "_" + hoy,
+      });
+    }
+  } catch (e) { console.error("repaso corto:", e.message); }
+}
+
+setTimeout(() => { repasoDiario(); repasoCorto(); }, 20000);
+setInterval(() => repasoDiario(), 3600000);
+setInterval(() => repasoCorto(), 600000);
+app.post("/api/notifs/repaso", requireAuth, async (req, res) => { const d = await repasoDiario(true); await repasoCorto(); res.json(d); });
 
 // ===============================
 // 🧪 TEST & HEALTH
@@ -286,7 +816,8 @@ app.get("/api/test", (req, res) => {
 app.get("/api/health", (req, res) => {
   res.json({
     gemini: !!process.env.GEMINI_API_KEY,
-    email: !!process.env.RESEND_API_KEY
+    email: !!process.env.RESEND_API_KEY,
+    push: pushReady
   });
 });
 
@@ -400,13 +931,21 @@ app.post("/api/meta/advisor", requireAuth, async (req, res) => {
 // ===============================
 // 🔐 AUTH GOOGLE
 // ===============================
-app.get("/api/auth/google-login", (req, res) => {
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=openid email profile`);
-});
+// El calendario se pide en el mismo inicio de sesión: quien entra con Google queda
+// conectado de una, sin botón aparte. Se usa `calendar.events` (crear y editar eventos) en
+// vez del scope completo de calendario: alcanza para lo que hace la app y en la pantalla de
+// permisos de Google se lee mucho menos invasivo.
+const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const authURL = (state, consent) =>
+  `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}` +
+  `&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code` +
+  `&scope=${encodeURIComponent(GCAL_SCOPE + " openid email profile")}` +
+  `&state=${state}&access_type=offline&include_granted_scopes=true` +
+  (consent ? "&prompt=consent" : "");
 
-app.get("/api/auth/google", (req, res) => {
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar openid email profile&state=gcal&access_type=offline&prompt=consent`);
-});
+app.get("/api/auth/google-login", (req, res) => res.redirect(authURL("login", false)));
+// Reconectar a mano, para cuando alguien revocó el permiso o entró antes de este cambio.
+app.get("/api/auth/google", (req, res) => res.redirect(authURL("gcal", true)));
 
 app.get("/api/auth/callback/google", async (req, res) => {
   const { code, state } = req.query;
@@ -425,38 +964,25 @@ app.get("/api/auth/callback/google", async (req, res) => {
     const userData = await userRes.json();
     console.log("LOGIN OK:", userData.email);
 
-    if (state === "gcal") {
-      // Store refresh_token in Supabase for persistent access
-      if (tokenData.refresh_token) {
-        try {
-          const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
-          const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
-          // Load existing gcal tokens
-          const loadRes = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.gcal_tokens&select=value`, {
-            headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` }
-          });
-          const loadData = await loadRes.json();
-          const existing = loadData?.[0]?.value || {};
-          existing[userData.email] = { refresh_token: tokenData.refresh_token, access_token: tokenData.access_token, email: userData.email };
+    // Google solo entrega refresh_token la PRIMERA vez que se concede el permiso. Si no
+    // viene y tampoco hay uno guardado, se pide una segunda vuelta con prompt=consent —
+    // una sola, marcada con el state, para no quedar en un ciclo.
+    if (!userData.email) { console.error("Google no devolvió el correo:", userData); return res.send("Google no devolvió el correo de la cuenta"); }
 
-          // Upsert
-          await fetch(`${sbUrl}/rest/v1/app_data`, {
-            method: "POST",
-            headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}`, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
-            body: JSON.stringify({ key: "gcal_tokens", value: existing, updated_at: new Date().toISOString() })
-          });
-          console.log("GCal refresh_token stored for:", userData.email);
-        } catch (e) { console.error("Error storing gcal token:", e.message); }
-      }
+    const guardados = (await sbGet("gcal_tokens", {})) || {};
+    if (tokenData.refresh_token) {
+      guardados[userData.email] = { refresh_token: tokenData.refresh_token, access_token: tokenData.access_token, email: userData.email };
+      await sbPut("gcal_tokens", guardados);
+      console.log("GCal refresh_token guardado para:", userData.email);
+    } else if (state === "login" && !guardados[userData.email]?.refresh_token) {
+      return res.redirect(authURL("login2", true));
+    }
+
+    if (state === "gcal") {
       return res.redirect(`/?gcal=success&gcal_token=${tokenData.access_token}&gcal_email=${userData.email}`);
     }
 
-    res.cookie("_iauth", signToken(userData.email), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60 * 1000
-    });
+    setAuthCookie(req, res, userData.email);
     return res.redirect(`/?login=success&email=${encodeURIComponent(userData.email)}`);
   } catch (err) {
     console.error(err);
@@ -496,7 +1022,21 @@ async function getGCalAccessToken(email) {
     })
   });
   const refreshData = await refreshRes.json();
-  if (!refreshData.access_token) { console.error("Refresh failed:", refreshData); return null; }
+  if (!refreshData.access_token) {
+    console.error("Refresh failed:", email, refreshData);
+    // `invalid_grant` = el permiso murió: se revocó, o el proyecto sigue en modo Testing y
+    // Google caduca los refresh tokens a los 7 días. Se borra el token muerto para que la
+    // app muestre "Reconectar calendario" en vez de fallar en silencio cada vez.
+    // Se exige que las credenciales del cliente OAuth estén configuradas: si faltaran, un
+    // despliegue mal configurado podría interpretar el fallo como permiso revocado y dejar
+    // a todo el equipo sin calendario de un viaje.
+    if (refreshData.error === "invalid_grant" && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+      delete tokens[email];
+      try { await sbPut("gcal_tokens", tokens); } catch (e) {}
+      console.log("Token de calendario caducado, borrado para:", email);
+    }
+    return null;
+  }
   return refreshData.access_token;
 }
 
@@ -995,6 +1535,68 @@ app.get("/api/atlas/prospects",requireAtlas,async(req,res)=>{
     if(status)list=list.filter(p=>(p.status||"pendiente").toLowerCase()===status);
     res.json({count:list.length,prospects:list});
   }catch(err){console.error("Atlas prospects get error:",err);res.status(500).json({error:err.message});}
+});
+
+// ===============================
+// 📤 SUBIDA DE CONTENIDO (Supabase Storage)
+// ===============================
+// Los archivos de contenido (posts, reels) NO pueden ir como base64 dentro de la fila
+// `tasks` de app_data: un solo reel infla la fila decenas de MB, y DB.loadAll() se trae
+// esa fila entera en cada carga de cada usuario. Aquí subimos el binario a Supabase
+// Storage y devolvemos solo la URL pública, que es lo que se guarda en la tarea.
+const CONTENT_BUCKET = process.env.SUPABASE_BUCKET || "contenido";
+const uploadBig = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+function storageKey() {
+  // La subida a Storage necesita service_role: la publishable key no puede escribir.
+  return process.env.SUPABASE_SERVICE_KEY || "";
+}
+
+app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
+    const key = storageKey();
+    if (!key) return res.status(503).json({ error: "storage_no_configurado" });
+
+    const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+    const safeName = (req.file.originalname || "archivo")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
+    const folder = String(req.body?.companyId || "sin_empresa").replace(/[^a-zA-Z0-9_-]/g, "");
+    const objectPath = `${folder}/${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safeName}`;
+
+    const r = await fetch(`${sbUrl}/storage/v1/object/${CONTENT_BUCKET}/${objectPath}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": req.file.mimetype || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: req.file.buffer,
+    });
+
+    if (!r.ok) {
+      const detail = await r.text();
+      console.error("Storage upload failed:", r.status, detail);
+      return res.status(502).json({ error: `Storage respondió ${r.status}`, detail: detail.slice(0, 300) });
+    }
+
+    res.json({
+      url: `${sbUrl}/storage/v1/object/public/${CONTENT_BUCKET}/${objectPath}`,
+      name: req.file.originalname,
+      type: req.file.mimetype,
+      size: req.file.size,
+    });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Permite al frontend saber si puede subir video o si tiene que limitarse a imágenes
+// pequeñas en base64 (fallback cuando el bucket todavía no está configurado).
+app.get("/api/upload/status", requireAuth, (req, res) => {
+  res.json({ ready: !!storageKey(), bucket: CONTENT_BUCKET });
 });
 
 // ===============================
