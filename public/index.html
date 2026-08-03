@@ -905,7 +905,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       </nav>}
 
       <main className="main-col" style={{flex:1,minWidth:0,display:"flex",flexDirection:"column"}}>
-        <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:isMob?"12px 16px":"14px 28px",borderBottom:"1px solid "+D.line,position:"sticky",top:0,zIndex:40,background:"rgba(5,6,11,.92)",backdropFilter:"blur(12px)"}}>
+        <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:isMob?"calc(12px + env(safe-area-inset-top, 0px)) 16px 12px":"14px 28px",borderBottom:"1px solid "+D.line,position:"sticky",top:0,zIndex:40,background:"rgba(5,6,11,.92)",backdropFilter:"blur(12px)"}}>
           <div style={{display:"flex",alignItems:"center",gap:14,flex:1,maxWidth:520,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 15px",background:D.panel,border:"1px solid "+D.line3,borderRadius:999,flex:1,minWidth:0}}>
               <Ic n="search" s={15} c={D.tx4}/>
@@ -1128,7 +1128,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {isMob&&<>
         {/* Slide-up menu */}
         {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:998,backdropFilter:"blur(3px)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:56,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
+          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(56px + env(safe-area-inset-bottom, 0px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
               {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["contenido","🎨","Contenido"],["payments","💰","Pagos"],["team","👥","Equipo"],["metricas","📈","Métricas"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
@@ -4935,7 +4935,7 @@ function ClientView({user:cu,onLogout:ol}){
     <div style={{minHeight:"100vh",color:PC.tx,fontFamily:"'Instrument Sans', 'Outfit', system-ui, sans-serif",
       background:"radial-gradient(900px 420px at 50% -140px, rgba(111,231,242,.07), transparent 70%), "+PC.bg}}>
 
-      <header style={{position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:isMob?10:14,padding:isMob?"12px 16px":"14px 28px",background:"rgba(5,6,11,.92)",backdropFilter:"blur(12px)",borderBottom:"1px solid "+PC.line}}>
+      <header style={{position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:isMob?10:14,padding:isMob?"calc(12px + env(safe-area-inset-top, 0px)) 16px 12px":"14px 28px",background:"rgba(5,6,11,.92)",backdropFilter:"blur(12px)",borderBottom:"1px solid "+PC.line}}>
         <div style={{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.cian+","+PC.peri+")",color:PC.bg,fontSize:12,fontWeight:700,flexShrink:0}}>IN</div>
         {!isMob&&<div style={{width:1,height:22,background:"#1E2536"}}/>}
         {/* El chip abre el perfil: correo, contraseña y carpetas de Drive */}
