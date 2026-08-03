@@ -311,6 +311,11 @@ const incluidoDe=co=>({...(PLANS[co?.plan]?.tasks||{}),...(co?.tasks||{}),...(co
 // mes de su fecha. Las que todavía no tienen fecha son trabajo del mes en curso pendiente de
 // agendar, así que cuentan solo ahí: imputarlas a cualquier mes que se mirara hacía que una
 // pieza sin agendar apareciera consumida en todos los meses a la vez.
+// Una unidad del plan se da por gastada cuando el cliente la aprueba: publicar viene después
+// y depende de él, así que aprobada ya cuenta. Lo que está en camino —en producción, listo,
+// esperando respuesta o corrigiéndose tras un rechazo— todavía no se gastó, pero sí está
+// comprometido: no se puede prometer dos veces el mismo post. Por eso se cuentan aparte y las
+// dos cosas restan del saldo.
 const usadasEnMes=(tasks,coId,y,m)=>{
   const h=new Date(), esMesActual=(y===h.getFullYear()&&m===h.getMonth());
   const o={};
@@ -319,10 +324,24 @@ const usadasEnMes=(tasks,coId,y,m)=>{
     if(t.extraSlot)return;                       // los adicionales se cobran aparte
     if(t.date){const p=String(t.date).split("-");if(+p[0]!==y||+p[1]!==m+1)return;}
     else if(!esMesActual)return;
-    o[t.type]=(o[t.type]||0)+1;
+    const c=o[t.type]||(o[t.type]={aprobadas:0,enCurso:0});
+    if(["aprobado","publicado"].includes(t.state))c.aprobadas++;else c.enCurso++;
   });
   return o;
 };
+
+// ¿Esta pieza ya pasó por las manos del cliente? Da igual en qué punto esté: esperando
+// respuesta, aprobada, publicada, rechazada o ya corregida. Desde el momento en que el cliente
+// la vio, mandan su estado, su fecha y su material por sobre lo que diga el planner.
+//
+// Mirar solo el estado no alcanzaba: una pieza rechazada vuelve a `en_proceso`, y al subir la
+// corrección `clientApproval` se pone a null. En esos dos momentos parecía una pieza cualquiera
+// en producción, así que confirmarla desde Org Semanal devolvía los archivos del planner —es
+// decir, la versión que el cliente ya había rechazado— y borraba la corrección.
+const salioAlPortal=t=>!!t&&(
+  ["en_aprobacion","aprobado","publicado"].includes(t.state)
+  ||!!t.clientApproval
+  ||!!(t.revisions||[]).length);
 
 const saldoDe=(co,tasks,y,m)=>{
   const inc=incluidoDe(co);
@@ -330,8 +349,12 @@ const saldoDe=(co,tasks,y,m)=>{
   const ajuste=(co?.ajuste||{})[mesKey(y,m)]||{};
   const tipos=[...new Set([...Object.keys(inc),...Object.keys(usadas)])].filter(k=>TT[k]);
   return tipos.map(k=>{
-    const incluido=inc[k]||0, usado=(usadas[k]||0)+(ajuste[k]||0);
-    return{tipo:k,incluido,usado,libre:incluido-usado};
+    const incluido=inc[k]||0;
+    const u=usadas[k]||{aprobadas:0,enCurso:0};
+    // El ajuste es lo que ya venía consumido según el registro de fuera de la app: cuenta
+    // como aprobado, porque es trabajo cerrado.
+    const aprobadas=u.aprobadas+(ajuste[k]||0);
+    return{tipo:k,incluido,aprobadas,enCurso:u.enCurso,usado:aprobadas,libre:incluido-aprobadas-u.enCurso};
   }).sort((a,b)=>b.incluido-a.incluido);
 };
 const MO=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -439,20 +462,36 @@ function Cupos({co,tasks,y,m,compact}){
       <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
         {MO[m]} · disponible
       </span>
+      {/* Cada tipo lleva su barra: relleno sólido = aprobado (gastado de verdad), relleno
+          tenue = en curso (comprometido, todavía sin confirmar). Se ve sin pasar el dedo por
+          encima, que en el teléfono no existe. */}
       {saldo.map(s=>{
         const c=TT[s.tipo]?.c||PC.tx3;
         const sinCupo=s.libre<=0;
+        const pct=n=>s.incluido>0?Math.min(100,n/s.incluido*100)+"%":"0%";
         return(
-          <span key={s.tipo} title={s.incluido+" incluidas · "+s.usado+" usadas"}
-            style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:999,background:sinCupo?"rgba(255,139,139,.08)":c+"14",border:"1px solid "+(sinCupo?"rgba(255,139,139,.45)":c+"40"),fontSize:11.5,fontWeight:600,color:sinCupo?PC.rojo:PC.tx2}}>
-            <b style={{fontFamily:"var(--font-mono)",fontSize:12.5,color:sinCupo?PC.rojo:c}}>{s.libre}</b>
-            {TT[s.tipo]?.l||s.tipo}
-            {s.incluido>0&&<span style={{opacity:.5,fontSize:10}}>de {s.incluido}</span>}
-          </span>);
+          <div key={s.tipo} style={{display:"flex",flexDirection:"column",gap:4,padding:"7px 11px",borderRadius:12,minWidth:86,background:sinCupo?"rgba(255,139,139,.07)":c+"12",border:"1px solid "+(sinCupo?"rgba(255,139,139,.42)":c+"38")}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:5}}>
+              <b style={{fontFamily:"var(--font-mono)",fontSize:15,lineHeight:1,color:sinCupo?PC.rojo:c}}>{s.libre}</b>
+              <span style={{fontSize:11,fontWeight:600,color:PC.tx2}}>{TT[s.tipo]?.l||s.tipo}</span>
+              {s.incluido>0&&<span style={{marginLeft:"auto",fontSize:9.5,color:PC.tx4}}>de {s.incluido}</span>}
+            </div>
+            {s.incluido>0&&<div style={{display:"flex",height:3,borderRadius:2,overflow:"hidden",background:PC.line}}>
+              <span style={{width:pct(s.aprobadas),background:c}}/>
+              <span style={{width:pct(s.enCurso),background:c,opacity:.34}}/>
+            </div>}
+            <span style={{fontFamily:"var(--font-mono)",fontSize:9,color:PC.tx4,letterSpacing:".03em"}}>
+              {s.aprobadas} aprob · {s.enCurso} en curso
+            </span>
+          </div>);
       })}
       {agotados>0&&<span style={{fontSize:11,color:PC.rojo,fontWeight:600,flexBasis:"100%"}}>
         Sin cupo en {agotados===1?"un tipo":agotados+" tipos"}: lo que se cree de más va como adicional.
       </span>}
+      <span style={{fontSize:10.5,color:PC.tx4,flexBasis:"100%",lineHeight:1.4}}>
+        El número grande es lo que queda por empezar. El cupo se confirma como gastado recién
+        cuando el cliente aprueba; publicar ya depende de él.
+      </span>
     </div>);
 }
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
@@ -1123,8 +1162,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                         <button onClick={()=>setIncluido(c,s.tipo,s.incluido-1)} title="Menos incluidas" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1,padding:0}}>−</button>
                         <span className="num" title="Incluidas en el plan" style={{minWidth:22,textAlign:"center",fontSize:13,fontWeight:700,color:"var(--tx)"}}>{s.incluido}</span>
                         <button onClick={()=>setIncluido(c,s.tipo,s.incluido+1)} title="Más incluidas" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1,padding:0}}>+</button>
-                        <span title={s.usado+" usadas este mes"} style={{minWidth:74,textAlign:"right",fontSize:11,fontWeight:600,color:s.libre<=0&&s.incluido>0?"var(--danger)":"var(--tx3)"}}>
-                          quedan {s.libre}
+                        <span title={s.aprobadas+" aprobadas · "+s.enCurso+" en curso"} style={{minWidth:88,textAlign:"right",fontSize:11,fontWeight:600,color:s.libre<=0&&s.incluido>0?"var(--danger)":"var(--tx3)"}}>
+                          quedan {s.libre}{s.enCurso>0&&<span style={{opacity:.7}}> ({s.enCurso} en curso)</span>}
                         </span>
                         <button onClick={()=>ajustarUsadas(c,s.tipo,1)} title="Marcar una como ya usada (registro de fuera de la app)" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:11,lineHeight:1,padding:0}}>▾</button>
                         <button onClick={()=>ajustarUsadas(c,s.tipo,-1)} title="Devolver una al cupo" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"1px solid var(--border)",color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit",fontSize:11,lineHeight:1,padding:0}}>▴</button>
@@ -2436,8 +2475,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       addN("↩️ «"+(t.title||"Pieza")+"» volvió a ser un cupo libre");
       return;
     }
-    const enPortal=["en_aprobacion","aprobado","publicado"].includes(t.state);
-    if(!confirm("¿Eliminar «"+(t.title||"Sin título")+"»?"+(enPortal?"\n\nOJO: ya salió al portal del cliente. Se pierden sus votos, archivos y la respuesta del cliente.":"")+(t.itemId!=null?"\n\nTambién se quita de Org Semanal.":"")+"\n\nEsto no se puede deshacer."))return;
+    const enPortal=salioAlPortal(t);
+    if(!confirm("¿Eliminar «"+(t.title||"Sin título")+"»?"+(enPortal?"\n\nOJO: ya pasó por el portal del cliente. Se pierden sus votos, archivos, correcciones y la respuesta del cliente.":"")+(t.itemId!=null?"\n\nTambién se quita de Org Semanal.":"")+"\n\nEsto no se puede deshacer."))return;
     sT(p=>{const r=p.filter(x=>x.id!==t.id);DB.save("tasks",r);return r;});
     // Su item en el planner tiene que irse también: si no, la próxima confirmación la revive.
     if(t.itemId!=null&&sPlanners){
@@ -3977,9 +4016,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   };
   const removeItem=async(id)=>{
     const tarea=tasks.find(t=>String(t.itemId)===String(id));
-    const enPortal=tarea&&["en_aprobacion","aprobado","publicado"].includes(tarea.state);
+    const enPortal=salioAlPortal(tarea);
     const aviso=enPortal
-      ? "Esta pieza ya salió al portal del cliente. Si la eliminas se va también de Contenido, con sus votos, archivos y la respuesta del cliente. ¿Eliminar igual?"
+      ? "Esta pieza ya pasó por el portal del cliente. Si la eliminas se va también de Contenido, con sus votos, archivos, correcciones y la respuesta del cliente. ¿Eliminar igual?"
       : tarea ? "Se elimina del planner y también de Contenido. ¿Eliminar?"
       : "¿Eliminar este contenido?";
     if(!confirm(aviso))return;
@@ -4029,9 +4068,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     sConfirmando(it.id);
     const plannerTag="planner_"+weekKey;
     const vieja=tasks.find(t=>String(t.itemId)===String(it.id));
-    // Una vez que la pieza salió al portal manda lo que pasó allá —su estado y su fecha de
-    // publicación—, no lo que diga el planner.
-    const enElPortal=vieja&&["en_aprobacion","aprobado","publicado"].includes(vieja.state);
+    // Una vez que la pieza salió al portal manda lo que pasó allá —su estado, su fecha y su
+    // material—, no lo que diga el planner. Incluye las rechazadas y las ya corregidas: una
+    // pieza rechazada no se elimina, se arregla hasta que se apruebe, y el planner no puede
+    // deshacer ese trabajo.
+    const enElPortal=salioAlPortal(vieja);
     const tarea={
       ...(vieja||{}),
       id:vieja?vieja.id:(Date.now()+Math.random()*10000|0),

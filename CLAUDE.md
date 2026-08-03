@@ -99,8 +99,13 @@ las listas sin que nadie las pidiera y, si alguien las movía de estado, se qued
 para siempre sin forma de sacarlas. Eran 72 de 139 tareas. Ahora:
 
 ```
-disponible = incluido − (piezas reales del mes + ajuste de arranque)
+disponible = incluido − aprobadas − en curso
 ```
+
+**El cupo se confirma como gastado cuando el cliente aprueba**, no antes: publicar viene después
+y ya depende de él. Pero lo que está en camino —en producción, listo, esperando respuesta o
+corrigiéndose tras un rechazo— resta igual, porque no se puede prometer dos veces el mismo
+post; ese descuento es provisional y se ve aparte (`aprobadas` vs `enCurso`).
 
 - `incluidoDe(co)`: lo que contrata el cliente, por tipo. `co.incluido` pisa a la plantilla de
   `PLANS`, porque los planes se negocian caso a caso y tienen que editarse sin tocar el código.
@@ -162,8 +167,15 @@ al calendario piezas a medio llenar. Ahora:
 
 Las tareas se reconocen por `itemId` y se conservan; **antes se borraban y recreaban de cero**, y
 en cada guardado se perdían archivos, votos, comentarios y la respuesta del cliente, además de
-cambiar los ids y romper los guiones vinculados. Regla que sigue vigente: **una vez que la pieza
-salió al portal, mandan su estado y su fecha de publicación por sobre lo que diga el planner.**
+cambiar los ids y romper los guiones vinculados.
+
+**`salioAlPortal(t)` decide quién manda.** Desde que el cliente ve una pieza, mandan su estado,
+su fecha y su material por sobre el planner. La regla mira tres cosas —estado, `clientApproval`
+y `revisions`— y las tres hacen falta: una pieza rechazada vuelve a `en_proceso`, y al subir la
+corrección `clientApproval` se pone a `null`. Mirando solo el estado, en esos dos momentos
+parecía una pieza cualquiera en producción, así que confirmarla desde Org Semanal devolvía los
+archivos del planner —la versión que el cliente había rechazado— y borraba la corrección. Una
+pieza rechazada **no se elimina: se arregla hasta que se apruebe**, y nada puede deshacer eso.
 
 Borrar un item **borra también su tarea** (`borrarTareasDe`). Antes solo desaparecía del planner
 y la tarea quedaba huérfana en Contenido para siempre; lo tapaba de rebote el guardado global,
