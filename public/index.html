@@ -5681,7 +5681,11 @@ function ClientView({user:cu,onLogout:ol}){
   if(!loaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:12}}><div style={{width:36,height:36,borderRadius:9,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:17}}>IN</div><div style={{color:"var(--tx2)",fontSize:13}}>Cargando...</div></div>);
 
   const pad=isMob?16:24;
-  const tabs=[["aprobar","Por aprobar",approval.length],["planificar","Planificar",0]];
+  // El informe es de Huemul y sus cifras están escritas a mano, así que la pestaña solo
+  // aparece en ese portal. En cuanto haya informe de otra empresa, esto pasa a mirar un dato
+  // de la empresa en vez del nombre.
+  const tieneInforme=/huemul/i.test(co?.name||"");
+  const tabs=[["aprobar","Por aprobar",approval.length],["planificar","Planificar",0],...(tieneInforme?[["informe","Informe del mes",0]]:[])];
   const iniciales=(cu.companyName||cu.name||"?").slice(0,2).toUpperCase();
 
   return(
@@ -5713,7 +5717,7 @@ function ClientView({user:cu,onLogout:ol}){
         <div style={{display:"flex",gap:isMob?18:26,marginBottom:26,borderBottom:"1px solid "+PC.line}}>
           {tabs.map(([k,l,n])=>{const on=tab===k;return(
             <button key={k} onClick={()=>sTab(k)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 2px 14px",background:"none",border:"none",borderBottom:"2px solid "+(on?PC.cian:"transparent"),marginBottom:-1,color:on?PC.tx:PC.tx4,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-              <Ic n={k==="aprobar"?"ai":"calendar"} s={15} c={on?PC.cian:PC.tx4}/>
+              <Ic n={k==="aprobar"?"ai":k==="informe"?"trend_up":"calendar"} s={15} c={on?PC.cian:PC.tx4}/>
               {l}
               {n>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(111,231,242,.14)",border:"1px solid rgba(111,231,242,.4)",color:PC.cian,fontSize:11,fontWeight:700}}>{n}</span>}
             </button>);})}
@@ -5721,6 +5725,8 @@ function ClientView({user:cu,onLogout:ol}){
 
         {!co?(
           <div style={{textAlign:"center",padding:48,color:PC.tx3,fontSize:14}}>No encontramos la empresa «{cu.companyName}». Avísale al equipo de Inmersia.</div>
+        ):tab==="informe"?(
+          <InformePg/>
         ):tab==="aprobar"?(
           <SwipeDeck items={approval} onApprove={approve} onReject={reject} isMob={isMob} busy={busy} onGoPlan={()=>sTab("planificar")}/>
         ):(
