@@ -820,7 +820,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const canProspectos=isA||cu.role==="Sales";
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
-  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"]};
+  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"]};
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
@@ -1292,6 +1292,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* MÉTRICAS */}
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
+        {pg==="informe"&&<InformePg cos={cos}/>}
         {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners}/>}
 
         {/* TEAM */}
@@ -2785,6 +2786,195 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>
     </Md>
 
+  </div>);
+}
+
+// ═══ INFORME MENSUAL ═════════════════════════════════════════════
+// Pantalla de reunión con cliente: se proyecta y se lee de un vistazo, así que manda el
+// titular por sobre el detalle. Las dos campañas llevan color fijo —cian la activa, cálido
+// la pausada— y CADA barra lleva su número impreso: la identidad nunca depende del color,
+// que es lo que la hace legible en un proyector malo o para quien no distingue tonos.
+const INF_A="#6FE7F2";   // JUNIO · recirculación (activa)
+const INF_B="#FF8B8B";   // 04 · verano (pausada)
+
+const CAMP={
+  a:{n:"JUNIO · Recirculación videos",corto:"Junio",estado:"Activa",desde:"11 jun 2026",dias:53,
+     visitas:12467,coste:17,ctr:7.45,gasto:217506,impresiones:192915,alcance:80431,ritmo:235},
+  b:{n:"04 · Huemul Verano",corto:"Verano",estado:"Pausada",desde:"15 dic 2025",dias:120,
+     visitas:10549,coste:22,ctr:3.42,gasto:231230,impresiones:333269,alcance:87845,ritmo:88},
+};
+
+const nInf=n=>n.toLocaleString("es-CL");
+const $Inf=n=>"$"+n.toLocaleString("es-CL");
+
+// Barra comparativa. `mejorBajo` invierte la lectura: en coste por resultado gana el menor,
+// y sin esto la barra más larga parecería la mejor.
+function InfBarra({label,a,b,fmt,mejorBajo,nota}){
+  const max=Math.max(a,b)*1.15;
+  const ganaA=mejorBajo?a<b:a>b;
+  const fila=(v,color,nombre,gana)=>(
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+      <span style={{width:58,flexShrink:0,fontSize:11,fontWeight:600,color:PC.tx3,textAlign:"right"}}>{nombre}</span>
+      <div style={{flex:1,minWidth:0,height:26,borderRadius:6,background:"rgba(255,255,255,.03)",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:"0 auto 0 0",width:Math.max(2,v/max*100)+"%",background:color,borderRadius:"0 4px 4px 0",transition:"width .5s ease"}}/>
+        <span style={{position:"absolute",left:10,top:0,bottom:0,display:"flex",alignItems:"center",fontFamily:"var(--font-mono)",fontSize:12.5,fontWeight:700,color:"#05060B"}}>{fmt(v)}</span>
+      </div>
+      {gana&&<span style={{flexShrink:0,fontSize:10,fontWeight:700,color:PC.cian,letterSpacing:".04em"}}>MEJOR</span>}
+    </div>);
+  return(
+    <div style={{padding:"14px 16px",borderRadius:14,background:PC.panel,border:"1px solid "+PC.line3}}>
+      <div style={{fontSize:12.5,fontWeight:700,color:PC.tx2,marginBottom:2}}>{label}</div>
+      {nota&&<div style={{fontSize:10.5,color:PC.tx4,marginBottom:9}}>{nota}</div>}
+      {!nota&&<div style={{height:9}}/>}
+      {fila(a,INF_A,CAMP.a.corto,ganaA)}
+      {fila(b,INF_B,CAMP.b.corto,!ganaA)}
+    </div>);
+}
+
+function InfHero({valor,texto,sub}){
+  return(
+    <div style={{flex:"1 1 190px",padding:"18px 18px 16px",borderRadius:16,background:"linear-gradient(160deg, rgba(111,231,242,.10), rgba(111,231,242,.02))",border:"1px solid rgba(111,231,242,.34)"}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:34,fontWeight:700,lineHeight:1,color:PC.cian,letterSpacing:"-.02em"}}>{valor}</div>
+      <div style={{fontSize:13,fontWeight:700,color:PC.tx,marginTop:8,lineHeight:1.35}}>{texto}</div>
+      <div style={{fontSize:11.5,color:PC.tx3,marginTop:5,lineHeight:1.45}}>{sub}</div>
+    </div>);
+}
+
+function InformePg({cos}){
+  const a=CAMP.a, b=CAMP.b;
+  const freqA=a.impresiones/a.alcance, freqB=b.impresiones/b.alcance;
+  const ahorro=Math.round(a.visitas*b.coste-a.gasto);   // lo que habría costado al precio de verano
+
+  const filas=[
+    ["Estado",a.estado,b.estado,null],
+    ["Visitas al perfil",nInf(a.visitas),nInf(b.visitas),"a"],
+    ["Coste por resultado",$Inf(a.coste),$Inf(b.coste),"a"],
+    ["CTR (tasa de clics)",a.ctr+"%",b.ctr+"%","a"],
+    ["Importe gastado",$Inf(a.gasto),$Inf(b.gasto),"a"],
+    ["Impresiones",nInf(a.impresiones),nInf(b.impresiones),null],
+    ["Alcance (cuentas)",nInf(a.alcance),nInf(b.alcance),null],
+    ["Frecuencia por persona",freqA.toFixed(1)+"×",freqB.toFixed(1)+"×","a"],
+    ["Días activa",a.dias+" días",b.dias+" días",null],
+    ["Visitas por día",nInf(a.ritmo),nInf(b.ritmo),"a"],
+  ];
+
+  const Bloque=({titulo,children,color})=>(
+    <div style={{...D_CARD,marginBottom:14,borderLeft:"3px solid "+(color||PC.line2)}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:10,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:10}}>{titulo}</div>
+      {children}
+    </div>);
+
+  return(<div className="d-in" style={{maxWidth:1120,margin:"0 auto"}}>
+
+    <div style={{marginBottom:20}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:10.5,letterSpacing:".18em",textTransform:"uppercase",color:PC.cian,marginBottom:6}}>Informe mensual · Meta Ads</div>
+      <h1 style={{fontSize:29,fontWeight:600,letterSpacing:"-.025em",margin:0}}>Huemul Restaurante</h1>
+      <p style={{fontSize:13.5,color:PC.tx3,marginTop:6,lineHeight:1.55,maxWidth:720}}>
+        Comparativa de la campaña activa <b style={{color:PC.cian}}>Junio · Recirculación de videos</b> frente
+        a <b style={{color:INF_B}}>04 · Huemul Verano</b>, desde el inicio de cada una hasta hoy.
+      </p>
+    </div>
+
+    {/* El veredicto primero: es lo que se lee en los primeros diez segundos de reunión */}
+    <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
+      <InfHero valor="−22,7%" texto="más barata por visita" sub={"$"+a.coste+" por visita al perfil, frente a $"+b.coste+" en verano"}/>
+      <InfHero valor="2,2×" texto="más efectiva por clic" sub={"CTR de "+a.ctr+"% contra "+b.ctr+"%. Excepcional en restauración"}/>
+      <InfHero valor="2,7×" texto="más rápida" sub={a.ritmo+" visitas al día frente a "+b.ritmo+". Mismo resultado en menos tiempo"}/>
+    </div>
+
+    <div style={{padding:"15px 18px",borderRadius:14,background:"linear-gradient(160deg, rgba(143,242,194,.10), rgba(143,242,194,.02))",border:"1px solid rgba(143,242,194,.35)",marginBottom:20}}>
+      <div style={{fontSize:14.5,fontWeight:700,color:"#8FF2C2",marginBottom:5}}>Más resultados, gastando menos</div>
+      <div style={{fontSize:13,color:PC.tx2,lineHeight:1.6}}>
+        La campaña actual consiguió <b style={{color:PC.tx}}>{nInf(a.visitas-b.visitas)} visitas más</b> que la
+        de verano <b style={{color:PC.tx}}>gastando {$Inf(b.gasto-a.gasto)} menos</b>. Al precio por visita
+        que tenía verano, estas mismas visitas habrían costado {$Inf(a.visitas*b.coste)}:
+        el ahorro real es de <b style={{color:"#8FF2C2"}}>{$Inf(ahorro)}</b>.
+      </div>
+    </div>
+
+    {/* Leyenda: identidad por color + estado escrito, nunca solo el color */}
+    <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",marginBottom:12,padding:"9px 14px",borderRadius:999,background:PC.panel,border:"1px solid "+PC.line3,width:"fit-content"}}>
+      {[[INF_A,a],[INF_B,b]].map(([c,cp])=>(
+        <span key={cp.corto} style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:12,fontWeight:600,color:PC.tx2}}>
+          <span style={{width:11,height:11,borderRadius:3,background:c,flexShrink:0}}/>
+          {cp.n}
+          <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:999,background:cp.estado==="Activa"?"rgba(143,242,194,.14)":"rgba(255,255,255,.05)",color:cp.estado==="Activa"?"#8FF2C2":PC.tx4}}>{cp.estado}</span>
+        </span>))}
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(268px,1fr))",gap:12,marginBottom:20}}>
+      <InfBarra label="Visitas al perfil" nota="El objetivo de la campaña. Más es mejor." a={a.visitas} b={b.visitas} fmt={nInf}/>
+      <InfBarra label="Coste por visita" nota="Lo que cuesta cada resultado. Menos es mejor." a={a.coste} b={b.coste} fmt={$Inf} mejorBajo/>
+      <InfBarra label="CTR · tasa de clics" nota="Qué porcentaje de quienes lo ven, hacen clic." a={a.ctr} b={b.ctr} fmt={v=>v+"%"}/>
+      <InfBarra label="Visitas por día" nota="Ritmo de captación. Más es mejor." a={a.ritmo} b={b.ritmo} fmt={nInf}/>
+      <InfBarra label="Importe gastado" nota="La activa gastó menos y rindió más." a={a.gasto} b={b.gasto} fmt={$Inf} mejorBajo/>
+      <InfBarra label="Veces que se repite por persona" nota="Frecuencia. Menos repetición para el mismo efecto es mejor." a={+freqA.toFixed(1)} b={+freqB.toFixed(1)} fmt={v=>v+"×"} mejorBajo/>
+    </div>
+
+    <Bloque titulo="Por qué funciona mejor" color={PC.cian}>
+      <div style={{display:"flex",flexDirection:"column",gap:13}}>
+        {[
+          ["El contenido convence antes",
+           "En verano cada persona tuvo que ver el anuncio "+freqB.toFixed(1)+" veces para reaccionar. Ahora bastan "+freqA.toFixed(1)+". El video engancha desde el primer impacto, y por eso hacen falta muchas menos impresiones para el mismo resultado."],
+          ["Menos impresiones, más visitas",
+           "Verano necesitó "+nInf(b.impresiones)+" impresiones para "+nInf(b.visitas)+" visitas. La campaña actual lleva "+nInf(a.visitas)+" visitas con solo "+nInf(a.impresiones)+" impresiones: un "+Math.round((1-a.impresiones/b.impresiones)*100)+"% menos de exposición para más resultado."],
+          ["Deja audiencia para el futuro",
+           "Más de 5.700 reproducciones de video de 3 segundos y cerca de 7.000 interacciones con la página. Eso construye una base de retargeting mucho más valiosa que la que dejó verano, y sirve para las próximas promociones."],
+        ].map(([t,d])=>(
+          <div key={t} style={{display:"flex",gap:11}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:PC.cian,marginTop:6,flexShrink:0}}/>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:700,color:PC.tx,marginBottom:3}}>{t}</div>
+              <div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.6}}>{d}</div>
+            </div>
+          </div>))}
+      </div>
+    </Bloque>
+
+    <Bloque titulo="Detalle completo">
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5,minWidth:420}}>
+          <thead>
+            <tr style={{borderBottom:"1px solid "+PC.line2}}>
+              <th style={{textAlign:"left",padding:"7px 10px 9px 0",color:PC.tx4,fontWeight:600,fontSize:11}}>Métrica</th>
+              <th style={{textAlign:"right",padding:"7px 10px 9px",color:INF_A,fontWeight:700,fontSize:11.5,whiteSpace:"nowrap"}}>{a.corto} · activa</th>
+              <th style={{textAlign:"right",padding:"7px 0 9px 10px",color:INF_B,fontWeight:700,fontSize:11.5,whiteSpace:"nowrap"}}>{b.corto} · pausada</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(([m,va,vb,gana])=>(
+              <tr key={m} style={{borderBottom:"1px solid "+PC.line}}>
+                <td style={{padding:"9px 10px 9px 0",color:PC.tx3}}>{m}</td>
+                <td style={{padding:"9px 10px",textAlign:"right",fontFamily:"var(--font-mono)",fontWeight:gana==="a"?700:500,color:gana==="a"?PC.cian:PC.tx2,whiteSpace:"nowrap"}}>{va}{gana==="a"&&" ✓"}</td>
+                <td style={{padding:"9px 0 9px 10px",textAlign:"right",fontFamily:"var(--font-mono)",color:PC.tx3,whiteSpace:"nowrap"}}>{vb}</td>
+              </tr>))}
+          </tbody>
+        </table>
+      </div>
+    </Bloque>
+
+    <Bloque titulo="A qué prestar atención" color="#EFD9A0">
+      <div style={{fontSize:13,color:PC.tx2,lineHeight:1.65}}>
+        <b style={{color:"#EFD9A0"}}>La audiencia es pequeña y puede saturarse.</b> El conjunto de anuncios
+        del 1% apunta a unas 17.600–20.800 personas. Con un CTR tan alto no es un problema hoy, pero si el
+        coste por visita empieza a subir de forma sostenida por encima de los ${a.coste}, será el momento
+        de activar <b style={{color:PC.tx}}>Advantage+ Audience</b> para ampliar el alcance sin perder la
+        esencia de la segmentación.
+      </div>
+    </Bloque>
+
+    <Bloque titulo="Recomendación" color="#8FF2C2">
+      <div style={{fontSize:13.5,color:PC.tx2,lineHeight:1.7}}>
+        <b style={{color:"#8FF2C2"}}>Subir el presupuesto diario de la campaña actual.</b> Hoy está en
+        $5.000 diarios y rinde mejor que nunca: cada peso extra entra a ${a.coste} por visita en vez de
+        los ${b.coste} que costaba en verano. Es el momento de acelerar, porque el margen de rentabilidad
+        es el más alto que ha tenido la cuenta.
+      </div>
+    </Bloque>
+
+    <div style={{fontSize:11,color:PC.tx4,textAlign:"center",padding:"6px 0 10px",lineHeight:1.6}}>
+      Datos de Meta Ads desde el inicio de cada campaña hasta hoy · {a.corto} desde el {a.desde} · {b.corto} desde el {b.desde}
+    </div>
   </div>);
 }
 
