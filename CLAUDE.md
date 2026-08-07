@@ -66,6 +66,7 @@ solo el markup produce trabajo que hay que rehacer.
 - Centro de notificaciones y web push (`/api/notifs*`, `/api/push/*`)
 - Meta Ads / Instagram y Atlas (`/api/meta/*`, `/api/atlas/*`)
 - Publicación en redes con Zernio (`/api/social/*`)
+- Instagram directo con Meta, comentario → DM (`/api/ig/*`)
 
 Casi todas las rutas van tras `requireAuth`, que valida un HMAC en la cookie HttpOnly
 `_iauth`. La emiten tanto el callback de Google como `/api/auth/login`. Atlas usa la cabecera
@@ -80,8 +81,8 @@ equipo, hay que tocar los dos lados.
 Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
 Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
 `gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
-`notif_daily`, `user_creds`, `social`. Los binarios van al **Storage** (bucket `contenido`),
-nunca a esta tabla.
+`notif_daily`, `user_creds`, `social`, `ig`. Los binarios van al **Storage** (bucket
+`contenido`), nunca a esta tabla.
 
 ### Variables de entorno
 
@@ -261,6 +262,37 @@ empresa → profile → cuenta vive en `app_data.social`, y lo escribe `/api/soc
 
 Las escrituras pasan por la cola `enCola`, la misma de los avisos: es la misma fila única y el
 mismo *lost update*.
+
+## Comentario → DM (Meta directo, sin Zernio)
+
+**Zernio no sirve para esto y está comprobado:** su `POST /inbox/comments/reply` devuelve un
+`commentId`, o sea publica un comentario **público**. Y un DM a alguien que no te escribió
+hace poco lo rechaza el propio Instagram con `outside of allowed window` — comentar **no** abre
+esa ventana. Lo único que la abre es la *respuesta privada*, una capacidad de Meta que Zernio
+no expone. De ahí que `/api/ig/*` hable con Meta directamente.
+
+```
+POST https://graph.instagram.com/v23.0/<IG_ID>/messages
+{ "recipient": { "comment_id": "<ID>" }, "message": { "text": "…" } }
+```
+
+- **Un solo mensaje por comentario**, dentro de **7 días**. Para seguir, la persona responde.
+  No es una limitación nuestra: es lo que evita que esto sea spam.
+- **Standard Access basta para cuentas propias.** Para cuentas de clientes hace falta
+  *Advanced Access*, que exige App Review y verificación de negocio.
+- El webhook de Meta (campo `comments`) avisa **en tiempo real**, así que aquí no hay sondeo.
+- **La firma del webhook se valida sobre el cuerpo crudo.** Por eso `express.json` guarda
+  `req.rawBody`: validar sobre el JSON re-serializado no calza nunca.
+- **Se contesta 200 antes de trabajar.** Meta corta a los 20 s y reintenta.
+- `respondidos` en `app_data.ig` evita responder dos veces al mismo comentario: Meta reintenta
+  la entrega, y el segundo intento sería un error porque solo se admite un mensaje.
+- Los tokens duran 60 días y se renuevan solos cuando quedan menos de 10. Si se dejaran vencer,
+  la automatización moriría en silencio.
+- El `companyId` viaja firmado en el `state` del OAuth: sin firma, cualquiera podría completar
+  el flujo apuntando a otra empresa y quedarse con la cuenta de un cliente ajeno.
+
+Las palabras que disparan y su mensaje se editan en **Contenido → ⚡ Automatización**, por
+empresa, y viven en `app_data.ig.reglas`. La comparación ignora mayúsculas y tildes.
 
 ## Dominios y despliegue
 

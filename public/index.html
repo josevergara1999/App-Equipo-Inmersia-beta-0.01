@@ -250,6 +250,13 @@ const API={
   async socialPublish(d){try{const r=await fetch("/api/social/publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});return await r.json();}catch(e){return{error:e.message};}},
   // 200 al publicar no significa publicado: Instagram procesa el archivo después.
   async socialPost(id){try{const r=await fetch("/api/social/post/"+encodeURIComponent(id));return await r.json();}catch(e){return{status:null};}},
+  // ── Instagram directo: comentario → DM ──
+  // Aparte de Zernio a propósito: la respuesta privada es de Meta y Zernio no la expone.
+  async igStatus(companyId){try{const r=await fetch("/api/ig/status?companyId="+encodeURIComponent(companyId));return await r.json();}catch(e){return{configurado:false};}},
+  async igConnect(companyId){try{const r=await fetch("/api/ig/connect?companyId="+encodeURIComponent(companyId));return await r.json();}catch(e){return{error:e.message};}},
+  async igReglas(companyId,reglas){try{
+    const r=await fetch("/api/ig/reglas",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId,reglas})});
+    return await r.json();}catch(e){return{error:e.message};}},
   // Sube el binario a Supabase Storage y devuelve {name,type,url}. Si el bucket todavía
   // no está configurado cae a base64 SOLO para archivos chicos: meter un reel dentro del
   // JSON de tasks revienta la fila y la carga inicial de todos los usuarios.
@@ -2361,6 +2368,32 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     API.socialAccounts(selCo).then(d=>{if(!vivo)return;sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);});
     return()=>{vivo=false;};},[selCo]);
 
+  // Automatización comentario → DM. Va por Meta directo, no por Zernio: la respuesta privada
+  // es la única forma de escribirle a alguien que no te ha escrito, y Zernio no la expone.
+  const [autoOpen,sAutoOpen]=useState(false);
+  const [igEst,sIgEst]=useState(null);
+  const [reglas,sReglas]=useState([]);
+  const [guardando,sGuardando]=useState(false);
+  const cargarAuto=()=>API.igStatus(selCo).then(d=>{sIgEst(d);sReglas(d.reglas||[]);});
+  useEffect(()=>{if(autoOpen)cargarAuto();},[autoOpen,selCo]);
+
+  const conectarIGMeta=async()=>{
+    const d=await API.igConnect(selCo);
+    if(d&&d.authUrl){window.open(d.authUrl,"_blank","noopener");addN("Autoriza la cuenta en la pestaña nueva y vuelve a abrir esta ventana.");}
+    else addN("❌ "+((d&&d.error)||"no se pudo generar el enlace"));
+  };
+  const guardarReglas=async()=>{
+    sGuardando(true);
+    try{
+      const d=await API.igReglas(selCo,reglas);
+      if(d&&d.error)addN("❌ "+d.error);
+      else{sReglas(d.reglas||[]);addN("✅ Automatización guardada");}
+    }finally{sGuardando(false);}
+  };
+  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),palabra:"",mensaje:"",activa:true}]);
+  const editRegla=(i,campo,v)=>sReglas(r=>r.map((x,j)=>j===i?{...x,[campo]:v}:x));
+  const borrarRegla=i=>sReglas(r=>r.filter((_,j)=>j!==i));
+
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
   const otrosVotantes=()=>otrosQueYo(equipo,cu);
@@ -2795,6 +2828,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
              style={{padding:"9px 16px",borderRadius:999,background:"rgba(201,191,255,.07)",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>📸 @{ig.username||"instagram"}</button>
           :<button onClick={conectarIG} title="Autoriza la cuenta de la marca en Instagram"
              style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Conectar Instagram</button>)}
+        <button onClick={()=>sAutoOpen(true)} title="Comenta una palabra → le llega un DM"
+          style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⚡ Automatización</button>
       </div>
     </div>
 
@@ -2874,6 +2909,63 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <Bt v="s" onClick={()=>sNueva(false)}>Cancelar</Bt>
         <Bt v="p" onClick={crearPieza} icon="plus">Crear</Bt>
       </div>
+    </Md>
+
+    {/* Automatización comentario → DM. Va contra Meta directo, no contra Zernio. */}
+    <Md open={autoOpen} onClose={()=>sAutoOpen(false)} title={"Automatización de "+(co?.name||"")} width={560}>
+      {!igEst?<div style={{padding:"18px 2px",color:D.tx3,fontSize:13}}>Cargando…</div>
+      :!igEst.configurado?(
+        <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
+          <b>Falta configurar la app de Meta en el servidor.</b> {igEst.motivo||""} Se necesitan <code>IG_APP_ID</code>, <code>IG_APP_SECRET</code> y <code>IG_WEBHOOK_VERIFY_TOKEN</code>.
+        </div>
+      ):(<div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:igEst.conectada?"#8FF2C2":D.tx4,flexShrink:0}}/>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:13,fontWeight:600}}>{igEst.conectada?"@"+igEst.username:"Sin conectar"}</div>
+            <div style={{fontSize:11.5,color:D.tx4}}>
+              {igEst.conectada?("El permiso se renueva solo · vence en "+igEst.expiraEn+" días"):"Hay que autorizar la cuenta con Instagram"}
+            </div>
+          </div>
+          <button onClick={conectarIGMeta} style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            {igEst.conectada?"Reconectar":"Conectar"}
+          </button>
+        </div>
+
+        <div style={{fontSize:12,color:D.tx3,lineHeight:1.6}}>
+          Cuando alguien comente una de estas palabras en cualquier publicación de {co?.name}, le llega el mensaje <b>por privado</b>.
+          Instagram permite <b>un solo mensaje por comentario</b> y solo dentro de los 7 días — para seguir conversando, la persona tiene que responder.
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {reglas.length===0&&<div style={{padding:"16px",textAlign:"center",borderRadius:12,border:"1px dashed "+D.line2,color:D.tx4,fontSize:12.5}}>Todavía no hay ninguna palabra configurada.</div>}
+          {reglas.map((r,i)=>(
+            <div key={r.id} style={{display:"flex",flexDirection:"column",gap:8,padding:"12px 13px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input value={r.palabra} onChange={e=>editRegla(i,"palabra",e.target.value)} placeholder="EXPLORA"
+                  style={{flex:"1 1 auto",minWidth:0,padding:"7px 10px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,fontWeight:700,outline:"none"}}/>
+                <button onClick={()=>editRegla(i,"activa",!r.activa)} title={r.activa?"Activa":"Pausada"}
+                  style={{flexShrink:0,padding:"6px 12px",borderRadius:999,background:r.activa?"rgba(143,242,194,.09)":"transparent",border:"1px solid "+(r.activa?"rgba(143,242,194,.4)":D.line2),color:r.activa?"#8FF2C2":D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+                  {r.activa?"Activa":"Pausada"}
+                </button>
+                <button onClick={()=>borrarRegla(i)} title="Eliminar" style={{flexShrink:0,width:28,height:28,borderRadius:8,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}>
+                  <Ic n="trash" s={13} c={D.tx4}/>
+                </button>
+              </div>
+              <textarea value={r.mensaje} onChange={e=>editRegla(i,"mensaje",e.target.value)} placeholder="El mensaje que le llegará por privado…"
+                style={{width:"100%",boxSizing:"border-box",minHeight:64,padding:"8px 10px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.5,resize:"vertical",outline:"none"}}/>
+            </div>))}
+        </div>
+
+        <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+          <Bt v="s" onClick={nuevaRegla} icon="plus">Agregar palabra</Bt>
+          <div style={{display:"flex",gap:8}}>
+            <Bt v="s" onClick={()=>sAutoOpen(false)}>Cerrar</Bt>
+            <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar"}</Bt>
+          </div>
+        </div>
+      </div>)}
     </Md>
 
   </div>);

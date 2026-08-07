@@ -14,7 +14,10 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-app.use(express.json());
+// El webhook de Instagram firma el cuerpo CRUDO en `X-Hub-Signature-256`. Validar sobre el
+// JSON re-serializado no funciona nunca: basta una coma o un orden de claves distinto para que
+// el HMAC no calce. Por eso se guarda el buffer original al vuelo.
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 // ===============================
 // 🔐 AUTH TOKENS
@@ -1873,6 +1876,246 @@ app.get("/api/social/post/:id", requireAuth, async (req, res) => {
     const post = d?.post || d;
     res.json({ status: post?.status || null, platforms: post?.platforms || [] });
   } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// ===============================
+// 💬 INSTAGRAM DIRECTO — comentario → DM (respuesta privada)
+// ===============================
+// Zernio publica bien, pero su respuesta a comentarios es PÚBLICA: devuelve un commentId. La
+// respuesta privada —el "comenta EXPLORA y te mando la info"— es una capacidad aparte de Meta
+// y hay que hablarla con Meta directamente. De ahí este bloque, que no pasa por Zernio.
+//
+// Meta permite UN solo mensaje privado por comentario, dentro de 7 días. Para seguir la
+// conversación la persona tiene que responder. Eso no es una limitación nuestra y no se puede
+// esquivar: es la regla que hace que esto no sea spam.
+//
+// Acceso: con Standard Access basta para cuentas propias (Valle Aventura). Para cuentas de
+// clientes hace falta Advanced Access, que exige App Review y verificación de negocio.
+const IG_API = "https://graph.instagram.com/v23.0";
+const igAppId = () => (process.env.IG_APP_ID || "").trim();
+const igAppSecret = () => (process.env.IG_APP_SECRET || "").trim();
+const igVerifyToken = () => (process.env.IG_WEBHOOK_VERIFY_TOKEN || "").trim();
+const IG_SCOPE = "instagram_business_basic,instagram_business_manage_comments,instagram_business_manage_messages";
+
+function igRedirectURI(req) {
+  const host = String(req?.headers?.["x-forwarded-host"] || req?.headers?.host || "").toLowerCase();
+  const h = HOSTS_OK.has(host) ? host : "portal.inmersiaperformance.cl";
+  // Meta exige https en la URL de retorno, así que localhost no sirve para esta parte.
+  return `https://${h}/api/ig/callback`;
+}
+
+// El companyId viaja en el `state`, firmado: sin firma, cualquiera podría completar el OAuth
+// apuntando a otra empresa y quedarse con la cuenta conectada de un cliente ajeno.
+const igState = cid => {
+  const p = Buffer.from(JSON.stringify({ cid, t: Date.now() })).toString("base64url");
+  return p + "." + crypto.createHmac("sha256", JWT_SECRET).update(p).digest("base64url");
+};
+function igLeerState(s) {
+  try {
+    const i = String(s).lastIndexOf(".");
+    const p = String(s).slice(0, i);
+    if (crypto.createHmac("sha256", JWT_SECRET).update(p).digest("base64url") !== String(s).slice(i + 1)) return null;
+    const d = JSON.parse(Buffer.from(p, "base64url").toString());
+    return Date.now() - d.t > 30 * 60000 ? null : d;   // media hora para completar el OAuth
+  } catch { return null; }
+}
+
+const igVacio = () => ({ cuentas: {}, reglas: {}, respondidos: {} });
+async function loadIG() {
+  const v = await sbGet("ig", null);
+  return (v && typeof v === "object" && !Array.isArray(v)) ? { ...igVacio(), ...v } : igVacio();
+}
+const saveIG = fn => enCola(async () => {
+  const s = await loadIG();
+  const out = (await fn(s)) || s;
+  await sbPut("ig", out);
+  return out;
+});
+
+// Los tokens de larga duración viven 60 días. Se renuevan cuando quedan menos de 10: si se
+// dejara vencer, la automatización moriría en silencio y nadie se enteraría hasta que un
+// cliente reclamara que no le llegan los mensajes.
+async function igToken(companyId) {
+  const s = await loadIG();
+  const c = s.cuentas[companyId];
+  if (!c?.token) return null;
+  const quedan = (c.expira || 0) - Date.now();
+  if (quedan > 10 * 24 * 3600000) return c;
+  try {
+    const r = await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(c.token)}`);
+    const d = await r.json();
+    if (d?.access_token) {
+      const nuevo = { ...c, token: d.access_token, expira: Date.now() + (d.expires_in || 5184000) * 1000 };
+      await saveIG(s2 => { s2.cuentas[companyId] = nuevo; return s2; });
+      return nuevo;
+    }
+  } catch (e) { console.error("IG refresh:", e.message); }
+  return c;   // se devuelve el viejo: puede que aún sirva
+}
+
+app.get("/api/ig/status", requireAuth, async (req, res) => {
+  const cid = String(req.query.companyId || "");
+  if (!igAppId() || !igAppSecret())
+    return res.json({ configurado: false, motivo: "faltan IG_APP_ID e IG_APP_SECRET en el servidor" });
+  const s = await loadIG();
+  const c = s.cuentas[cid];
+  res.json({
+    configurado: true,
+    conectada: !!c,
+    username: c?.username || null,
+    expiraEn: c?.expira ? Math.max(0, Math.round((c.expira - Date.now()) / 86400000)) : null,
+    reglas: s.reglas[cid] || [],
+  });
+});
+
+app.get("/api/ig/connect", requireAuth, (req, res) => {
+  const cid = String(req.query.companyId || "");
+  if (!cid) return res.status(400).json({ error: "companyId requerido" });
+  if (!igAppId()) return res.status(400).json({ error: "falta IG_APP_ID en el servidor" });
+  const url = "https://www.instagram.com/oauth/authorize"
+    + `?client_id=${encodeURIComponent(igAppId())}`
+    + `&redirect_uri=${encodeURIComponent(igRedirectURI(req))}`
+    + `&scope=${encodeURIComponent(IG_SCOPE)}`
+    + `&response_type=code&state=${encodeURIComponent(igState(cid))}`;
+  res.json({ authUrl: url });
+});
+
+// Pública a propósito: aquí vuelve Instagram, sin la cookie de sesión. Lo que autentica no es
+// la sesión sino la firma del `state` más el código de un solo uso.
+app.get("/api/ig/callback", async (req, res) => {
+  const fin = (ok, msg) => res.redirect(`/?ig=${ok ? "ok" : "error"}&msg=${encodeURIComponent(msg)}`);
+  try {
+    const st = igLeerState(req.query.state);
+    if (!st) return fin(false, "el enlace de autorización venció o fue alterado");
+    if (req.query.error) return fin(false, String(req.query.error_description || req.query.error));
+
+    const cuerpo = new URLSearchParams({
+      client_id: igAppId(), client_secret: igAppSecret(), grant_type: "authorization_code",
+      redirect_uri: igRedirectURI(req), code: String(req.query.code || ""),
+    });
+    const r = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: cuerpo.toString(),
+    });
+    const corto = await r.json();
+    if (!corto?.access_token) return fin(false, corto?.error_message || "Instagram no entregó el token");
+
+    // El token corto dura una hora; sin cambiarlo por el largo habría que reconectar cada rato.
+    const rl = await fetch(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(igAppSecret())}&access_token=${encodeURIComponent(corto.access_token)}`);
+    const largo = await rl.json();
+    const token = largo?.access_token || corto.access_token;
+
+    const rm = await fetch(`${IG_API}/me?fields=user_id,username`, { headers: { Authorization: `Bearer ${token}` } });
+    const me = await rm.json();
+    const igId = String(me?.user_id || corto?.user_id || "");
+    if (!igId) return fin(false, "no se pudo leer el id de la cuenta de Instagram");
+
+    await saveIG(s => {
+      s.cuentas[st.cid] = {
+        igId, username: me?.username || "", token,
+        expira: Date.now() + ((largo?.expires_in || 5184000) * 1000),
+        conectadaEl: new Date().toISOString(),
+      };
+      return s;
+    });
+    fin(true, `@${me?.username || igId} conectada`);
+  } catch (e) { fin(false, e.message); }
+});
+
+// ── Reglas: palabra que dispara → mensaje que se manda ──
+app.get("/api/ig/reglas", requireAuth, async (req, res) => {
+  const s = await loadIG();
+  res.json({ reglas: s.reglas[String(req.query.companyId || "")] || [] });
+});
+app.put("/api/ig/reglas", requireAuth, async (req, res) => {
+  const { companyId, reglas } = req.body || {};
+  if (!companyId) return res.status(400).json({ error: "companyId requerido" });
+  if (!Array.isArray(reglas)) return res.status(400).json({ error: "reglas debe ser una lista" });
+  const limpias = reglas.slice(0, 20).map(r => ({
+    id: String(r.id || crypto.randomBytes(4).toString("hex")),
+    palabra: String(r.palabra || "").trim().slice(0, 40),
+    mensaje: String(r.mensaje || "").trim().slice(0, 900),
+    activa: r.activa !== false,
+  })).filter(r => r.palabra && r.mensaje);
+  const s = await saveIG(s2 => { s2.reglas[String(companyId)] = limpias; return s2; });
+  res.json({ ok: true, reglas: s.reglas[String(companyId)] });
+});
+
+// ── Webhook ──
+// Meta valida el endpoint con un GET antes de mandar nada.
+app.get("/api/ig/webhook", (req, res) => {
+  if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === igVerifyToken() && igVerifyToken())
+    return res.status(200).send(String(req.query["hub.challenge"] || ""));
+  res.sendStatus(403);
+});
+
+// Sin acentos y en minúsculas: "explora" tiene que disparar aunque escriban "EXPLORA" o
+// "Exploro" con tilde. Comparar en crudo dejaría fuera media Latinoamérica.
+const igNorm = t => String(t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+async function igResponderPrivado(cuenta, commentId, texto) {
+  const r = await fetch(`${IG_API}/${encodeURIComponent(cuenta.igId)}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cuenta.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient: { comment_id: commentId }, message: { text: texto } }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d?.error?.message || `Meta respondió ${r.status}`);
+  return d;
+}
+
+async function igProcesarComentario(entry) {
+  const igId = String(entry?.id || "");
+  for (const ch of (entry?.changes || [])) {
+    if (ch.field !== "comments") continue;
+    const v = ch.value || {};
+    const commentId = String(v.id || "");
+    const texto = String(v.text || "");
+    const autor = String(v.from?.id || "");
+    if (!commentId || !texto) continue;
+    // Nunca responder a los propios comentarios de la marca: se haría un bucle.
+    if (autor && autor === igId) continue;
+
+    const s = await loadIG();
+    const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
+    if (!par) continue;
+    const [companyId, cuenta] = par;
+
+    // Meta reintenta la entrega del webhook. Sin esta guarda, el mismo comentario dispararía
+    // el mensaje dos veces —y Meta solo admite uno, así que el segundo sería un error feo.
+    if (s.respondidos[commentId]) continue;
+
+    const regla = (s.reglas[companyId] || [])
+      .filter(r => r.activa)
+      .find(r => igNorm(texto).includes(igNorm(r.palabra)));
+    if (!regla) continue;
+
+    await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });
+    try {
+      await igResponderPrivado(cuenta, commentId, regla.mensaje);
+      console.log(`IG: DM enviado por "${regla.palabra}" a quien comentó ${commentId}`);
+    } catch (e) {
+      console.error("IG respuesta privada:", e.message);
+      // Se libera para poder reintentar a mano si fue un fallo puntual de red.
+      await saveIG(s2 => { delete s2.respondidos[commentId]; return s2; });
+    }
+  }
+}
+
+app.post("/api/ig/webhook", (req, res) => {
+  // Meta corta a los 20 segundos y reintenta: primero se contesta, después se trabaja.
+  const firma = String(req.headers["x-hub-signature-256"] || "");
+  const esperada = "sha256=" + crypto.createHmac("sha256", igAppSecret()).update(req.rawBody || Buffer.from("")).digest("hex");
+  const ok = igAppSecret() && firma.length === esperada.length &&
+    crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada));
+  if (!ok) return res.sendStatus(403);
+  res.sendStatus(200);
+
+  (async () => {
+    try {
+      if (req.body?.object !== "instagram") return;
+      for (const entry of (req.body.entry || [])) await igProcesarComentario(entry);
+    } catch (e) { console.error("IG webhook:", e.message); }
+  })();
 });
 
 // ===============================
