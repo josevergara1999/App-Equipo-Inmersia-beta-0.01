@@ -1718,6 +1718,164 @@ app.get("/api/upload/status", requireAuth, async (req, res) => {
 });
 
 // ===============================
+// 📣 PUBLICAR EN REDES (Zernio)
+// ===============================
+// Zernio publica con SUS credenciales, ya aprobadas por Meta y TikTok. Eso es lo que se está
+// comprando: sin esto hay que pasar el App Review de Instagram con Advanced Access —obligatorio
+// para publicar en cuentas que no son nuestras— y la auditoría de TikTok, que hasta aprobarse
+// solo deja publicar en privado. Se paga por cuenta conectada y las dos primeras son gratis.
+//
+// Un "profile" de Zernio es el contenedor de cuentas de UNA marca, así que va uno por empresa:
+// el día que se va un cliente se borra su profile y no se toca a los demás. El mapa
+// empresa → profile → cuenta vive en app_data.social.
+const ZERNIO_API = "https://zernio.com/api/v1";
+const zernioKey = () => (process.env.ZERNIO_API_KEY || "").trim();
+
+async function zernio(ruta, opts = {}) {
+  const key = zernioKey();
+  if (!key) throw new Error("falta ZERNIO_API_KEY en el servidor");
+  const r = await fetch(ZERNIO_API + ruta, {
+    ...opts,
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+  const txt = await r.text();
+  let data; try { data = JSON.parse(txt); } catch { data = { raw: txt.slice(0, 300) }; }
+  if (!r.ok) {
+    const err = new Error(data?.error || data?.message || `Zernio respondió ${r.status}`);
+    err.status = r.status; err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+const socialVacio = () => ({ profiles: {}, cuentas: {} });
+async function loadSocial() {
+  const v = await sbGet("social", null);
+  return (v && typeof v === "object" && !Array.isArray(v)) ? { ...socialVacio(), ...v } : socialVacio();
+}
+// Se reusa la cola de los avisos a propósito: es la misma fila única de Supabase y el mismo
+// lost update: conectar dos cuentas a la vez y que la segunda pise a la primera.
+const saveSocial = fn => enCola(async () => {
+  const s = await loadSocial();
+  const out = (await fn(s)) || s;
+  await sbPut("social", out);
+  return out;
+});
+
+async function ensureProfile(companyId, nombre) {
+  const s = await loadSocial();
+  if (s.profiles[companyId]) return s.profiles[companyId];
+  const d = await zernio("/profiles", {
+    method: "POST",
+    body: JSON.stringify({ name: nombre || companyId, description: `Inmersia · ${nombre || companyId}` }),
+  });
+  const id = d?.profile?._id || d?._id;
+  if (!id) throw new Error("Zernio no devolvió el id del profile");
+  await saveSocial(s2 => { s2.profiles[companyId] = id; return s2; });
+  return id;
+}
+
+app.get("/api/social/status", requireAuth, async (req, res) => {
+  if (!zernioKey()) return res.json({ ready: false, motivo: "falta ZERNIO_API_KEY en el servidor" });
+  try {
+    const d = await zernio("/accounts");
+    const lista = Array.isArray(d) ? d : (d.accounts || []);
+    res.json({ ready: true, conectadas: lista.length });
+  } catch (err) { res.json({ ready: false, motivo: err.message }); }
+});
+
+// Devuelve la URL de OAuth. La abre la persona del equipo con la sesión de la marca puesta;
+// Instagram exige cuenta Business o Creator, con una personal el propio Instagram corta.
+app.post("/api/social/connect", requireAuth, async (req, res) => {
+  const { companyId, nombre, platform = "instagram" } = req.body || {};
+  if (!companyId) return res.status(400).json({ error: "companyId requerido" });
+  try {
+    const profileId = await ensureProfile(companyId, nombre);
+    const d = await zernio(`/connect/${encodeURIComponent(platform)}?profileId=${encodeURIComponent(profileId)}`);
+    const authUrl = d?.authUrl || d?.url;
+    if (!authUrl) return res.status(502).json({ error: "Zernio no devolvió authUrl", detalle: d });
+    res.json({ authUrl, profileId });
+  } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
+});
+
+// Zernio es la fuente de verdad: si el cliente desconecta su cuenta desde allá, aquí tiene que
+// desaparecer. Por eso el mapa se reescribe entero en vez de ir agregando.
+app.get("/api/social/accounts", requireAuth, async (req, res) => {
+  try {
+    const s = await loadSocial();
+    const d = await zernio("/accounts");
+    const lista = Array.isArray(d) ? d : (d.accounts || []);
+    const porProfile = {};
+    for (const a of lista) {
+      // Zernio devuelve profileId poblado como objeto ({_id, name}), no como string. Un
+      // String() a secas daba "[object Object]" y el mapa empresa→cuenta salía vacío: la
+      // publicación moría con "no_conectada" teniendo la cuenta conectada.
+      const crudo = a.profileId ?? a.profile;
+      const pid = String((crudo && typeof crudo === "object" ? (crudo._id || crudo.id) : crudo) || "");
+      (porProfile[pid] = porProfile[pid] || []).push({
+        accountId: a._id || a.id,
+        platform: a.platform,
+        username: a.username || a.displayName || a.name || "",
+      });
+    }
+    const cuentas = {};
+    for (const [cid, pid] of Object.entries(s.profiles)) {
+      for (const a of (porProfile[String(pid)] || [])) {
+        cuentas[cid] = { ...(cuentas[cid] || {}), [a.platform]: a };
+      }
+    }
+    await saveSocial(s2 => { s2.cuentas = cuentas; return s2; });
+    res.json(req.query.companyId ? (cuentas[req.query.companyId] || {}) : cuentas);
+  } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
+});
+
+const IG_CAPTION_MAX = 2200;
+
+app.post("/api/social/publish", requireAuth, async (req, res) => {
+  const { companyId, platform = "instagram", caption = "", media = [], contentType, scheduledFor, timezone } = req.body || {};
+  if (!companyId) return res.status(400).json({ error: "companyId requerido" });
+  if (!Array.isArray(media) || !media.length) return res.status(400).json({ error: "hace falta al menos un archivo" });
+
+  // Instagram descarga el archivo desde la URL, no se lo mandamos nosotros. Con el respaldo en
+  // base64 que usa la app cuando Storage no está listo no hay publicación posible, y más vale
+  // decirlo aquí que dejar que muera del otro lado con un error que no explica nada.
+  if (media.some(m => !/^https?:\/\//i.test(String(m.url || ""))))
+    return res.status(400).json({ error: "La pieza no está en Storage: Instagram necesita una URL pública, no un archivo incrustado en la tarea." });
+  if (media.some(m => /drive\.google|dropbox|onedrive|icloud/i.test(String(m.url))))
+    return res.status(400).json({ error: "Los enlaces de Drive/Dropbox devuelven una página HTML en vez del archivo. Sube la pieza a la app." });
+  if (platform === "instagram" && caption.length > IG_CAPTION_MAX)
+    return res.status(400).json({ error: `El texto pasa de ${IG_CAPTION_MAX} caracteres (van ${caption.length}).` });
+
+  try {
+    const s = await loadSocial();
+    const cuenta = s.cuentas?.[companyId]?.[platform];
+    if (!cuenta?.accountId) return res.status(409).json({ error: "no_conectada", motivo: `esta empresa no tiene ${platform} conectado` });
+
+    const d = await zernio("/posts", {
+      method: "POST",
+      body: JSON.stringify({
+        content: caption,
+        mediaItems: media.map(m => ({ type: m.type === "video" ? "video" : "image", url: m.url })),
+        platforms: [{ platform, accountId: cuenta.accountId, ...(contentType ? { platformSpecificData: { contentType } } : {}) }],
+        ...(scheduledFor ? { scheduledFor, timezone: timezone || "America/Santiago" } : { publishNow: true }),
+      }),
+    });
+    const post = d?.post || d;
+    res.json({ ok: true, postId: post?._id || post?.id || null, status: post?.status || "enviado" });
+  } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
+});
+
+// Responder 200 no significa publicado: Instagram procesa el video después. Sin consultar el
+// estado real, la ficha de Contenido cantaría victoria antes de tiempo.
+app.get("/api/social/post/:id", requireAuth, async (req, res) => {
+  try {
+    const d = await zernio(`/posts/${encodeURIComponent(req.params.id)}`);
+    const post = d?.post || d;
+    res.json({ status: post?.status || null, platforms: post?.platforms || [] });
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// ===============================
 // 🟢 SERVIR FRONTEND
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));

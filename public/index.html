@@ -237,6 +237,14 @@ const API={
   async gcalStatus(email){try{const r=await fetch("/api/gcal/status"+(email?"?email="+encodeURIComponent(email):""));return await r.json();}catch(e){return{conectado:false};}},
   async gcalMeeting(d){try{const r=await fetch("/api/gcal/meeting",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});return await r.json();}catch(e){return{ok:false,msg:e.message};}},
   async uploadStatus(){try{const r=await fetch("/api/upload/status");return await r.json();}catch(e){return{ready:false};}},
+  // ── Publicación en redes (Zernio) ──
+  // Un profile de Zernio por empresa: la cuenta de cada marca vive en el suyo. Todo pasa por
+  // el servidor porque la llave de Zernio no puede bajar al navegador.
+  async socialAccounts(companyId){try{const r=await fetch("/api/social/accounts"+(companyId?"?companyId="+encodeURIComponent(companyId):""));if(!r.ok)return{};return await r.json();}catch(e){return{};}},
+  async socialConnect(companyId,nombre,platform){try{const r=await fetch("/api/social/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId,nombre,platform:platform||"instagram"})});return await r.json();}catch(e){return{error:e.message};}},
+  async socialPublish(d){try{const r=await fetch("/api/social/publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});return await r.json();}catch(e){return{error:e.message};}},
+  // 200 al publicar no significa publicado: Instagram procesa el archivo después.
+  async socialPost(id){try{const r=await fetch("/api/social/post/"+encodeURIComponent(id));return await r.json();}catch(e){return{status:null};}},
   // Sube el binario a Supabase Storage y devuelve {name,type,url}. Si el bucket todavía
   // no está configurado cae a base64 SOLO para archivos chicos: meter un reel dentro del
   // JSON de tasks revienta la fila y la carga inicial de todos los usuarios.
@@ -2331,6 +2339,14 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const [dzOpen,sDzOpen]=useState(false);
   const fileRef=useRef(null);
   useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
+  // Instagram de la empresa seleccionada. Se relee al cambiar de empresa porque la conexión
+  // vive en Zernio: si el cliente la corta desde allá, aquí tiene que dejar de ofrecerse.
+  const [ig,sIg]=useState(null);
+  const [igCarga,sIgCarga]=useState(true);
+  const [pubId,sPubId]=useState(null);
+  useEffect(()=>{let vivo=true;sIgCarga(true);sIg(null);
+    API.socialAccounts(selCo).then(d=>{if(!vivo)return;sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);});
+    return()=>{vivo=false;};},[selCo]);
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
@@ -2583,6 +2599,43 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     avisarA([...encargados(t),...adminsEq()],"✕ "+co.name+" pidió cambios","\""+t.title+"\" volvió al equipo. Anota el motivo y sube la corrección.",true);};
   const setMotivo=(t,v)=>upT(t.id,{clientApproval:{...(t.clientApproval||{}),status:"rechazado",comment:v}});
 
+  // ── Publicación en Instagram ──
+  // La autorización la hace una persona con la sesión de Instagram de esa marca puesta, así
+  // que la URL de Zernio se abre en otra pestaña en vez de navegar fuera de la app.
+  const conectarIG=async()=>{
+    if(!co)return;
+    const d=await API.socialConnect(co.id,co.name,"instagram");
+    if(d&&d.authUrl){
+      window.open(d.authUrl,"_blank","noopener");
+      addN("Autoriza la cuenta en la pestaña nueva y vuelve aquí para actualizar.");
+    }else addN("❌ "+((d&&d.error)||"Zernio no devolvió la URL de autorización"));
+  };
+  const refrescarIG=async()=>{
+    sIgCarga(true);
+    const d=await API.socialAccounts(selCo);
+    sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);
+  };
+  // Instagram descarga el archivo desde su URL: una pieza que quedó en base64 porque Storage
+  // estaba caído no se puede publicar, y más vale decirlo aquí que dejar que falle del otro lado.
+  const publicarIG=async t=>{
+    const f=(t.files||[])[0];
+    if(!f||!/^https?:\/\//i.test(String(f.url||""))){
+      addN("❌ Esta pieza no está en el almacenamiento: Instagram necesita una URL pública del archivo.");return;
+    }
+    sPubId(t.id);
+    try{
+      const d=await API.socialPublish({companyId:selCo,platform:"instagram",
+        caption:t.description||t.title||"",media:[{type:isVid(f)?"video":"image",url:f.url}]});
+      if(!d||d.error){
+        addN("❌ "+(d&&d.error==="no_conectada"?((co?.name||"La empresa")+" no tiene Instagram conectado todavía."):((d&&d.error)||"No se pudo publicar")));
+        return;
+      }
+      upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()}});
+      addN("📸 \""+t.title+"\" publicada en Instagram");
+      avisarA([...encargados(t),...adminsEq()],"📸 Publicada en Instagram","\""+t.title+"\" ya salió en el Instagram de "+(co?.name||"")+".");
+    }finally{sPubId(null);}
+  };
+
   const dz=(<div
     onDragOver={e=>{e.preventDefault();sDragOver(true);}}
     onDragLeave={()=>sDragOver(false)}
@@ -2686,6 +2739,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           {t.date?"✓ Agendada para "+t.date+(t.publishTime?" · "+t.publishTime:""):"✓ Cerrada — falta que el cliente la agende"}
         </span>}
 
+        {/* Publicar. Solo aquí: el cupo se gasta al aprobar el cliente y publicar viene después.
+            Una pieza ya publicada no vuelve a ofrecer el botón — Instagram no deshace nada. */}
+        {m.k==="aprobado"&&(t.state==="publicado"
+          ?<span style={{position:"relative",display:"inline-flex",alignItems:"center",gap:6,fontSize:11,fontWeight:600,color:D.peri}}>
+             📸 Publicada en Instagram{t.socialPost?.at?" · "+new Date(t.socialPost.at).toLocaleDateString("es-CL"):""}
+           </span>
+          :(ig
+            ?<button onClick={()=>publicarIG(t)} disabled={pubId===t.id||!f0}
+               title={!f0?"La pieza no tiene archivo":"Publica ahora en @"+(ig.username||"")}
+               style={{position:"relative",padding:8,borderRadius:999,background:pubId===t.id?"transparent":"rgba(201,191,255,.08)",border:"1px solid "+(pubId===t.id?D.line2:"rgba(201,191,255,.4)"),color:pubId===t.id?D.tx4:D.lav,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:(pubId===t.id||!f0)?"default":"pointer",opacity:!f0?.5:1}}>
+               {pubId===t.id?"Publicando…":"📸 Publicar en @"+(ig.username||"instagram")}
+             </button>
+            :(!igCarga&&<button onClick={conectarIG}
+               style={{position:"relative",padding:8,borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+               Conectar el Instagram de {co?.name||"la empresa"}
+             </button>)))}
+
         {acc&&<button onClick={acc.fn} disabled={busy} style={{marginTop:"auto",position:"relative",padding:8,borderRadius:999,background:acc.bg,border:"1px solid "+acc.bor,color:acc.col,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>{acc.label}</button>}
       </div>
     </div>);
@@ -2705,6 +2775,13 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </div>
         <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
         <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
+        {/* Estado de Instagram de esta empresa. Vive aquí y no solo en las tarjetas porque una
+            empresa sin piezas aprobadas no tendría dónde conectar la cuenta. */}
+        {!igCarga&&(ig
+          ?<button onClick={refrescarIG} title="Conectada en Zernio · toca para releer el estado"
+             style={{padding:"9px 16px",borderRadius:999,background:"rgba(201,191,255,.07)",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>📸 @{ig.username||"instagram"}</button>
+          :<button onClick={conectarIG} title="Autoriza la cuenta de la marca en Instagram"
+             style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Conectar Instagram</button>)}
       </div>
     </div>
 
