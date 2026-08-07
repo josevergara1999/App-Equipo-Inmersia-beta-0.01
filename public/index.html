@@ -84,6 +84,11 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
 @keyframes cardIn{from{opacity:0;transform:translateY(-5px) scale(.99)}to{opacity:1;transform:none}}
 @keyframes pulseFade{0%,100%{opacity:.15}50%{opacity:1}}
 @keyframes spinSlow{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+/* Panel lateral del portal. `backwards` a propósito, nunca `forwards`: un transform retenido
+   convierte al panel en ancestro de referencia de los `fixed` que cuelguen de él (ver
+   CLAUDE.md). Termina en el estado natural, así que no retiene nada. */
+@keyframes drawerIn{from{opacity:.5;transform:translateX(26px)}to{opacity:1;transform:none}}
+@keyframes drawerInMob{from{opacity:.5;transform:translateY(26px)}to{opacity:1;transform:none}}
 
 /* Borde iluminado que recorre el marco.
    Se anima el ÁNGULO del gradiente, no la rotación de un elemento: girar un rectángulo
@@ -281,7 +286,15 @@ const INIT_USERS=[
   {id:100,name:"Huemul",email:"huemul",role:"cliente",avatar:"HU",color:"#9d6bff",pass:"1234",companyName:"Huemul"},
   {id:101,name:"Fauna",email:"fauna",role:"cliente",avatar:"FA",color:"#4ecdc4",pass:"1234",companyName:"Fauna"},
   {id:102,name:"Antue",email:"antue",role:"cliente",avatar:"AN",color:"#ff6b6b",pass:"1234",companyName:"Antue"},
+  // `companyName` tiene que calzar con el nombre de la empresa en `companies` (la búsqueda
+  // ignora mayúsculas). El servidor no necesita saber de los clientes: no están en TEAM y el
+  // login acepta la de fábrica mientras no se haya guardado otra en `user_creds`.
+  {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:"#8FF2C2",pass:"1234",companyName:"valle aventura"},
 ];
+
+// Espejo del tope que valida `/api/social/publish` en el servidor. Vale la pena contarlo aquí
+// para que el cliente lo vea mientras escribe y no descubra el límite al publicar.
+const IG_CAPTION_MAX=2200;
 
 const PLANS={
   pro_emprende:{name:"Pro Emprende",price:250000,color:"#4ecdc4",tasks:{post:4,historia:6,reel:2,video_pro:1,visita:4}},
@@ -5642,40 +5655,68 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
     </div></Portal>)}
 
     {/* MODAL AL SOLTAR */}
-    {modal&&(<Portal><div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
-      <div onClick={ev=>ev.stopPropagation()} style={{width:"min(460px,100%)",...PC_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(2,3,8,.7)"}}>
-        <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:16,maxHeight:"86vh",overflow:"auto",boxSizing:"border-box"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
+    {/* Panel lateral para armar la publicación. Se abre al soltar una pieza aprobada en un día
+        del calendario (o al tocar una ya agendada), nunca por sí solo. En el teléfono no cabe
+        una columna a la derecha, así que ahí sube desde abajo. */}
+    {modal&&(()=>{
+      const nCap=(modal.caption||"").length;
+      const pasado=nCap>IG_CAPTION_MAX;
+      const anclaje=isMob
+        ? {left:0,right:0,bottom:0,maxHeight:"88vh",borderRadius:"22px 22px 0 0",borderTop:"1px solid "+PC.line2,animation:"drawerInMob .24s ease-out backwards"}
+        : {top:0,right:0,bottom:0,width:"min(430px,100%)",borderLeft:"1px solid "+PC.line2,animation:"drawerIn .24s ease-out backwards"};
+      return(<Portal>
+        <div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(2,3,8,.66)",backdropFilter:"blur(6px)"}}/>
+        <aside onClick={ev=>ev.stopPropagation()} style={{position:"fixed",zIndex:61,...anclaje,
+          background:PC.bg,boxShadow:"0 0 60px rgba(2,3,8,.75)",display:"flex",flexDirection:"column",boxSizing:"border-box",
+          paddingTop:isMob?0:"env(safe-area-inset-top, 0px)",paddingBottom:"env(safe-area-inset-bottom, 0px)"}}>
+
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"17px 20px",borderBottom:"1px solid "+PC.line,flexShrink:0}}>
             {modal.file&&isImg(modal.file)
-              ? <img src={fSrc(modal.file)} alt="" onClick={()=>openZoom(modal.file)} style={{width:52,height:52,borderRadius:12,objectFit:"cover",flexShrink:0,cursor:"zoom-in"}}/>
-              : <div style={{width:52,height:52,borderRadius:12,background:PC.panel,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{TT[modal.type]?.i}</div>}
-            <div style={{minWidth:0}}>
-              <div style={{fontSize:16,fontWeight:600,color:PC.tx}}>{modal.title}</div>
-              <div style={{fontSize:12,color:PC.tx4,fontFamily:"var(--font-mono)"}}>{TT[modal.type]?.l} · {modal.date}</div>
+              ? <img src={fSrc(modal.file)} alt="" onClick={()=>openZoom(modal.file)} style={{width:44,height:44,borderRadius:11,objectFit:"cover",flexShrink:0,cursor:"zoom-in"}}/>
+              : <div style={{width:44,height:44,borderRadius:11,background:PC.panel,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{TT[modal.type]?.i}</div>}
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontSize:11,fontFamily:"var(--font-mono)",letterSpacing:".14em",textTransform:"uppercase",color:PC.cian}}>Armar publicación</div>
+              <div style={{fontSize:14.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{modal.title}</div>
             </div>
-            <button onClick={()=>sModal(null)} style={{marginLeft:"auto",width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
+            <button onClick={()=>sModal(null)} style={{width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
           </div>
 
-          <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Descripción del post</label>
-            <textarea value={modal.caption} onChange={e=>sModal(m=>({...m,caption:e.target.value}))} placeholder="Escribe aquí el texto que quieres que acompañe la publicación…" style={{...pcInput,minHeight:90,lineHeight:1.55,resize:"vertical"}}/>
-            <span style={{fontSize:11.5,color:PC.tx4}}>Opcional — es solo una ayuda para que el equipo sepa qué texto quieres.</span>
+          <div style={{flex:1,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
+            {modal.file&&isImg(modal.file)&&<img src={fSrc(modal.file)} alt="" onClick={()=>openZoom(modal.file)}
+              style={{width:"100%",maxHeight:200,objectFit:"cover",borderRadius:14,cursor:"zoom-in",border:"1px solid "+PC.line2}}/>}
+
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:7,flex:"1 1 150px",minWidth:0}}>
+                <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Día</label>
+                <input type="date" value={modal.date} onChange={e=>e.target.value&&sModal(m=>({...m,date:e.target.value}))} style={{...pcInput,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:7,flex:"1 1 120px",minWidth:0}}>
+                <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Hora</label>
+                <input type="time" value={modal.time} onChange={e=>sModal(m=>({...m,time:e.target.value}))} style={{...pcInput,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+            <span style={{fontSize:11.5,color:PC.tx4,marginTop:-10}}>Si dejas la hora vacía, la elige el equipo.</span>
+
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Texto de la publicación</label>
+                <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:11,color:pasado?PC.rojo:PC.tx4}}>{nCap}/{IG_CAPTION_MAX}</span>
+              </div>
+              <textarea value={modal.caption} onChange={e=>sModal(m=>({...m,caption:e.target.value}))} placeholder="Escribe aquí el texto que acompañará la publicación…" style={{...pcInput,minHeight:150,lineHeight:1.55,resize:"vertical",borderColor:pasado?PC.rojo:undefined}}/>
+              {pasado
+                ? <span style={{fontSize:11.5,color:PC.rojo}}>Instagram no acepta más de {IG_CAPTION_MAX} caracteres. Recorta {nCap-IG_CAPTION_MAX} para poder guardar.</span>
+                : <span style={{fontSize:11.5,color:PC.tx4}}>Es el texto que saldrá publicado, tal cual lo escribas.</span>}
+            </div>
           </div>
 
-          <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Hora de publicación</label>
-            <input type="time" value={modal.time} onChange={e=>sModal(m=>({...m,time:e.target.value}))} style={{...pcInput,width:"auto",alignSelf:"flex-start"}}/>
-            <span style={{fontSize:11.5,color:PC.tx4}}>Opcional — si la dejas vacía, el equipo elige la hora.</span>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"14px 20px",borderTop:"1px solid "+PC.line,flexShrink:0}}>
+            {modal.wasScheduled&&<button onClick={()=>{onUnschedule(modal.id);sModal(null);}} style={{padding:"10px 16px",borderRadius:999,background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.35)",color:PC.rojo,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:"pointer"}}>Quitar</button>}
+            <button onClick={()=>sModal(null)} style={{marginLeft:"auto",padding:"10px 18px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={confirmModal} disabled={pasado} style={{padding:"10px 22px",borderRadius:999,background:pasado?"transparent":PC.cian,border:"1px solid "+(pasado?PC.line2:PC.cian),color:pasado?PC.tx4:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:pasado?"default":"pointer"}}>{modal.wasScheduled?"Guardar":"Agendar"}</button>
           </div>
-
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
-            {modal.wasScheduled&&<button onClick={()=>{onUnschedule(modal.id);sModal(null);}} style={{padding:"10px 18px",borderRadius:999,background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.35)",color:PC.rojo,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:"pointer"}}>Quitar del calendario</button>}
-            <button onClick={()=>sModal(null)} style={{padding:"10px 18px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-            <button onClick={confirmModal} style={{padding:"10px 22px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{modal.wasScheduled?"Guardar":"Agendar"}</button>
-          </div>
-        </div>
-      </div>
-    </div></Portal>)}
+        </aside>
+      </Portal>);
+    })()}
   </div>);
 }
 
