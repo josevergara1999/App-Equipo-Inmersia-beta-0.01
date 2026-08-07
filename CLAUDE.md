@@ -65,6 +65,7 @@ solo el markup produce trabajo que hay que rehacer.
 - Subida a Supabase Storage (`/api/upload`, `/api/upload/status`)
 - Centro de notificaciones y web push (`/api/notifs*`, `/api/push/*`)
 - Meta Ads / Instagram y Atlas (`/api/meta/*`, `/api/atlas/*`)
+- Publicación en redes con Zernio (`/api/social/*`)
 
 Casi todas las rutas van tras `requireAuth`, que valida un HMAC en la cookie HttpOnly
 `_iauth`. La emiten tanto el callback de Google como `/api/auth/login`. Atlas usa la cabecera
@@ -79,13 +80,14 @@ equipo, hay que tocar los dos lados.
 Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
 Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
 `gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
-`notif_daily`, `user_creds`. Los binarios van al **Storage** (bucket `contenido`), nunca a esta
-tabla.
+`notif_daily`, `user_creds`, `social`. Los binarios van al **Storage** (bucket `contenido`),
+nunca a esta tabla.
 
 ### Variables de entorno
 
 Ver `.env.example`, que está al día. Las que suelen faltar: `SUPABASE_SERVICE_KEY` (sin ella no
-se pueden subir reels: el tope queda en 3 MB) y las tres de `VAPID_*` (sin ellas no hay push).
+se pueden subir reels: el tope queda en 3 MB), las tres de `VAPID_*` (sin ellas no hay push) y
+`ZERNIO_API_KEY` (sin ella no se publica en Instagram, pero la app lo dice y no rompe).
 
 ## Modelo de dominio
 
@@ -235,6 +237,31 @@ El permiso de calendario se pide en el mismo inicio de sesión con Google, con e
 a `calendar.events`. Si Google rechaza el refresh con `invalid_grant`, el token se borra y la
 app pide reconectar en vez de fallar en silencio.
 
+## Publicar en Instagram (Zernio)
+
+El botón 📸 sale **solo en la columna "Aprobado por cliente"** de Contenido, y desaparece una vez
+publicada: el cupo se gasta al aprobar y publicar viene después, y una publicación no se deshace.
+
+**Un profile de Zernio por empresa.** Es el contenedor de cuentas de una marca, así que sumar un
+cliente no toca a los demás y darlo de baja es borrar el suyo. El mapa
+empresa → profile → cuenta vive en `app_data.social`, y lo escribe `/api/social/accounts`.
+
+- **Zernio manda sobre el mapa local.** Esa ruta lo reescribe entero en vez de ir agregando: si
+  el cliente desconecta su cuenta desde Zernio, aquí tiene que desaparecer.
+- **`profileId` viene poblado como objeto** (`{_id, name}`), no como string. Un `String()` a
+  secas daba `"[object Object]"`, el mapa salía vacío y publicar respondía `no_conectada`
+  teniendo la cuenta conectada.
+- **`/publish` rechaza antes de llamar a Zernio** si el archivo no tiene URL pública o viene de
+  Drive/Dropbox: Instagram descarga el archivo él mismo y sin URL directa muere del otro lado
+  con un error que no explica nada.
+- **200 no significa publicado.** Instagram procesa después; `/api/social/post/:id` consulta el
+  estado real.
+- La cuenta de Instagram **tiene que ser Business o Creator**. Es requisito de Instagram, no de
+  Zernio, y no hay forma de saltárselo.
+
+Las escrituras pasan por la cola `enCola`, la misma de los avisos: es la misma fila única y el
+mismo *lost update*.
+
 ## Dominios y despliegue
 
 Render, con despliegue automático al hacer push a `main`. La app responde en **dos dominios a
@@ -304,12 +331,16 @@ del cliente** (export en `~/Downloads/Inmersia Portal Cliente.dc.html`).
 
 Sin probar con uso real: las invitaciones de Meet.
 
-**La subida a Storage responde 400 y falta cerrar el diagnóstico.** El error ya no es opaco:
-`explicarStorage()` traduce la respuesta de Supabase a la causa concreta (bucket inexistente,
-MIME no permitido, tope de tamaño, llave sin permiso de escritura) y `/api/upload/status`
-comprueba que el bucket exista de verdad, no solo que esté la llave — con la llave puesta y el
-bucket sin crear, la app decía "listo" y la subida moría después. La sospecha es que el bucket
-`contenido` no está creado en Supabase; el aviso en Contenido lo dirá.
+**Storage funciona en producción** (comprobado en agosto de 2026 con una subida real, no con
+`/api/upload/status`). El bucket `contenido` existe, es público, sin tope propio ni lista de
+MIME; el límite real son los **100 MB** de `uploadBig`. Los 3 MB que menciona la app son solo
+del respaldo en base64, que ya no se usa mientras Storage responda.
+
+**Cuidado al dar Storage por bueno.** `estadoStorage()` solo *lee* los metadatos del bucket, así
+que `ready: true` no prueba que la llave pueda escribir — es justo el caso que dejaba "listo" y
+moría en cada subida. Para comprobarlo de verdad hay que subir un archivo. `explicarStorage()`
+sigue traduciendo el fallo a la causa concreta (bucket inexistente, MIME no permitido, tope de
+tamaño, llave sin permiso de escritura).
 
 **Nunca subir al repo**: `.env`, `public/__mocktest*.html`, `public/__demo_media/` (videos
 reales de clientes) ni ningún `client_secret_*.json`.
