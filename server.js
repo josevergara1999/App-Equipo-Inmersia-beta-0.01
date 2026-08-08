@@ -2204,9 +2204,12 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
     let cumple = false;
     try { cumple = await igSigue(cuenta, igsid); }
     catch (e) {
-      // Si no se puede comprobar, se sigue por la rama del "sí": es preferible entregar de
-      // más que dejar a alguien colgado por un fallo de red.
-      console.error("IG condición:", e.message); cumple = true;
+      // Si no se puede comprobar, se va por la rama del "no". La condición se usa para
+      // condicionar un beneficio a que te sigan: dar por bueno un "sí" que no se pudo
+      // verificar regalaría ese beneficio ante cualquier fallo de red. La rama del "no"
+      // normalmente dice "aún no te veo siguiéndome, toca de nuevo", así que la persona
+      // tampoco queda colgada: puede reintentar.
+      console.error("IG condición:", e.message); cumple = false;
     }
     const sig = cumple ? paso.siSi : paso.siNo;
     if (sig) return igEjecutarPaso(companyId, cuenta, flujo, sig, destinatario, igsid, prof + 1);
