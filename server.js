@@ -2061,6 +2061,24 @@ app.get("/api/ig/callback", async (req, res) => {
       console.log(`IG: suscripción de @${me?.username || igId} a comments -> ${rs.status} ${JSON.stringify(sd)}`);
     } catch (e) { console.error("IG subscribed_apps:", e.message); }
 
+    // Aviso al equipo. Quien autoriza es el cliente, desde su portal y en su propio teléfono:
+    // sin esto nadie de Inmersia se entera de que esa cuenta ya está disponible, y la
+    // automatización se queda sin montar hasta que a alguien se le ocurra ir a mirar.
+    // Va después de suscribir los webhooks a propósito: antes de eso la cuenta está autorizada
+    // pero todavía no llegan los comentarios, así que avisar ahí sería avisar de más.
+    try {
+      const empresas = (await sbGet("companies", [])) || [];
+      const emp = empresas.find(c => String(c.id) === String(st.cid));
+      await crearNotif({
+        type: "contenido",
+        title: "📸 Instagram conectado",
+        body: `${emp?.name || "Un cliente"} autorizó @${me?.username || igId}. Ya se pueden crear automatizaciones sobre sus publicaciones.`,
+        to: correosDe(TEAM.filter(u => u.role === "admin")),
+        url: "/", important: true,
+        dedupKey: "igconn_" + st.cid + "_" + igId,
+      });
+    } catch (e) { console.error("IG aviso de conexión:", e.message); }
+
     fin(true, `@${me?.username || igId} conectada`);
   } catch (e) { fin(false, e.message); }
 });

@@ -3732,13 +3732,29 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             <b>Falta configurar la app de Meta en el servidor.</b> {igEst.motivo||""}
           </div>
         ):(<>
-          <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:igEst.conectada?"#8FF2C2":D.tx4,flexShrink:0}}/>
-            <div style={{minWidth:0,flex:1}}>
-              <div style={{fontSize:13,fontWeight:600}}>{igEst.conectada?"@"+igEst.username:"Sin conectar"}</div>
-              <div style={{fontSize:11.5,color:D.tx4}}>{igEst.conectada?("El permiso se renueva solo · vence en "+igEst.expiraEn+" días"):"Hay que autorizar la cuenta con Instagram"}</div>
+          {/* Quién autoriza es el cliente, desde SU portal: es su cuenta de Instagram y el
+              permiso se lo da él a Meta, no nosotros. Aquí solo se refleja si ya está o no, y
+              qué falta cuando no está — antes decía "Hay que autorizar la cuenta", que sonaba a
+              tarea nuestra y no lo es. El botón se queda como salida para las cuentas propias de
+              Inmersia, en segundo plano. */}
+          <div style={{display:"flex",alignItems:"center",gap:11,flexWrap:"wrap",padding:"13px 15px",borderRadius:12,
+            background:igEst.conectada?"rgba(143,242,194,.05)":D.panel,
+            border:"1px solid "+(igEst.conectada?"rgba(143,242,194,.3)":D.line2)}}>
+            <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:igEst.conectada?"#8FF2C2":D.tx4,boxShadow:igEst.conectada?"0 0 9px #8FF2C2":"none"}}/>
+            <div style={{minWidth:0,flex:"1 1 260px"}}>
+              <div style={{fontSize:13.5,fontWeight:700,color:igEst.conectada?"#8FF2C2":D.tx}}>
+                {igEst.conectada?("Disponible · @"+igEst.username):("Falta que "+(co?.name||"el cliente")+" lo autorice")}
+              </div>
+              <div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5,marginTop:2}}>
+                {igEst.conectada
+                  ?("Ya se pueden crear automatizaciones sobre sus publicaciones. El permiso se renueva solo · vence en "+igEst.expiraEn+" días.")
+                  :"El permiso lo da el cliente desde su portal, con su propia cuenta. Hasta entonces las cadenas se pueden dejar armadas, pero no responden."}
+              </div>
             </div>
-            <button onClick={conectarIGMeta} style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>{igEst.conectada?"Reconectar":"Conectar"}</button>
+            <button onClick={conectarIGMeta} title={igEst.conectada?"Volver a pedir el permiso":"Solo para cuentas propias de Inmersia — la del cliente la conecta él"}
+              style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              {igEst.conectada?"Reconectar":"Conectar una cuenta propia"}
+            </button>
           </div>
 
           <div style={{fontSize:12.5,color:D.tx3,lineHeight:1.6}}>
