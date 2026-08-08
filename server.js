@@ -2004,10 +2004,21 @@ app.get("/api/ig/callback", async (req, res) => {
     const largo = await rl.json();
     const token = largo?.access_token || corto.access_token;
 
-    const rm = await fetch(`${IG_API}/me?fields=user_id,username`, { headers: { Authorization: `Bearer ${token}` } });
-    const me = await rm.json();
-    const igId = String(me?.user_id || corto?.user_id || "");
-    if (!igId) return fin(false, "no se pudo leer el id de la cuenta de Instagram");
+    // Se comprueba que el token SIRVA antes de guardarlo. Antes se aceptaba el user_id del
+    // intercambio como respaldo y la conexión quedaba marcada como buena aunque Meta emitiera
+    // un token inerte —lo que pasa cuando la cuenta no tiene el rol de tester y la app aún no
+    // está aprobada—. El portal decía "conectado" y no funcionaba nada: peor que fallar.
+    // La ruta documentada de Instagram Login es sin versión.
+    const rm = await fetch(`https://graph.instagram.com/me?fields=user_id,username`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const me = await rm.json().catch(() => ({}));
+    if (!rm.ok || !me?.user_id) {
+      const detalle = me?.error?.message || `Instagram respondió ${rm.status}`;
+      console.error("IG callback, /me falló:", JSON.stringify(me).slice(0, 300));
+      return fin(false, `Instagram entregó el permiso pero no deja consultar la cuenta (${detalle}). Suele ser que a la cuenta le falta el rol de tester en la app, o que la app aún no tiene acceso avanzado aprobado.`);
+    }
+    const igId = String(me.user_id);
 
     await saveIG(s => {
       s.cuentas[st.cid] = {
