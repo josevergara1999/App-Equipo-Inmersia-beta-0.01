@@ -2401,6 +2401,71 @@ const ccDescomponer=min=>{
   return[m,1];
 };
 
+// ═══ PLANTILLAS DE CADENA ════════════════════════════════════════
+// No son un tipo aparte: al elegir una se materializan como pasos normales, así que después se
+// editan, se rompen y se rehacen igual que una cadena hecha a mano. Los ids se generan en cada
+// llamada — dos cadenas creadas del mismo preset no pueden compartirlos.
+//
+// Ninguna trae la palabra ni la publicación: eso lo elige quien la crea, en el disparador.
+// Los enlaces de los botones tampoco vienen puestos, por lo mismo.
+const CC_PRESETS=[
+  {
+    id:"beneficio",
+    nombre:"Beneficio con bienvenida",
+    resumen:"Saluda, entrega el beneficio y vuelve a escribir 3 horas después.",
+    mapa:"Bienvenida → beneficio con enlace → espera 3 h → seguimiento",
+    construir(){
+      const m1=ccId(),m2=ccId(),r1=ccId(),m3=ccId();
+      return{
+        nombre:"Beneficio con bienvenida",palabra:"",inicio:m1,tx:320,ty:30,
+        pasos:[
+          {id:m1,tipo:"mensaje",titulo:"Bienvenida",x:320,y:210,siguiente:"",botones:[{id:ccId(),titulo:"Quiero mi beneficio",siguiente:m2,url:""}],
+            texto:"¡Hola! 👋 Gracias por comentar.\n\nTe damos la bienvenida, y tenemos un beneficio preparado para ti. Tócalo aquí abajo y te lo mando al instante."},
+          {id:m2,tipo:"mensaje",titulo:"El beneficio",x:320,y:400,siguiente:r1,botones:[{id:ccId(),titulo:"Acceder al beneficio",siguiente:"",url:"",modo:"enlace"}],
+            texto:"¡Aquí está tu beneficio! 🎁\n\nEntra por el botón de abajo y queda aplicado al tiro."},
+          {id:r1,tipo:"retraso",titulo:"Esperar 3 horas",x:320,y:590,minutos:180,siguiente:m3,texto:"",botones:[]},
+          {id:m3,tipo:"mensaje",titulo:"Seguimiento",x:320,y:780,siguiente:"",botones:[],
+            texto:"Hola de nuevo 🙂 ¿Cómo te fue? Espero que hayas podido usar tu beneficio sin problema.\n\nTe invito a seguirnos para estar atento a más beneficios como este — para los próximos va a ser obligatorio seguirnos. ¡Saludos!"},
+        ],
+      };
+    },
+  },
+  {
+    id:"seguidores",
+    nombre:"Beneficio solo para seguidores",
+    resumen:"Pide seguir antes de entregar, y da hasta tres oportunidades de hacerlo.",
+    mapa:"Invita a seguir → comprueba → 3 intentos → beneficio → espera 3 h → cierre",
+    construir(){
+      const m1=ccId(),c1=ccId(),m2=ccId(),c2=ccId(),m3=ccId(),c3=ccId(),mNo=ccId(),mB=ccId(),r1=ccId(),mFin=ccId();
+      // Las tres comprobaciones apuntan al MISMO bloque de beneficio en vez de repetirlo: si
+      // mañana cambia el texto o el enlace, se cambia una vez y vale para los tres caminos.
+      const cond=(id,x,y,titulo,siNo)=>({id,tipo:"condicion",titulo,x,y,que:"sigue",siSi:mB,siNo,esperaMin:0,minSeguidores:0,texto:"",botones:[]});
+      return{
+        nombre:"Beneficio solo para seguidores",palabra:"",inicio:m1,tx:360,ty:30,
+        pasos:[
+          {id:m1,tipo:"mensaje",titulo:"Bienvenida",x:360,y:210,siguiente:"",botones:[{id:ccId(),titulo:"Ya te sigo",siguiente:c1,url:""}],
+            texto:"¡Muchas gracias por tu interés! 🙌\n\nPara acceder a este y a más beneficios te invitamos a seguirnos. Cuando ya lo hayas hecho, tócalo aquí abajo."},
+          cond(c1,360,400,"¿Nos sigue?",m2),
+          {id:mB,tipo:"mensaje",titulo:"El beneficio",x:40,y:590,siguiente:r1,botones:[{id:ccId(),titulo:"Acceder al beneficio",siguiente:"",url:"",modo:"enlace"}],
+            texto:"¡Listo! 🎁 Aquí tienes tu beneficio.\n\nEntra por el botón de abajo y queda aplicado al tiro."},
+          {id:r1,tipo:"retraso",titulo:"Esperar 3 horas",x:40,y:780,minutos:180,siguiente:mFin,texto:"",botones:[]},
+          {id:mFin,tipo:"mensaje",titulo:"Cierre",x:40,y:970,siguiente:"",botones:[],
+            texto:"¡Gracias por todo! 🙌 Quédate atento, se vienen más beneficios como este."},
+          {id:m2,tipo:"mensaje",titulo:"Ups, aún no",x:700,y:590,siguiente:"",botones:[{id:ccId(),titulo:"Listo, ya te sigo",siguiente:c2,url:""}],
+            texto:"Ups, todavía no te vemos entre nuestros seguidores 👀\n\nSíguenos e inténtalo de nuevo."},
+          cond(c2,700,780,"¿Nos sigue? · 2",m3),
+          {id:m3,tipo:"mensaje",titulo:"Último intento",x:700,y:970,siguiente:"",
+            botones:[{id:ccId(),titulo:"Último intento",siguiente:c3,url:""},{id:ccId(),titulo:"Ya no lo quiero",siguiente:mNo,url:""}],
+            texto:"Seguimos sin verte por ahí 🙈 ¿Lo intentamos una última vez?"},
+          cond(c3,700,1160,"¿Nos sigue? · 3",mNo),
+          {id:mNo,tipo:"mensaje",titulo:"Se queda sin él",x:990,y:1350,siguiente:"",botones:[],
+            texto:"Sin problema 🙂 Cuando quieras seguirnos, el beneficio te va a estar esperando. ¡Gracias por comentar!"},
+        ],
+      };
+    },
+  },
+];
+
 function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   const [pan,sPan]=useState({x:-180,y:20});
   const [drag,sDrag]=useState(null);
@@ -2480,7 +2545,12 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   const aristas=[];
   if(inicio&&porId[inicio])aristas.push({from:TRIG,to:inicio});
   for(const p of pasos){
-    if(p.tipo==="mensaje")(p.botones||[]).forEach(b=>{if(b.siguiente&&porId[b.siguiente])aristas.push({from:p.id,to:b.siguiente,label:b.titulo||"botón"});});
+    if(p.tipo==="mensaje"){
+      (p.botones||[]).forEach(b=>{if(b.siguiente&&porId[b.siguiente])aristas.push({from:p.id,to:b.siguiente,label:b.titulo||"botón"});});
+      // Un mensaje puede además seguir solo, sin esperar a que pulsen nada. Es un hilo distinto
+      // del de un botón y por eso lleva su propia etiqueta.
+      if(p.siguiente&&porId[p.siguiente])aristas.push({from:p.id,to:p.siguiente,label:"sigue solo"});
+    }
     else if(p.tipo==="condicion"){
       if(p.siSi&&porId[p.siSi])aristas.push({from:p.id,to:p.siSi,label:"Sí"});
       if(p.siNo&&porId[p.siNo])aristas.push({from:p.id,to:p.siNo,label:"No"});
@@ -2772,6 +2842,13 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
             <input value={flujo.palabra||""} onChange={e=>onChange({...flujo,palabra:e.target.value})} placeholder="EXPLORA"
               style={{padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,fontWeight:700,outline:"none",boxSizing:"border-box",width:"100%"}}/>
             <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>No distingue mayúsculas ni tildes, y basta con que el comentario la contenga.</span>
+            {/* Sin palabra no hay nada que dispare la cadena, y el servidor la descarta al
+                guardar. Se avisa aquí y no solo al pulsar Guardar: con una plantilla de diez
+                bloques ya montados, enterarse al final es enterarse tarde. */}
+            {!String(flujo.palabra||"").trim()&&
+              <div style={{padding:"9px 11px",borderRadius:10,background:"rgba(239, 217, 160, 0.06)",border:"1px solid rgba(239, 217, 160, 0.3)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+                Escribe la palabra o <b>esta cadena no se guardará</b>, por muy armada que esté.
+              </div>}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta("¿En qué publicación?")}
@@ -2830,22 +2907,62 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
             {etiqueta("Botones")}
-            {(nSel.botones||[]).map((b,k)=>(
-              <div key={b.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 11px",borderRadius:11,background:"#0B0E17",border:"1px solid #1E2536"}}>
+            {(nSel.botones||[]).map((b,k)=>{
+              const edBot=(campo,v)=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n===k?{...x,[campo]:v}:x));
+              // Los botones de antes no tienen `modo`; se deduce de si llevan enlace.
+              const esEnlace=(b.modo||(b.url?"enlace":"bloque"))==="enlace";
+              const urlOk=/^https?:\/\/\S+$/i.test(b.url||"");
+              return(
+              <div key={b.id} style={{display:"flex",flexDirection:"column",gap:7,padding:"10px 11px",borderRadius:11,background:"#0B0E17",border:"1px solid #1E2536"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <input value={b.titulo} maxLength={20} onChange={e=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n===k?{...x,titulo:e.target.value}:x))}
+                  <input value={b.titulo} maxLength={20} onChange={e=>edBot("titulo",e.target.value)}
                     placeholder="Ya te sigo"
                     style={{flex:1,minWidth:0,padding:"7px 10px",borderRadius:9,background:"#05060B",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:12.5,fontWeight:600,outline:"none"}}/>
                   <button onClick={()=>editPaso(nSel.id,"botones",(nSel.botones||[]).filter((_,n)=>n!==k))}
                     style={{width:24,height:24,borderRadius:7,background:"transparent",border:"none",color:"#4A5265",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕</button>
                 </div>
-                {selDestino(b.siguiente,v=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n===k?{...x,siguiente:v}:x)),"— lleva a… —",nSel.id)}
-              </div>))}
+
+                {/* Un botón hace UNA de las dos cosas, no las dos: o sigue la cadena, o abre una
+                    web. Al elegir enlace se borra el destino y al revés, porque guardar los dos
+                    dejaría en pantalla un destino que no se va a usar. */}
+                <div style={{display:"flex",gap:3,padding:3,borderRadius:999,background:"#05060B",border:"1px solid #1E2536"}}>
+                  {[["bloque","Lleva a un bloque"],["enlace","Abre un enlace"]].map(([modo,txt])=>{
+                    const on=esEnlace===(modo==="enlace");
+                    return(
+                    <button key={modo} onClick={()=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n!==k?x
+                      :(modo==="enlace"?{...x,modo:"enlace",siguiente:""}:{...x,modo:"bloque",url:""})))}
+                      style={{flex:1,padding:"6px 8px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",
+                        color:on?"#F4F2ED":"#6B7484",fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{txt}</button>);})}
+                </div>
+
+                {esEnlace
+                  ?<>
+                    <input value={b.url||""} onChange={e=>edBot("url",e.target.value)} placeholder="https://…"
+                      style={{padding:"7px 10px",borderRadius:9,background:"#05060B",border:"1px solid "+(urlOk?"#262D40":"rgba(255,139,139,.45)"),color:"#F4F2ED",fontFamily:"ui-monospace, monospace",fontSize:11.5,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+                    <span style={{fontSize:11,color:urlOk?"#6B7484":"#FF8B8B",lineHeight:1.45}}>
+                      {urlOk
+                        ?"Al pulsarlo se abre la web y la cadena se corta ahí: Instagram no nos avisa de ese toque."
+                        :(b.url||"").trim()
+                          ?"Tiene que empezar por http:// o https://. Así como está, el servidor lo descarta y el botón no se envía."
+                          :"Falta el enlace. Sin él este botón no se manda — el resto del mensaje sí."}
+                    </span>
+                  </>
+                  :selDestino(b.siguiente,v=>edBot("siguiente",v),"— lleva a… —",nSel.id)}
+              </div>);})}
             {(nSel.botones||[]).length<3&&
-              <button onClick={()=>editPaso(nSel.id,"botones",[...(nSel.botones||[]),{id:ccId(),titulo:"",siguiente:""}])}
+              <button onClick={()=>editPaso(nSel.id,"botones",[...(nSel.botones||[]),{id:ccId(),titulo:"",siguiente:"",url:""}])}
                 style={{alignSelf:"flex-start",padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px dashed #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Botón</button>}
             <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>
-              Hasta 3 botones, 20 caracteres cada uno. <b style={{color:"#C9CFDC"}}>Sin al menos un botón la cadena termina aquí</b>: es el toque de la persona lo que abre la ventana de 24 h de Instagram.
+              Hasta 3 botones, 20 caracteres cada uno. <b style={{color:"#C9CFDC"}}>Sin al menos un botón que lleve a un bloque, la cadena termina aquí</b>: es el toque de la persona lo que abre la ventana de 24 h de Instagram, y el de enlace no cuenta porque Instagram no nos lo notifica.
+            </span>
+          </div>
+          {/* Salida automática, sin esperar a que pulsen nada. Es lo que permite entregar algo y
+              hacer seguimiento un rato después: mensaje → retraso → mensaje. */}
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Y sin esperar respuesta, seguir con")}
+            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"— nada, esperar al botón —",nSel.id)}
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>
+              Se ejecuta al instante, justo después de enviar este mensaje. Para dejar pasar tiempo, apunta a un <b style={{color:"#C9CFDC"}}>retraso</b>.
             </span>
           </div>
         </>}
@@ -2996,6 +3113,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // Qué pieza aprobada está desplegada. Solo una a la vez: son las cerradas, se consultan de
   // una en una y varias abiertas devolverían la parrilla que se quiso quitar.
   const [aprobAbierta,sAprobAbierta]=useState(null);
+  const [preset,sPreset]=useState(false);   // selector de plantilla al crear una cadena
   const fileRef=useRef(null);
   useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
   // Instagram de la empresa seleccionada. Se relee al cambiar de empresa porque la conexión
@@ -3041,6 +3159,15 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     else addN("❌ "+((d&&d.error)||"no se pudo generar el enlace"));
   };
   const guardarReglas=async()=>{
+    // El servidor descarta las cadenas sin palabra clave: sin ella no hay nada que dispare, así
+    // que no es una cadena todavía. Pero descartarla en silencio, después de armarla entera, es
+    // perder el trabajo sin saber por qué — sobre todo con las plantillas, que llegan con diez
+    // bloques puestos y la palabra vacía a propósito.
+    const sinPalabra=reglas.filter(r=>!String(r.palabra||"").trim()).length;
+    if(sinPalabra){
+      addN("⚠️ "+sinPalabra+(sinPalabra===1?" cadena no se guarda: le falta la palabra clave.":" cadenas no se guardan: les falta la palabra clave."));
+      return;
+    }
     sGuardando(true);
     try{
       const d=await API.igReglas(selCo,reglas);
@@ -3073,6 +3200,15 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     :{id:nid(),tipo:"mensaje",texto:"",botones:[]};
   // Nace con un mensaje ya puesto y marcado como inicio: una cadena vacía no se puede
   // arrancar, y obligar a crear el primer bloque a mano no aporta nada.
+  // Una plantilla no crea nada especial: deja los mismos pasos que se habrían puesto a mano, y
+  // desde ahí se edita como cualquier otra. Lo que NO trae es la palabra ni la publicación —eso
+  // se elige en el disparador, que es lo primero que se abre.
+  const crearDesdePreset=p=>{
+    const d=p.construir();
+    sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",activa:true,...d}]);
+    sAbierta(reglas.length);
+    sPreset(false);
+  };
   const nuevaRegla=()=>sReglas(r=>{
     const p=pasoVacio();
     p.titulo="Mensaje de bienvenida";p.x=320;p.y=210;
@@ -3792,9 +3928,35 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 </button>
               </div>);})}
             <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-              <Bt v="s" onClick={()=>{nuevaRegla();sAbierta(reglas.length);}} icon="plus">Nueva cadena</Bt>
+              <Bt v="s" onClick={()=>sPreset(true)} icon="plus">Nueva cadena</Bt>
               <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
             </div>
+
+            {/* Elegir plantilla antes de abrir el lienzo. Empezar de cero está bien cuando ya
+                sabes lo que quieres montar; la primera vez, con el lienzo vacío delante, no hay
+                por dónde agarrarlo. */}
+            <Md open={preset} onClose={()=>sPreset(false)} title="¿Cómo empezamos?" width={520}>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {CC_PRESETS.map(p=>(
+                  <button key={p.id} onClick={()=>crearDesdePreset(p)}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(111,231,242,.45)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor=D.line2;}}
+                    style={{display:"flex",flexDirection:"column",gap:5,padding:"14px 16px",borderRadius:14,background:D.panel,
+                      border:"1px solid "+D.line2,cursor:"pointer",fontFamily:"inherit",textAlign:"left",transition:"border-color .18s"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:D.tx}}>{p.nombre}</span>
+                    <span style={{fontSize:12.5,color:D.tx3,lineHeight:1.5}}>{p.resumen}</span>
+                    <span style={{fontFamily:"var(--font-mono)",fontSize:11,color:D.cian,lineHeight:1.5,marginTop:2}}>{p.mapa}</span>
+                  </button>))}
+                <button onClick={()=>{nuevaRegla();sAbierta(reglas.length);sPreset(false);}}
+                  style={{padding:"12px 16px",borderRadius:14,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,
+                    cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:600,textAlign:"left"}}>
+                  En blanco — un solo mensaje y lo armo yo
+                </button>
+                <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5,paddingTop:2}}>
+                  Las plantillas llegan con los textos escritos y los bloques conectados. Faltan la palabra que las dispara, la publicación y el enlace del beneficio: eso se elige después, en el disparador.
+                </span>
+              </div>
+            </Md>
           </>):(
             <CadenaBuilder flujo={reglas[abierta]} pubs={pubs}
               onChange={f=>sReglas(rs=>rs.map((x,j)=>j===abierta?f:x))}

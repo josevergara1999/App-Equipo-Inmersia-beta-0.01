@@ -2129,12 +2129,24 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
       minutos: Math.max(1, Math.min(43200, Number(p.minutos) || 60)),
       // 640 es el tope de Instagram para el texto de una plantilla con botones.
       texto: String(p.texto || "").trim().slice(0, 640),
-      botones: (Array.isArray(p.botones) ? p.botones : []).slice(0, 3).map(b => ({
-        id: String(b.id || crypto.randomBytes(3).toString("hex")),
-        // 20 caracteres: más allá Instagram lo corta y queda un botón ilegible.
-        titulo: String(b.titulo || "").trim().slice(0, 20),
-        siguiente: String(b.siguiente || "").trim(),
-      })).filter(b => b.titulo),
+      botones: (Array.isArray(p.botones) ? p.botones : []).slice(0, 3).map(b => {
+        // Un botón hace una de dos cosas: sigue la cadena, o abre un enlace. El enlace se
+        // filtra por esquema a propósito — aquí entra texto que acaba dentro de un mensaje
+        // que Instagram manda en nuestro nombre, y `javascript:` o `data:` no pintan nada.
+        const url = String(b.url || "").trim().slice(0, 1000);
+        return {
+          id: String(b.id || crypto.randomBytes(3).toString("hex")),
+          // 20 caracteres: más allá Instagram lo corta y queda un botón ilegible.
+          titulo: String(b.titulo || "").trim().slice(0, 20),
+          siguiente: String(b.siguiente || "").trim(),
+          url: /^https?:\/\/\S+$/i.test(url) ? url : "",
+          // Cuál de las dos cosas quiere ser, guardado aparte de si ya está relleno. Deducirlo
+          // de que haya URL hacía que un botón de enlace a medio configurar volviera a aparecer
+          // como botón de bloque al reabrir la cadena, y no había forma de distinguir "todavía
+          // no pegué el enlace" de "esto nunca fue un enlace".
+          modo: b.modo === "enlace" ? "enlace" : "bloque",
+        };
+      }).filter(b => b.titulo),
       siSi: String(p.siSi || "").trim(),
       siNo: String(p.siNo || "").trim(),
       // Qué comprueba una condición, y sus parámetros.
@@ -2318,10 +2330,16 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
 
   const texto = String(paso.texto || "").slice(0, 640);
   if (!texto) return;
+  // Dos clases de botón. El de enlace (`web_url`) abre una web y NO continúa la cadena: al
+  // pulsarlo Instagram no nos manda nada, así que después de un enlace el hilo se corta —si hace
+  // falta seguir, se acompaña de un retraso o de otro botón. El de siempre (`postback`) es el
+  // que trae de vuelta a qué paso ir.
   const botones = (paso.botones || [])
-    .filter(b => b.titulo && b.siguiente)
+    .filter(b => b.titulo && (b.url || b.siguiente))
     .slice(0, 3)   // Instagram admite 3 como mucho
-    .map(b => ({ type: "postback", title: String(b.titulo).slice(0, 20), payload: igPayload(flujo.id, b.siguiente) }));
+    .map(b => b.url
+      ? ({ type: "web_url", title: String(b.titulo).slice(0, 20), url: b.url })
+      : ({ type: "postback", title: String(b.titulo).slice(0, 20), payload: igPayload(flujo.id, b.siguiente) }));
 
   const mensaje = botones.length
     ? { attachment: { type: "template", payload: { template_type: "button", text: texto, buttons: botones } } }
@@ -2329,6 +2347,15 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
   await igEnviar(cuenta, destinatario, mensaje);
   // Se anota para poder resolver después "¿respondió?": responder es escribir DESPUÉS de esto.
   await igMarcar(igsid, "enviado");
+
+  // Un mensaje puede seguir solo, sin esperar a que pulsen nada. Hasta ahora la única salida de
+  // un mensaje eran sus botones, y eso dejaba sin construir lo más pedido: entregar algo y
+  // hacer seguimiento un rato después. Con un botón de enlace era imposible —Instagram no nos
+  // avisa de ese toque—, así que el hilo se cortaba justo donde tenía que continuar.
+  //
+  // Se continúa SIEMPRE por DM, nunca por la respuesta al comentario: esa se gasta con el
+  // primer mensaje y un segundo intento por ahí lo rechaza Instagram.
+  if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, { id: igsid }, igsid, prof + 1);
 }
 
 async function igProcesarComentario(entry) {
