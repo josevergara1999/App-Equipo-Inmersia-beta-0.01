@@ -6635,7 +6635,58 @@ useEffect(() => {
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
-if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(function(){});
+
+  // El service worker sirve la app desde la caché para que abra al instante aunque Render
+  // esté dormido. El precio es que la primera apertura tras un despliegue muestra todavía la
+  // versión anterior; cuando el refresco de fondo detecta que cambió, avisa por aquí.
+  //
+  // NO se recarga sola a propósito: recargar bajo los pies de alguien que está escribiendo un
+  // guion o votando una pieza le borraría lo que lleva hecho. El aviso se puede cerrar y la
+  // versión nueva entra igual en la siguiente apertura.
+  var swAvisoPuesto = false;
+  navigator.serviceWorker.addEventListener('message', function (ev) {
+    if (!ev.data || ev.data.tipo !== 'version-nueva' || swAvisoPuesto) return;
+    swAvisoPuesto = true;
+
+    var caja = document.createElement('div');
+    caja.setAttribute('role', 'status');
+    // Se cuelga del <body>, no del árbol de la app: cualquier ancestro con `transform` o
+    // `filter` rompe `position: fixed`, que es la trampa que ya obligó a montar los modales
+    // con el helper Portal. El hueco de abajo esquiva la barra inferior del teléfono.
+    caja.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);' +
+      'bottom:calc(env(safe-area-inset-bottom, 0px) + 84px);z-index:99999;' +
+      'display:flex;align-items:center;gap:10px;padding:10px 10px 10px 16px;' +
+      'border-radius:14px;background:#0C0F17;border:1px solid #2A3145;' +
+      'box-shadow:0 8px 32px -8px rgba(0,0,0,.75);max-width:calc(100vw - 32px);' +
+      'font:500 13px/1.4 "DM Sans",system-ui,sans-serif;color:#E7EAF3';
+
+    var texto = document.createElement('span');
+    texto.textContent = 'Hay una versión nueva de la app.';
+
+    var recargar = document.createElement('button');
+    recargar.type = 'button';
+    recargar.textContent = 'Recargar';
+    recargar.style.cssText = 'flex:none;border:1px solid rgba(111,231,242,.4);border-radius:9px;' +
+      'background:rgba(111,231,242,.12);color:#6FE7F2;padding:6px 12px;cursor:pointer;' +
+      'font:600 13px/1 "DM Sans",system-ui,sans-serif';
+    recargar.onclick = function () { location.reload(); };
+
+    var cerrar = document.createElement('button');
+    cerrar.type = 'button';
+    cerrar.textContent = '✕';
+    cerrar.setAttribute('aria-label', 'Cerrar aviso');
+    cerrar.style.cssText = 'flex:none;border:0;background:transparent;color:#98A0B6;' +
+      'padding:6px 8px;cursor:pointer;font-size:13px;line-height:1';
+    cerrar.onclick = function () { caja.remove(); };
+
+    caja.appendChild(texto);
+    caja.appendChild(recargar);
+    caja.appendChild(cerrar);
+    document.body.appendChild(caja);
+  });
+}
 </script>
 </body>
 </html>

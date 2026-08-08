@@ -1,10 +1,21 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = "inmersia-v4";
-const ASSETS = ['/', '/index.html', '/icon-192.png', '/icon-512.png'];
+const CACHE = "inmersia-v5";
+
+// El esqueleto: lo mínimo para pintar la app en pantalla. React, Babel y las fuentes vienen
+// de CDN, otro origen, y los cachea el navegador por su cuenta con su propio max-age largo.
+const SHELL = ['/index.html', '/manifest.json', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
+
+// Una navegación a cualquier ruta devuelve el mismo index.html —la app es una SPA y el
+// servidor tiene un `app.get("*")` al final—, así que todas comparten una sola entrada.
+// Los iconos se piden con `?v=2`; guardar por pathname ignora la query y evita duplicados.
+const claveDe = (req, url) =>
+  (req.mode === 'navigate' || url.pathname === '/') ? '/index.html' : url.pathname;
+
+const esShell = (req, url) => req.mode === 'navigate' || url.pathname === '/' || SHELL.includes(url.pathname);
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL).catch(() => {})));
   self.skipWaiting();
 });
 
@@ -12,6 +23,49 @@ self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))));
   self.clients.claim();
 });
+
+// Avisa a las pestañas abiertas de que el servidor tiene una versión distinta de la que se
+// está mostrando. La app decide qué hacer con eso; aquí no se recarga nada por sorpresa.
+async function avisarVersionNueva() {
+  const abiertas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const c of abiertas) c.postMessage({ tipo: 'version-nueva' });
+}
+
+// Caché primero, con refresco por detrás.
+//
+// Antes esto era al revés: se iba siempre a la red y solo se miraba la caché si la petición
+// FALLABA. Con Render durmiendo el plan gratuito la red no falla, se queda colgada un minuto
+// mientras el proceso arranca — así que la copia guardada no entraba nunca justo en el caso
+// para el que se había guardado. Era una caché para cuando no hay internet, no para abrir
+// rápido. Ahora la app abre desde el disco aunque el servidor esté dormido, y la versión
+// nueva se descarga en segundo plano para la próxima apertura.
+async function conCache(req, clave, evento) {
+  const cache = await caches.open(CACHE);
+  const guardado = await cache.match(clave);
+
+  // Se pide por la clave, no por la petición original: una `Request` en modo navigate no se
+  // puede reutilizar tal cual y el resultado es el mismo archivo.
+  const refresco = fetch(clave, { credentials: 'same-origin' }).then(async r => {
+    if (!r || r.status !== 200) return r;
+    const antes = guardado && guardado.headers.get('etag');
+    const ahora = r.headers.get('etag');
+    await cache.put(clave, r.clone());
+    // Solo se avisa si había algo guardado y cambió: en la primera visita no hay versión
+    // vieja que reemplazar y el aviso no significaría nada.
+    if (guardado && antes && ahora && antes !== ahora) await avisarVersionNueva();
+    return r;
+  }).catch(() => null);
+
+  if (guardado) {
+    // `waitUntil` mantiene vivo el service worker hasta que termine la descarga, aunque la
+    // respuesta ya se haya entregado. Sin eso el navegador puede matarlo a media bajada y la
+    // caché se quedaría en la versión vieja para siempre.
+    evento.waitUntil(refresco);
+    return guardado;
+  }
+  // Primera visita: no hay nada que servir, toca esperar a la red.
+  return (await refresco) || Response.error();
+}
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
@@ -26,6 +80,15 @@ self.addEventListener('fetch', e => {
   if (e.request.headers.has('range')) return;
   const dest = e.request.destination;
   if (dest === 'video' || dest === 'audio') return;
+
+  if (esShell(e.request, url)) {
+    e.respondWith(conCache(e.request, claveDe(e.request, url), e));
+    return;
+  }
+
+  // Todo lo demás —material subido, lo que se agregue mañana— sigue yendo a la red primero.
+  // Ahí la copia guardada es solo un respaldo para cuando no hay conexión, que es lo correcto:
+  // de estos archivos nadie sabe cuándo cambian.
   e.respondWith(
     fetch(e.request).then(r => {
       // Solo se cachean respuestas completas (200); una 206 hace que cache.put falle.
