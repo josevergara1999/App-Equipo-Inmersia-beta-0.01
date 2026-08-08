@@ -2371,22 +2371,38 @@ async function igProcesarComentario(entry) {
     if (autor && autor === igId) continue;
 
     const s = await loadIG();
+    const mediaId = String(v.media?.id || v.media_id || "");
+    // Antes, cada uno de los descartes de aquí abajo era un `continue` mudo: el webhook llegaba,
+    // no pasaba nada, y desde fuera era idéntico a que Meta no hubiera entregado nada. Tres
+    // causas distintas con el mismo síntoma y ninguna forma de distinguirlas. Ahora cada una
+    // dice lo suyo y con qué valores, que es lo único que permite arreglarla.
+    console.log(`IG webhook: comentario ${commentId} en cuenta ${igId}, publicación ${mediaId || "(sin id)"}, texto "${texto.slice(0, 60)}"`);
+
     const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
-    if (!par) continue;
+    if (!par) {
+      console.error(`IG: nadie tiene la cuenta ${igId}. Guardadas: ${Object.entries(s.cuentas).map(([e, c]) => e + "=" + c.igId).join(", ") || "ninguna"}`);
+      continue;
+    }
     const [companyId, cuenta] = par;
 
     // Meta reintenta la entrega del webhook. Sin esta guarda, el mismo comentario dispararía
     // el mensaje dos veces —y Meta solo admite uno, así que el segundo sería un error feo.
-    if (s.respondidos[commentId]) continue;
+    if (s.respondidos[commentId]) { console.log(`IG: el comentario ${commentId} ya se respondió el ${s.respondidos[commentId]}`); continue; }
 
     // Una regla atada a una publicación gana sobre una general: si alguien montó una campaña
     // en un post concreto, esa es la respuesta que quiere, no la genérica de la cuenta.
-    const mediaId = String(v.media?.id || v.media_id || "");
-    const candidatas = (s.reglas[companyId] || [])
-      .filter(r => r.activa && igNorm(texto).includes(igNorm(r.palabra)));
+    const activas = (s.reglas[companyId] || []).filter(r => r.activa);
+    const candidatas = activas.filter(r => igNorm(texto).includes(igNorm(r.palabra)));
     const regla = candidatas.find(r => r.mediaId && r.mediaId === mediaId)
       || candidatas.find(r => !r.mediaId);
-    if (!regla) continue;
+    if (!regla) {
+      console.error(candidatas.length
+        // La palabra encaja pero la publicación no: es el caso silencioso más traicionero,
+        // porque en pantalla la cadena se ve perfecta y atada al post correcto.
+        ? `IG: la palabra encaja en ${candidatas.length} regla(s), pero ninguna es de esta publicación. El webhook trae ${mediaId || "(sin id)"} y las reglas apuntan a: ${candidatas.map(r => r.mediaId || "(todas)").join(", ")}`
+        : `IG: ningún patrón encaja con "${texto.slice(0, 40)}". Palabras activas de la empresa ${companyId}: ${activas.map(r => JSON.stringify(r.palabra)).join(", ") || "ninguna"}`);
+      continue;
+    }
 
     await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });
     try {
@@ -2475,6 +2491,10 @@ app.post("/api/ig/webhook", (req, res) => {
 
   (async () => {
     try {
+      // La primera línea del rastro: deja constancia de que Meta ENTREGÓ algo. Sin esto, un
+      // webhook que nunca llega y uno que llega y se descarta por dentro se ven exactamente
+      // igual desde fuera —silencio—, y son dos problemas opuestos.
+      console.log(`IG webhook recibido: objeto=${req.body?.object} entradas=${(req.body?.entry || []).length} campos=${(req.body?.entry || []).flatMap(e => (e.changes || []).map(c => c.field)).join(",") || "(ninguno)"}`);
       if (req.body?.object !== "instagram") return;
       for (const entry of (req.body.entry || [])) {
         // Los comentarios llegan en `changes`; los mensajes y los botones pulsados, en
