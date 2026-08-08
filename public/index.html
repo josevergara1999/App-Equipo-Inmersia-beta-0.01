@@ -6982,6 +6982,26 @@ function ClientView({user:cu,onLogout:ol}){
     if(d&&d.authUrl)window.location.href=d.authUrl;
     else sToast("No se pudo abrir la conexión: "+((d&&d.error)||"error"));
   };
+  // La otra conexión: la de publicar. Vive aquí por la misma razón que la de arriba, y era la
+  // única que faltaba. Estaba solo en la vista del equipo, así que había que hacerla con el
+  // cliente delante —la pestaña de autorización usa la sesión de Instagram del navegador, y la
+  // del equipo no es la suya—. Aquí la abre él, con su cuenta ya puesta, y de paso deja de
+  // haber un paso del alta que exige coordinar una videollamada.
+  const [pub,sPub]=useState(null);
+  const [pubCarga,sPubCarga]=useState(true);
+  const leerPub=()=>{
+    if(!co)return;
+    sPubCarga(true);
+    API.socialAccounts(co.id).then(d=>{sPub(d&&d.instagram?d.instagram:null);sPubCarga(false);});
+  };
+  useEffect(leerPub,[co]);
+  const conectarPub=async()=>{
+    const d=await API.socialConnect(co.id,co.name,"instagram");
+    // A la misma pestaña, no a una nueva: en el teléfono una pestaña nueva se pierde detrás y
+    // la persona cree que no pasó nada. Al volver, Zernio trae de vuelta aquí.
+    if(d&&d.authUrl)window.location.href=d.authUrl;
+    else sToast("No se pudo abrir la conexión: "+((d&&d.error)||"error"));
+  };
   // Instagram vuelve con ?ig=ok|error. Se avisa y se limpia la URL, para que un F5 no repita
   // el mensaje ni deje el parámetro pegado en la barra.
   useEffect(()=>{
@@ -7044,24 +7064,37 @@ function ClientView({user:cu,onLogout:ol}){
         ):tab==="aprobar"?(
           <SwipeDeck items={approval} onApprove={approve} onReject={reject} isMob={isMob} busy={busy} onGoPlan={()=>sTab("planificar")}/>
         ):(<>
-          {/* Solo aparece si falta conectar y la app de Meta está configurada: una tarjeta que
-              pide algo que todavía no se puede hacer es peor que no mostrar nada. */}
-          {ig&&ig.configurado&&!ig.conectada&&(
-            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:18,padding:"14px 16px",borderRadius:16,background:PC.panel,border:"1px solid "+PC.line2}}>
-              <div style={{fontSize:22,flexShrink:0}}>📸</div>
+          {/* Los dos permisos que necesita la marca, juntos y en un solo sitio.
+              Se nombran por lo que HACEN, no por el servicio que hay detrás: al cliente no le
+              dice nada que uno vaya por Zernio y el otro contra Meta, y son dos autorizaciones
+              de la misma cuenta de Instagram, así que sin decir para qué sirve cada una parece
+              que la app le pide lo mismo dos veces.
+              Cada tarjeta desaparece al quedar conectada: una tarjeta que pide algo ya hecho
+              es ruido, y una que pide algo que todavía no se puede hacer —la app de Meta sin
+              configurar— es peor que no mostrar nada. */}
+          {[
+            {k:"auto", ver:!!(ig&&ig.configurado&&!ig.conectada), icono:"💬",
+              titulo:"Conecta tu Instagram para responder solo",
+              texto:"Para contestar por privado a quien comente en tus publicaciones. Son tres toques en la pantalla de Instagram, y puedes desconectarla cuando quieras.",
+              fn:conectarIG, error:ig&&ig.ultimoError?ig.ultimoError.msg:null},
+            {k:"pub", ver:!pubCarga&&!pub, icono:"📸",
+              titulo:"Conecta tu Instagram para publicar",
+              texto:"Es un permiso aparte del de arriba: este deja que publiquemos y programemos tus piezas desde acá, sin que tengas que subirlas a mano.",
+              fn:conectarPub, error:null},
+          ].filter(c=>c.ver).map(c=>(
+            <div key={c.k} style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:12,padding:"14px 16px",borderRadius:16,background:PC.panel,border:"1px solid "+PC.line2}}>
+              <div style={{fontSize:22,flexShrink:0}}>{c.icono}</div>
               <div style={{flex:"1 1 240px",minWidth:0}}>
-                <div style={{fontSize:13.5,fontWeight:600,color:PC.tx,marginBottom:3}}>Conecta tu Instagram</div>
-                <div style={{fontSize:12,color:PC.tx3,lineHeight:1.5}}>
-                  Para publicar por ti y responder automáticamente a quien comente. Son tres clics en la pantalla de Instagram, y puedes desconectarla cuando quieras.
-                </div>
+                <div style={{fontSize:13.5,fontWeight:600,color:PC.tx,marginBottom:3}}>{c.titulo}</div>
+                <div style={{fontSize:12,color:PC.tx3,lineHeight:1.5}}>{c.texto}</div>
               </div>
-              <button onClick={conectarIG} style={{flexShrink:0,padding:"10px 20px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Conectar</button>
+              <button onClick={c.fn} style={{flexShrink:0,padding:"10px 20px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Conectar</button>
               {/* El aviso flotante dura dos segundos y se pierde con la recarga que hace
                   Instagram al volver. El último fallo se muestra fijo hasta que se conecte. */}
-              {ig.ultimoError&&<div style={{flex:"1 1 100%",fontSize:12,color:"#FF8B8B",lineHeight:1.5,paddingTop:2}}>
-                Último intento: {ig.ultimoError.msg}
+              {c.error&&<div style={{flex:"1 1 100%",fontSize:12,color:"#FF8B8B",lineHeight:1.5,paddingTop:2}}>
+                Último intento: {c.error}
               </div>}
-            </div>)}
+            </div>))}
           {ig&&ig.conectada&&(
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:16,fontSize:12,color:PC.tx3}}>
               <span style={{width:7,height:7,borderRadius:"50%",background:"#8FF2C2",flexShrink:0}}/>
