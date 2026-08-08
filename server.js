@@ -2062,6 +2062,29 @@ app.get("/api/ig/callback", async (req, res) => {
   } catch (e) { fin(false, e.message); }
 });
 
+// Las publicaciones reales de la cuenta, para poder elegir en cuál se aplica la automatización.
+app.get("/api/ig/publicaciones", requireAuth, async (req, res) => {
+  const cid = String(req.query.companyId || "");
+  const c = await igToken(cid);
+  if (!c?.token) return res.status(409).json({ error: "no_conectada" });
+  try {
+    const r = await fetch(`${IG_API}/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,comments_count&limit=30&access_token=${encodeURIComponent(c.token)}`);
+    const d = await r.json();
+    if (!r.ok) return res.status(502).json({ error: d?.error?.message || `Instagram respondió ${r.status}` });
+    res.json({
+      publicaciones: (d.data || []).map(m => ({
+        id: m.id,
+        // El pie completo no cabe en un selector y tampoco hace falta para reconocer el post.
+        titulo: String(m.caption || "").split("\n")[0].slice(0, 80) || "(sin texto)",
+        // Los reels no traen media_url utilizable como imagen; para esos vale la miniatura.
+        img: m.thumbnail_url || m.media_url || null,
+        tipo: m.media_type, permalink: m.permalink, fecha: m.timestamp,
+        comentarios: m.comments_count ?? null,
+      })),
+    });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 // ── Reglas: palabra que dispara → mensaje que se manda ──
 app.get("/api/ig/reglas", requireAuth, async (req, res) => {
   const s = await loadIG();
@@ -2073,6 +2096,9 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
   if (!Array.isArray(reglas)) return res.status(400).json({ error: "reglas debe ser una lista" });
   const limpias = reglas.slice(0, 20).map(r => ({
     id: String(r.id || crypto.randomBytes(4).toString("hex")),
+    // Vacío = la regla vale para toda la cuenta. Es lo que quieres para algo permanente
+    // ("info" siempre responde); una publicación concreta es para campañas puntuales.
+    mediaId: String(r.mediaId || "").trim(),
     palabra: String(r.palabra || "").trim().slice(0, 40),
     mensaje: String(r.mensaje || "").trim().slice(0, 900),
     activa: r.activa !== false,
@@ -2125,9 +2151,13 @@ async function igProcesarComentario(entry) {
     // el mensaje dos veces —y Meta solo admite uno, así que el segundo sería un error feo.
     if (s.respondidos[commentId]) continue;
 
-    const regla = (s.reglas[companyId] || [])
-      .filter(r => r.activa)
-      .find(r => igNorm(texto).includes(igNorm(r.palabra)));
+    // Una regla atada a una publicación gana sobre una general: si alguien montó una campaña
+    // en un post concreto, esa es la respuesta que quiere, no la genérica de la cuenta.
+    const mediaId = String(v.media?.id || v.media_id || "");
+    const candidatas = (s.reglas[companyId] || [])
+      .filter(r => r.activa && igNorm(texto).includes(igNorm(r.palabra)));
+    const regla = candidatas.find(r => r.mediaId && r.mediaId === mediaId)
+      || candidatas.find(r => !r.mediaId);
     if (!regla) continue;
 
     await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });

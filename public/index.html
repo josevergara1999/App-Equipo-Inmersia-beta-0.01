@@ -254,6 +254,7 @@ const API={
   // Aparte de Zernio a propósito: la respuesta privada es de Meta y Zernio no la expone.
   async igStatus(companyId){try{const r=await fetch("/api/ig/status?companyId="+encodeURIComponent(companyId));return await r.json();}catch(e){return{configurado:false};}},
   async igConnect(companyId){try{const r=await fetch("/api/ig/connect?companyId="+encodeURIComponent(companyId));return await r.json();}catch(e){return{error:e.message};}},
+  async igPublicaciones(companyId){try{const r=await fetch("/api/ig/publicaciones?companyId="+encodeURIComponent(companyId));return await r.json();}catch(e){return{error:e.message};}},
   async igReglas(companyId,reglas){try{
     const r=await fetch("/api/ig/reglas",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId,reglas})});
     return await r.json();}catch(e){return{error:e.message};}},
@@ -2368,14 +2369,26 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     API.socialAccounts(selCo).then(d=>{if(!vivo)return;sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);});
     return()=>{vivo=false;};},[selCo]);
 
+  // Producción, publicación y automatización son tres trabajos distintos y se pisaban en la
+  // misma pantalla. Publicar no es una etapa más del ciclo: pasa DESPUÉS de que el cliente
+  // aprueba, y mezclarlo con las cinco etapas obligaba a rebuscar entre piezas a medio hacer.
+  const [vista,sVista]=useState("produccion");
+
   // Automatización comentario → DM. Va por Meta directo, no por Zernio: la respuesta privada
   // es la única forma de escribirle a alguien que no te ha escrito, y Zernio no la expone.
-  const [autoOpen,sAutoOpen]=useState(false);
   const [igEst,sIgEst]=useState(null);
   const [reglas,sReglas]=useState([]);
   const [guardando,sGuardando]=useState(false);
+  const [pubs,sPubs]=useState(null);
   const cargarAuto=()=>API.igStatus(selCo).then(d=>{sIgEst(d);sReglas(d.reglas||[]);});
-  useEffect(()=>{if(autoOpen)cargarAuto();},[autoOpen,selCo]);
+  useEffect(()=>{if(vista==="automatizacion")cargarAuto();},[vista,selCo]);
+  // Las publicaciones reales de Instagram, para poder atar una regla a una en concreto.
+  useEffect(()=>{
+    if(vista!=="automatizacion"){sPubs(null);return;}
+    let vivo=true;
+    API.igPublicaciones(selCo).then(d=>{if(vivo)sPubs(d&&d.publicaciones?d.publicaciones:[]);});
+    return()=>{vivo=false;};
+  },[vista,selCo]);
 
   const conectarIGMeta=async()=>{
     const d=await API.igConnect(selCo);
@@ -2390,7 +2403,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       else{sReglas(d.reglas||[]);addN("✅ Automatización guardada");}
     }finally{sGuardando(false);}
   };
-  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),palabra:"",mensaje:"",activa:true}]);
+  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",palabra:"",mensaje:"",activa:true}]);
   const editRegla=(i,campo,v)=>sReglas(r=>r.map((x,j)=>j===i?{...x,[campo]:v}:x));
   const borrarRegla=i=>sReglas(r=>r.filter((_,j)=>j!==i));
 
@@ -2663,22 +2676,38 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   };
   // Instagram descarga el archivo desde su URL: una pieza que quedó en base64 porque Storage
   // estaba caído no se puede publicar, y más vale decirlo aquí que dejar que falle del otro lado.
-  const publicarIG=async t=>{
+  // `programar` usa el día y la hora que eligió el cliente en su portal. Sin hora se asume el
+  // mediodía: es preferible una hora razonable a rechazar la programación por un dato que el
+  // cliente dejó a propósito en manos del equipo.
+  const publicarIG=async(t,programar)=>{
     const f=(t.files||[])[0];
     if(!f||!/^https?:\/\//i.test(String(f.url||""))){
       addN("❌ Esta pieza no está en el almacenamiento: Instagram necesita una URL pública del archivo.");return;
     }
+    const cuando=(programar&&t.date)?`${t.date}T${t.publishTime||"12:00"}:00`:null;
+    if(cuando&&new Date(cuando).getTime()<Date.now()){
+      addN("❌ Ese día y hora ya pasaron. Usa «Publicar ahora» o pide al cliente que la reagende.");return;
+    }
     sPubId(t.id);
     try{
       const d=await API.socialPublish({companyId:selCo,platform:"instagram",
-        caption:t.description||t.title||"",media:[{type:isVid(f)?"video":"image",url:f.url}]});
+        caption:t.caption||t.description||t.title||"",
+        media:[{type:isVid(f)?"video":"image",url:f.url}],
+        ...(cuando?{scheduledFor:cuando,timezone:"America/Santiago"}:{})});
       if(!d||d.error){
         addN("❌ "+(d&&d.error==="no_conectada"?((co?.name||"La empresa")+" no tiene Instagram conectado todavía."):((d&&d.error)||"No se pudo publicar")));
         return;
       }
-      upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()}});
-      addN("📸 \""+t.title+"\" publicada en Instagram");
-      avisarA([...encargados(t),...adminsEq()],"📸 Publicada en Instagram","\""+t.title+"\" ya salió en el Instagram de "+(co?.name||"")+".");
+      if(cuando){
+        // Programada no es publicada: la pieza sigue su curso y el estado no cambia hasta que
+        // Instagram la publique de verdad.
+        upT(t.id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando}});
+        addN("🕐 \""+t.title+"\" programada para "+t.date+" a las "+(t.publishTime||"12:00"));
+      }else{
+        upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()}});
+        addN("📸 \""+t.title+"\" publicada en Instagram");
+        avisarA([...encargados(t),...adminsEq()],"📸 Publicada en Instagram","\""+t.title+"\" ya salió en el Instagram de "+(co?.name||"")+".");
+      }
     }finally{sPubId(null);}
   };
 
@@ -2819,8 +2848,12 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           {cos.map(c=>{const on=String(selCo)===String(c.id);return(
             <button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 16px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{c.name}</button>);})}
         </div>
-        <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
-        <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
+        {/* Subir y crear piezas solo tiene sentido en producción. En las otras dos vistas
+            estorbaba y confundía sobre qué se está haciendo. */}
+        {vista==="produccion"&&<>
+          <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
+          <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
+        </>}
         {/* Estado de Instagram de esta empresa. Vive aquí y no solo en las tarjetas porque una
             empresa sin piezas aprobadas no tendría dónde conectar la cuenta. */}
         {!igCarga&&(ig
@@ -2828,18 +2861,29 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
              style={{padding:"9px 16px",borderRadius:999,background:"rgba(201,191,255,.07)",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>📸 @{ig.username||"instagram"}</button>
           :<button onClick={conectarIG} title="Autoriza la cuenta de la marca en Instagram"
              style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Conectar Instagram</button>)}
-        <button onClick={()=>sAutoOpen(true)} title="Comenta una palabra → le llega un DM"
-          style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⚡ Automatización</button>
       </div>
     </div>
 
-    <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>
+    {/* Las tres vistas. Producción es el ciclo de siempre; las otras dos empiezan donde ese
+        ciclo termina, y por eso no son etapas suyas sino pantallas aparte. */}
+    <div style={{display:"flex",gap:4,marginBottom:22,padding:4,borderRadius:999,background:"rgba(200,210,228,.03)",border:"1px solid "+D.line3,width:"fit-content",maxWidth:"100%",flexWrap:"wrap"}}>
+      {[["produccion","Producción",porEtapa.produccion.length+porEtapa.listo.length+porEtapa.enviado.length+porEtapa.rechazado.length],
+        ["publicar","Publicar",porEtapa.aprobado.length],
+        ["automatizacion","Automatización",(igEst?.reglas||reglas||[]).filter(r=>r.activa!==false).length]].map(([k,l,n])=>{
+        const on=vista===k;
+        return(<button key={k} onClick={()=>sVista(k)} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 18px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:13,fontWeight:on?700:600,cursor:"pointer"}}>
+          {l}
+          {n>0&&<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:on?D.cian:D.tx5}}>{n}</span>}
+        </button>);})}
+    </div>
 
-    {!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+    {vista==="produccion"&&<Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>}
+
+    {vista==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
       <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
     </div>}
 
-    {huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+    {vista==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
       <span style={{flex:"1 1 220px",minWidth:0}}>
         <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Org Semanal.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
       </span>
@@ -2853,7 +2897,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <input ref={perRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handlePer(e.target.files)}/>
 
       {/* SUBIDA POR LOTE — plegada, para cargar varios archivos de una */}
-      {dzOpen&&<div className="d-in" style={{...D_CARD,marginBottom:18}}>
+      {vista==="produccion"&&dzOpen&&<div className="d-in" style={{...D_CARD,marginBottom:18}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
           {Object.entries(TT).map(([k,vv])=>{const n=slotCounts[k]||0;const on=upType===k;return(
             <button key={k} onClick={()=>sUpType(k)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:999,fontSize:12,fontWeight:on?700:600,cursor:"pointer",fontFamily:"inherit",border:"1px solid "+(on?vv.c:D.line2),background:on?vv.c+"1f":"transparent",color:on?vv.c:D.tx3}}>
@@ -2874,17 +2918,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>}
 
       {/* RESUMEN POR ETAPA */}
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
+      {vista==="produccion"&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
         {CONT_META.map(m=>(
           <span key={m.k} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"7px 14px",borderRadius:999,background:"rgba(200,210,228,.03)",border:"1px solid "+m.col+"40"}}>
             <span style={{width:7,height:7,borderRadius:"50%",background:m.col,boxShadow:"0 0 8px "+m.col}}/>
             <span style={{fontFamily:"var(--font-mono)",fontSize:13,fontWeight:700,color:m.col}}>{porEtapa[m.k].length}</span>
             <span style={{fontSize:11.5,color:D.tx3}}>{m.est}</span>
           </span>))}
-      </div>
+      </div>}
 
       {/* GRUPOS */}
-      <div style={{display:"flex",flexDirection:"column",gap:30}}>
+      {vista==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30}}>
         {CONT_META.map(m=>(
           <div key={m.k} id={"grp-"+m.k} style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",paddingBottom:8,borderBottom:"1px solid #141928"}}>
@@ -2898,7 +2942,141 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
               {porEtapa[m.k].map(t=>card(t,m))}
             </div>
           </div>))}
-      </div>
+      </div>}
+
+      {/* ── PUBLICAR ── Solo lo que el cliente ya aprobó. Se muestran el día y la hora que él
+          eligió en su portal, porque es él quien decide cuándo sale. */}
+      {vista==="publicar"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {!ig&&<div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+          <b>{co.name} no tiene Instagram conectado.</b> Conéctalo con el botón de arriba para poder publicar desde aquí.
+        </div>}
+        {porEtapa.aprobado.length===0
+          ?<div style={{textAlign:"center",padding:"48px 20px",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13,lineHeight:1.6}}>
+             Nada aprobado todavía.<br/>
+             <span style={{fontSize:12,color:D.tx5}}>Aquí aparecen las piezas en cuanto el cliente las aprueba en su portal.</span>
+           </div>
+          :porEtapa.aprobado.map(t=>{
+            const f=(t.files||[])[0];
+            const publicada=t.state==="publicado";
+            const programada=!!t.socialPost?.programadaPara;
+            const sinUrl=!f||!/^https?:\/\//i.test(String(f.url||""));
+            return(<div key={t.id} style={{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap",padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+(publicada?"rgba(201,191,255,.3)":D.line2)}}>
+              {f&&isImg(f)
+                ? <img src={fSrc(f)} alt="" onClick={()=>openZoom(t.files,0)} style={{width:74,height:74,borderRadius:11,objectFit:"cover",cursor:"zoom-in",flexShrink:0}}/>
+                : <div style={{width:74,height:74,borderRadius:11,background:D.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>{TT[t.type]?.i}</div>}
+
+              <div style={{flex:"1 1 240px",minWidth:0,display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <span style={{padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c,fontSize:10,fontWeight:700}}>{TT[t.type]?.l}</span>
+                  <span style={{fontSize:13.5,fontWeight:600}}>{t.title}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontFamily:"var(--font-mono)",fontSize:11.5,color:D.tx4}}>
+                  <span>{t.date?"📅 "+t.date:"sin día"}</span>
+                  <span>{t.publishTime?"🕐 "+t.publishTime:"sin hora"}</span>
+                  {!t.date&&<span style={{color:D.tx5,fontFamily:"inherit"}}>— el cliente aún no la agendó</span>}
+                </div>
+                {t.caption
+                  ?<div style={{fontSize:12,color:D.tx2,background:D.bg,padding:"8px 10px",borderRadius:9,lineHeight:1.5,whiteSpace:"pre-wrap",maxHeight:96,overflow:"auto"}}>{t.caption}</div>
+                  :<span style={{fontSize:11.5,color:D.tx5,fontStyle:"italic"}}>Sin texto — se publicará solo la imagen.</span>}
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",flexShrink:0,minWidth:170}}>
+                {publicada
+                  ?<span style={{padding:"9px 14px",borderRadius:999,textAlign:"center",fontSize:12,fontWeight:700,color:D.lav,background:"rgba(201,191,255,.08)",border:"1px solid rgba(201,191,255,.3)"}}>
+                     📸 Publicada{t.socialPost?.at?" · "+new Date(t.socialPost.at).toLocaleDateString("es-CL"):""}
+                   </span>
+                  :programada
+                  ?<span style={{padding:"9px 14px",borderRadius:999,textAlign:"center",fontSize:12,fontWeight:700,color:"#EFD9A0",background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.35)"}}>
+                     🕐 Programada · {String(t.socialPost.programadaPara).replace("T"," ").slice(0,16)}
+                   </span>
+                  :<>
+                    <button onClick={()=>publicarIG(t)} disabled={pubId===t.id||sinUrl||!ig}
+                      style={{padding:"9px 14px",borderRadius:999,background:(sinUrl||!ig)?"transparent":D.cian,border:"1px solid "+((sinUrl||!ig)?D.line2:D.cian),color:(sinUrl||!ig)?D.tx4:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(pubId===t.id||sinUrl||!ig)?"default":"pointer"}}>
+                      {pubId===t.id?"Publicando…":"Publicar ahora"}
+                    </button>
+                    {t.date&&<button onClick={()=>publicarIG(t,true)} disabled={pubId===t.id||sinUrl||!ig}
+                      style={{padding:"9px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:(pubId===t.id||sinUrl||!ig)?"default":"pointer"}}>
+                      Programar para su día
+                    </button>}
+                    {sinUrl&&<span style={{fontSize:11,color:"#EFD9A0",lineHeight:1.45}}>El archivo no está en el almacenamiento: Instagram necesita una URL pública.</span>}
+                  </>}
+              </div>
+            </div>);
+          })}
+      </div>}
+
+      {/* ── AUTOMATIZACIÓN ── */}
+      {vista==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:820}}>
+        {!igEst?<div style={{color:D.tx3,fontSize:13,padding:"20px 2px"}}>Cargando…</div>
+        :!igEst.configurado?(
+          <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
+            <b>Falta configurar la app de Meta en el servidor.</b> {igEst.motivo||""}
+          </div>
+        ):(<>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:igEst.conectada?"#8FF2C2":D.tx4,flexShrink:0}}/>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontSize:13,fontWeight:600}}>{igEst.conectada?"@"+igEst.username:"Sin conectar"}</div>
+              <div style={{fontSize:11.5,color:D.tx4}}>{igEst.conectada?("El permiso se renueva solo · vence en "+igEst.expiraEn+" días"):"Hay que autorizar la cuenta con Instagram"}</div>
+            </div>
+            <button onClick={conectarIGMeta} style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>{igEst.conectada?"Reconectar":"Conectar"}</button>
+          </div>
+
+          <div style={{fontSize:12.5,color:D.tx3,lineHeight:1.6}}>
+            Cuando alguien comente la palabra elegida, le llega el mensaje <b>por privado</b>.
+            Instagram permite <b>un solo mensaje por comentario</b> y solo dentro de los 7 días siguientes; para seguir conversando, la persona tiene que responder.
+          </div>
+
+          {reglas.length===0&&<div style={{padding:"34px 20px",textAlign:"center",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13}}>Todavía no hay ninguna automatización.</div>}
+
+          {reglas.map((r,i)=>(
+            <div key={r.id} style={{display:"flex",flexDirection:"column",gap:11,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:10,letterSpacing:".12em",textTransform:"uppercase",color:D.tx5}}>Automatización {i+1}</span>
+                <button onClick={()=>editRegla(i,"activa",!r.activa)}
+                  style={{marginLeft:"auto",padding:"5px 12px",borderRadius:999,background:r.activa?"rgba(143,242,194,.09)":"transparent",border:"1px solid "+(r.activa?"rgba(143,242,194,.4)":D.line2),color:r.activa?"#8FF2C2":D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+                  {r.activa?"Activa":"Pausada"}
+                </button>
+                <button onClick={()=>borrarRegla(i)} title="Eliminar" style={{width:28,height:28,borderRadius:8,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="trash" s={13} c={D.tx4}/></button>
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>¿En qué publicación?</label>
+                <select value={r.mediaId||""} onChange={e=>editRegla(i,"mediaId",e.target.value)}
+                  style={{padding:"8px 10px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,outline:"none",maxWidth:"100%"}}>
+                  <option value="">En todas las publicaciones de la cuenta</option>
+                  {(pubs||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{p.comentarios!=null?"  ·  "+p.comentarios+" com.":""}</option>)}
+                </select>
+                {pubs===null&&<span style={{fontSize:11.5,color:D.tx5}}>Cargando publicaciones…</span>}
+                {pubs&&pubs.length===0&&<span style={{fontSize:11.5,color:D.tx5}}>No se pudieron leer las publicaciones. La regla funcionará igual para toda la cuenta.</span>}
+                {r.mediaId&&(()=>{const p=(pubs||[]).find(x=>x.id===r.mediaId);return p?(
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:D.bg,border:"1px solid "+D.line3}}>
+                    {p.img&&<img src={p.img} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
+                    <span style={{fontSize:11.5,color:D.tx3,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{p.titulo}</span>
+                    <a href={p.permalink} target="_blank" rel="noopener" style={{fontSize:11.5,color:D.cian,textDecoration:"none",flexShrink:0}}>ver ↗</a>
+                  </div>):null;})()}
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>Palabra que lo dispara</label>
+                <input value={r.palabra} onChange={e=>editRegla(i,"palabra",e.target.value)} placeholder="EXPLORA"
+                  style={{padding:"8px 11px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,fontWeight:700,outline:"none",maxWidth:280}}/>
+                <span style={{fontSize:11.5,color:D.tx5}}>No distingue mayúsculas ni tildes, y basta con que el comentario la contenga.</span>
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>Mensaje que le llega por privado</label>
+                <textarea value={r.mensaje} onChange={e=>editRegla(i,"mensaje",e.target.value)} placeholder="¡Hola! Acá tienes la info…"
+                  style={{width:"100%",boxSizing:"border-box",minHeight:80,padding:"9px 11px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,resize:"vertical",outline:"none"}}/>
+              </div>
+            </div>))}
+
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+            <Bt v="s" onClick={nuevaRegla} icon="plus">Nueva automatización</Bt>
+            <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
+          </div>
+        </>)}
+      </div>}
     </>)}
     {/* NUEVA PIEZA */}
     <Md open={nueva} onClose={()=>sNueva(false)} title={"Nueva pieza"+(co?" para "+co.name:"")} width={430}>
@@ -2911,62 +3089,6 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>
     </Md>
 
-    {/* Automatización comentario → DM. Va contra Meta directo, no contra Zernio. */}
-    <Md open={autoOpen} onClose={()=>sAutoOpen(false)} title={"Automatización de "+(co?.name||"")} width={560}>
-      {!igEst?<div style={{padding:"18px 2px",color:D.tx3,fontSize:13}}>Cargando…</div>
-      :!igEst.configurado?(
-        <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
-          <b>Falta configurar la app de Meta en el servidor.</b> {igEst.motivo||""} Se necesitan <code>IG_APP_ID</code>, <code>IG_APP_SECRET</code> y <code>IG_WEBHOOK_VERIFY_TOKEN</code>.
-        </div>
-      ):(<div style={{display:"flex",flexDirection:"column",gap:16}}>
-
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
-          <span style={{width:8,height:8,borderRadius:"50%",background:igEst.conectada?"#8FF2C2":D.tx4,flexShrink:0}}/>
-          <div style={{minWidth:0,flex:1}}>
-            <div style={{fontSize:13,fontWeight:600}}>{igEst.conectada?"@"+igEst.username:"Sin conectar"}</div>
-            <div style={{fontSize:11.5,color:D.tx4}}>
-              {igEst.conectada?("El permiso se renueva solo · vence en "+igEst.expiraEn+" días"):"Hay que autorizar la cuenta con Instagram"}
-            </div>
-          </div>
-          <button onClick={conectarIGMeta} style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-            {igEst.conectada?"Reconectar":"Conectar"}
-          </button>
-        </div>
-
-        <div style={{fontSize:12,color:D.tx3,lineHeight:1.6}}>
-          Cuando alguien comente una de estas palabras en cualquier publicación de {co?.name}, le llega el mensaje <b>por privado</b>.
-          Instagram permite <b>un solo mensaje por comentario</b> y solo dentro de los 7 días — para seguir conversando, la persona tiene que responder.
-        </div>
-
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {reglas.length===0&&<div style={{padding:"16px",textAlign:"center",borderRadius:12,border:"1px dashed "+D.line2,color:D.tx4,fontSize:12.5}}>Todavía no hay ninguna palabra configurada.</div>}
-          {reglas.map((r,i)=>(
-            <div key={r.id} style={{display:"flex",flexDirection:"column",gap:8,padding:"12px 13px",borderRadius:12,background:D.panel,border:"1px solid "+D.line2}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <input value={r.palabra} onChange={e=>editRegla(i,"palabra",e.target.value)} placeholder="EXPLORA"
-                  style={{flex:"1 1 auto",minWidth:0,padding:"7px 10px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,fontWeight:700,outline:"none"}}/>
-                <button onClick={()=>editRegla(i,"activa",!r.activa)} title={r.activa?"Activa":"Pausada"}
-                  style={{flexShrink:0,padding:"6px 12px",borderRadius:999,background:r.activa?"rgba(143,242,194,.09)":"transparent",border:"1px solid "+(r.activa?"rgba(143,242,194,.4)":D.line2),color:r.activa?"#8FF2C2":D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
-                  {r.activa?"Activa":"Pausada"}
-                </button>
-                <button onClick={()=>borrarRegla(i)} title="Eliminar" style={{flexShrink:0,width:28,height:28,borderRadius:8,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}>
-                  <Ic n="trash" s={13} c={D.tx4}/>
-                </button>
-              </div>
-              <textarea value={r.mensaje} onChange={e=>editRegla(i,"mensaje",e.target.value)} placeholder="El mensaje que le llegará por privado…"
-                style={{width:"100%",boxSizing:"border-box",minHeight:64,padding:"8px 10px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.5,resize:"vertical",outline:"none"}}/>
-            </div>))}
-        </div>
-
-        <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-          <Bt v="s" onClick={nuevaRegla} icon="plus">Agregar palabra</Bt>
-          <div style={{display:"flex",gap:8}}>
-            <Bt v="s" onClick={()=>sAutoOpen(false)}>Cerrar</Bt>
-            <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar"}</Bt>
-          </div>
-        </div>
-      </div>)}
-    </Md>
 
   </div>);
 }
