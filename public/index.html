@@ -2476,6 +2476,10 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   // Las miniaturas caben tres por fila y a ese tamaño no se distingue una de otra; el preview
   // grande es la única forma de saber cuál estás eligiendo.
   const [prevPub,sPrevPub]=useState(null);
+  const [zoom,sZoom]=useState(1);
+  const lienzoRef=useRef(null);
+  const pinchRef=useRef(null);
+  const tapRef=useRef({id:null,t:0,movido:false});
   const tRef=useRef(null);
   useEffect(()=>()=>clearTimeout(tRef.current),[]);
 
@@ -2613,11 +2617,49 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
 
   // Un solo sitio donde se resuelve el arrastre, para que el ratón y el dedo hagan exactamente
   // lo mismo en vez de mantener dos copias del cálculo.
+  //
+  // El desplazamiento se divide por el zoom: los dedos se mueven en píxeles de pantalla, pero
+  // las coordenadas del bloque son las del lienzo. Sin dividir, con el mapa alejado el bloque
+  // corre más que el dedo y se despega de él.
   const mover=(x,y)=>{
-    if(drag)moverNodo(drag.id,drag.px+x-drag.sx,drag.py+y-drag.sy);
+    if(drag){
+      moverNodo(drag.id,drag.px+(x-drag.sx)/zoom,drag.py+(y-drag.sy)/zoom);
+      // Un arrastre deja de ser un toque. Sin esto, mover un bloque un poco y levantar el dedo
+      // contaría como el primero de un doble toque.
+      if(Math.abs(x-drag.sx)>8||Math.abs(y-drag.sy)>8)tapRef.current.movido=true;
+    }
     else if(panDrag)sPan({x:panDrag.px+x-panDrag.sx,y:panDrag.py+y-panDrag.sy});
   };
   const soltar=()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);};
+
+  // ── Pellizco para acercar y alejar ──
+  const distDe=ts=>Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);
+  const pinchIniciar=e=>{
+    const ts=[e.touches[0],e.touches[1]];
+    pinchRef.current={d0:distDe(ts),z0:zoom,pan0:{...pan},
+      medio:{x:(ts[0].clientX+ts[1].clientX)/2,y:(ts[0].clientY+ts[1].clientY)/2}};
+    sDrag(null);sPanDrag(null);
+  };
+  const pinchMover=e=>{
+    const p=pinchRef.current;if(!p||!p.d0)return;
+    const z=Math.max(.35,Math.min(2.2,p.z0*distDe([e.touches[0],e.touches[1]])/p.d0));
+    // El punto entre los dedos se queda quieto. Sin esta corrección el mapa se escapa hacia una
+    // esquina al acercarlo y hay que perseguirlo con el otro dedo.
+    const r=lienzoRef.current?lienzoRef.current.getBoundingClientRect():{left:0,top:0};
+    const mx=p.medio.x-r.left, my=p.medio.y-r.top;
+    sPan({x:mx-(mx-p.pan0.x)*z/p.z0,y:my-(my-p.pan0.y)*z/p.z0});
+    sZoom(z);
+  };
+  // El toque en un bloque NO lo selecciona: eso lo hace el doble toque. Un toque simple es el
+  // comienzo de un arrastre, y abrir el panel de edición cada vez que alguien va a mover algo
+  // tapaba media pantalla justo cuando hacía falta verla.
+  const toqueEnNodo=id=>{
+    const r=tapRef.current;
+    if(r.movido)return;                       // fue un arrastre, no un toque
+    const ahora=Date.now();
+    if(r.id===id&&ahora-r.t<320){sSel(id);tapRef.current={id:null,t:0,movido:false};}
+    else tapRef.current={id,t:ahora,movido:false};
+  };
 
   const nSel=porId[sel];
   const tSel=nSel?CC_TIPOS[nSel.tipo]:null;
@@ -2717,17 +2759,28 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
           toque, pero NO sintetiza `mousemove` a partir de `touchmove`: con solo los eventos de
           ratón, en el teléfono no se podía ni mover el mapa ni arrastrar un bloque. `touchAction:
           none` es lo que impide que el gesto se lo quede el scroll de la página. */}
-      <div
-        onMouseDown={e=>{sPanDrag({sx:e.clientX,sy:e.clientY,px:pan.x,py:pan.y});sSel(null);}}
-        onTouchStart={e=>{const t=e.touches[0];if(!t)return;sPanDrag({sx:t.clientX,sy:t.clientY,px:pan.x,py:pan.y});sSel(null);}}
-        onMouseMove={e=>mover(e.clientX,e.clientY)}
-        onTouchMove={e=>{const t=e.touches[0];if(t)mover(t.clientX,t.clientY);}}
-        onMouseUp={soltar} onTouchEnd={soltar} onTouchCancel={soltar}
+      <div ref={lienzoRef}
+        onMouseDown={e=>{if(movil)return;sPanDrag({sx:e.clientX,sy:e.clientY,px:pan.x,py:pan.y});sSel(null);}}
+        onTouchStart={e=>{
+          if(e.touches.length>=2)return pinchIniciar(e);
+          const t=e.touches[0];if(!t)return;
+          sPanDrag({sx:t.clientX,sy:t.clientY,px:pan.x,py:pan.y});sSel(null);
+        }}
+        onMouseMove={e=>{if(movil)return;mover(e.clientX,e.clientY);}}
+        onTouchMove={e=>{
+          if(e.touches.length>=2&&pinchRef.current)return pinchMover(e);
+          const t=e.touches[0];if(t)mover(t.clientX,t.clientY);
+        }}
+        onMouseUp={soltar}
+        onTouchEnd={e=>{if(e.touches.length<2)pinchRef.current=null;soltar();}}
+        onTouchCancel={()=>{pinchRef.current=null;soltar();}}
         onMouseLeave={soltar}
         style={{flex:"1 1 auto",position:"relative",overflow:"hidden",cursor:panDrag?"grabbing":"grab",touchAction:"none",
           backgroundColor:"#05060B",backgroundImage:"radial-gradient(rgba(200, 210, 228, 0.12) 1px, transparent 1.2px)",
-          backgroundSize:"26px 26px",backgroundPosition:pan.x+"px "+pan.y+"px"}}>
-        <div style={{position:"absolute",top:0,left:0,transform:"translate("+pan.x+"px, "+pan.y+"px)"}}>
+          backgroundSize:(26*zoom)+"px "+(26*zoom)+"px",backgroundPosition:pan.x+"px "+pan.y+"px"}}>
+        {/* `transformOrigin` en la esquina, no en el centro: es lo que hace que las cuentas del
+            pellizco —y las coordenadas de cada bloque— sigan siendo las de siempre. */}
+        <div style={{position:"absolute",top:0,left:0,transformOrigin:"0 0",transform:"translate("+pan.x+"px, "+pan.y+"px) scale("+zoom+")"}}>
           <svg width="4000" height="4000" style={{position:"absolute",top:0,left:0,pointerEvents:"none",overflow:"visible"}}>
             {aristas.map((e,i)=>{
               const a=porId[e.from],b=porId[e.to];
@@ -2769,8 +2822,16 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                   +(n.esperaMin?(()=>{const[v,u]=ccDescomponer(n.esperaMin);return " · tras "+v+" "+(CC_UNIDADES.find(x=>x[1]===u)||["min"])[0];})():""))
               :(n.texto||"");
             return(<div key={n.id}
-              onMouseDown={e=>{e.stopPropagation();sDrag({id:n.id,sx:e.clientX,sy:e.clientY,px:n.x,py:n.y});sSel(n.id);}}
-              onTouchStart={e=>{e.stopPropagation();const t=e.touches[0];if(!t)return;sDrag({id:n.id,sx:t.clientX,sy:t.clientY,px:n.x,py:n.y});sSel(n.id);}}
+              onMouseDown={e=>{if(movil)return;e.stopPropagation();sDrag({id:n.id,sx:e.clientX,sy:e.clientY,px:n.x,py:n.y});sSel(n.id);}}
+              // Con el dedo, tocar un bloque solo empieza a moverlo. Para editarlo, doble toque.
+              onTouchStart={e=>{
+                if(e.touches.length>=2)return;          // dos dedos son un pellizco, no un bloque
+                e.stopPropagation();
+                const t=e.touches[0];if(!t)return;
+                sDrag({id:n.id,sx:t.clientX,sy:t.clientY,px:n.x,py:n.y});
+                tapRef.current={...tapRef.current,movido:false};
+              }}
+              onTouchEnd={()=>toqueEnNodo(n.id)}
               style={{position:"absolute",left:n.x,top:n.y,width:CC_W,boxSizing:"border-box",borderRadius:16,padding:"13px 15px 14px",
                 background:"linear-gradient(170deg, rgba(13, 17, 27, 0.97), rgba(6, 8, 14, 0.99))",
                 border:"1px solid "+(isSel?t.bor.replace("0.4","0.85"):"rgba(200, 210, 228, 0.12)"),
@@ -2808,6 +2869,19 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
         </div>
         {/* En el teléfono se cae: caería justo detrás de la tira de bloques. */}
         {!movil&&<span style={{position:"absolute",bottom:14,left:16,fontSize:11,color:"#4A5265",pointerEvents:"none"}}>Arrastra los bloques para ordenarlos · arrastra el fondo para moverte</span>}
+
+        {/* Mandos de zoom. El pellizco es el gesto natural, pero con una sola mano sujetando el
+            teléfono no siempre se puede, y quedarse al 35 % sin saber cómo volver es fácil. */}
+        {movil&&<div style={{position:"absolute",top:10,right:10,display:"flex",flexDirection:"column",gap:6}}>
+          {[["+",()=>sZoom(z=>Math.min(2.2,z+.2))],["−",()=>sZoom(z=>Math.max(.35,z-.2))]].map(([txt,fn])=>(
+            <button key={txt} onClick={fn} onTouchStart={e=>e.stopPropagation()}
+              style={{width:34,height:34,borderRadius:11,background:"rgba(11, 14, 23, 0.92)",border:"1px solid #262D40",color:"#C9CFDC",fontFamily:"inherit",fontSize:16,lineHeight:1,cursor:"pointer"}}>{txt}</button>))}
+          <button onClick={()=>{sZoom(1);sPan({x:-180,y:20});}} onTouchStart={e=>e.stopPropagation()}
+            title="Volver al tamaño normal"
+            style={{width:34,height:34,borderRadius:11,background:"rgba(11, 14, 23, 0.92)",border:"1px solid #262D40",color:zoom===1?"#4A5265":"#6FE7F2",fontFamily:"ui-monospace, monospace",fontSize:9.5,fontWeight:700,cursor:"pointer"}}>
+            {Math.round(zoom*100)}
+          </button>
+        </div>}
       </div>
 
       {/* ── Panel de edición ── */}
