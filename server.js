@@ -1965,6 +1965,8 @@ app.get("/api/ig/status", requireAuth, async (req, res) => {
     username: c?.username || null,
     expiraEn: c?.expira ? Math.max(0, Math.round((c.expira - Date.now()) / 86400000)) : null,
     reglas: s.reglas[cid] || [],
+    // Solo mientras no haya conexión: una vez conectada, un error viejo confunde más que ayuda.
+    ultimoError: c ? null : (s.ultimoError || null),
   });
 });
 
@@ -1983,7 +1985,17 @@ app.get("/api/ig/connect", requireAuth, (req, res) => {
 // Pública a propósito: aquí vuelve Instagram, sin la cookie de sesión. Lo que autentica no es
 // la sesión sino la firma del `state` más el código de un solo uso.
 app.get("/api/ig/callback", async (req, res) => {
-  const fin = (ok, msg) => res.redirect(`/?ig=${ok ? "ok" : "error"}&msg=${encodeURIComponent(msg)}`);
+  // El motivo del fallo se guarda además de mostrarse: el aviso en pantalla dura dos segundos
+  // y medio y se pierde con la recarga, así que sin esto no hay forma de saber qué dijo
+  // Instagram salvo mirar los registros del servidor.
+  const fin = async (ok, msg) => {
+    if (!ok) {
+      try { await saveIG(s => { s.ultimoError = { msg, fecha: new Date().toISOString() }; return s; }); }
+      catch (_) { /* que un fallo al anotar no tape el fallo real */ }
+      console.error("IG callback:", msg);
+    }
+    res.redirect(`/?ig=${ok ? "ok" : "error"}&msg=${encodeURIComponent(msg)}`);
+  };
   try {
     const st = igLeerState(req.query.state);
     if (!st) return fin(false, "el enlace de autorización venció o fue alterado");

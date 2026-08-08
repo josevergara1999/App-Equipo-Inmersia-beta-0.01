@@ -5972,6 +5972,11 @@ function ClientView({user:cu,onLogout:ol}){
                 </div>
               </div>
               <button onClick={conectarIG} style={{flexShrink:0,padding:"10px 20px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Conectar</button>
+              {/* El aviso flotante dura dos segundos y se pierde con la recarga que hace
+                  Instagram al volver. El último fallo se muestra fijo hasta que se conecte. */}
+              {ig.ultimoError&&<div style={{flex:"1 1 100%",fontSize:12,color:"#FF8B8B",lineHeight:1.5,paddingTop:2}}>
+                Último intento: {ig.ultimoError.msg}
+              </div>}
             </div>)}
           {ig&&ig.conectada&&(
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:16,fontSize:12,color:PC.tx3}}>
