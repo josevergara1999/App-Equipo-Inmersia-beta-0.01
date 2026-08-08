@@ -308,8 +308,14 @@ siempre con un botón: no es adorno.
 botón (`f:<flujo>:<paso>`), así que al pulsarlo el mensaje ya trae escrito adónde ir. Guardar en
 qué punto va cada conversación obligaría a limpiar sesiones colgadas para siempre.
 
-- Tipos de paso: `mensaje` (texto + hasta 3 botones) y `condicion` (¿la persona sigue la
-  cuenta?, vía `is_user_follow_business`).
+- Tipos de paso: `mensaje` (texto + hasta 3 botones), `condicion` (¿la persona sigue la cuenta?,
+  vía `is_user_follow_business`), `retraso` y `accion` (aviso interno al equipo, no sale nada a
+  Instagram).
+- **El retraso no usa `setTimeout`.** Render duerme el proceso y el plan gratuito se reinicia,
+  así que la espera se guarda en `app_data.ig.pendientes` y la retoma `repasoCorto` cada 10 min.
+  La granularidad real es de 10 minutos, no de segundos. Y si la espera pasa de las 24 h desde
+  la última acción de la persona, el envío falla — es la ventana de Instagram, no un fallo
+  nuestro.
 - Límites de Instagram, no nuestros: **640** caracteres de texto, **3** botones, **20**
   caracteres por botón.
 - Si la comprobación de seguidor falla, se sigue por la rama del «sí»: es preferible entregar de

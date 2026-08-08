@@ -820,6 +820,9 @@ async function repasoCorto() {
       });
     }
   } catch (e) { console.error("repaso corto:", e.message); }
+  // Las esperas de las cadenas de Instagram se retoman aquí. Va aparte del try de arriba para
+  // que un fallo en los recordatorios no impida enviar los mensajes pendientes.
+  try { await igProcesarPendientes(); } catch (e) { console.error("IG pendientes:", e.message); }
 }
 
 setTimeout(() => { repasoDiario(); repasoCorto(); }, 20000);
@@ -2095,9 +2098,17 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
   if (!companyId) return res.status(400).json({ error: "companyId requerido" });
   if (!Array.isArray(reglas)) return res.status(400).json({ error: "reglas debe ser una lista" });
   const limpias = reglas.slice(0, 20).map(r => {
+    const TIPOS = ["mensaje", "condicion", "retraso", "accion"];
     const pasos = (Array.isArray(r.pasos) ? r.pasos : []).slice(0, 20).map(p => ({
       id: String(p.id || crypto.randomBytes(3).toString("hex")),
-      tipo: p.tipo === "condicion" ? "condicion" : "mensaje",
+      tipo: TIPOS.includes(p.tipo) ? p.tipo : "mensaje",
+      titulo: String(p.titulo || "").trim().slice(0, 60),
+      // Retraso y acción tienen una sola salida; el mensaje sale por sus botones y la
+      // condición por sus dos ramas.
+      siguiente: String(p.siguiente || "").trim(),
+      // Tope de 30 días. Más allá la ventana de 24 h ya se cerró hace mucho y el envío
+      // fallaría igual, así que no tiene sentido permitirlo.
+      minutos: Math.max(1, Math.min(43200, Number(p.minutos) || 60)),
       // 640 es el tope de Instagram para el texto de una plantilla con botones.
       texto: String(p.texto || "").trim().slice(0, 640),
       botones: (Array.isArray(p.botones) ? p.botones : []).slice(0, 3).map(b => ({
@@ -2108,13 +2119,23 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
       })).filter(b => b.titulo),
       siSi: String(p.siSi || "").trim(),
       siNo: String(p.siNo || "").trim(),
-    })).filter(p => p.tipo === "condicion" || p.texto);
+      // La posición en el lienzo es del constructor, pero se guarda con el paso: si no, cada
+      // vez que se abriera la cadena los bloques saltarían a otro sitio y no se reconocería.
+      x: Number.isFinite(+p.x) ? Math.round(+p.x) : 0,
+      y: Number.isFinite(+p.y) ? Math.round(+p.y) : 0,
+      // Un mensaje sin texto no se puede enviar; los demás tipos sí valen vacíos.
+    })).filter(p => p.tipo !== "mensaje" || p.texto);
+    const ids = new Set(pasos.map(p => p.id));
     return {
       id: String(r.id || crypto.randomBytes(4).toString("hex")),
+      nombre: String(r.nombre || "").trim().slice(0, 60),
       // Vacío = la regla vale para toda la cuenta. Es lo que quieres para algo permanente
       // ("info" siempre responde); una publicación concreta es para campañas puntuales.
       mediaId: String(r.mediaId || "").trim(),
       palabra: String(r.palabra || "").trim().slice(0, 40),
+      // Por dónde empieza la cadena. En un grafo el primero de la lista no tiene por qué ser
+      // el de arriba, así que se guarda explícito; si apunta a un paso borrado, vale el primero.
+      inicio: ids.has(String(r.inicio || "")) ? String(r.inicio) : (pasos[0]?.id || ""),
       pasos,
       activa: r.activa !== false,
     };
@@ -2173,7 +2194,7 @@ function igPasosDe(flujo) {
 
 // Ejecuta un paso y, si es una condición, salta al que corresponda. La profundidad frena los
 // bucles: dos condiciones que se apunten entre sí colgarían el proceso para siempre.
-async function igEjecutarPaso(cuenta, flujo, pasoId, destinatario, igsid, prof = 0) {
+async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, igsid, prof = 0) {
   if (prof > 8) { console.error("IG: cadena demasiado profunda, se corta"); return; }
   const pasos = igPasosDe(flujo);
   const paso = pasos.find(p => String(p.id) === String(pasoId)) || pasos[0];
@@ -2188,7 +2209,37 @@ async function igEjecutarPaso(cuenta, flujo, pasoId, destinatario, igsid, prof =
       console.error("IG condición:", e.message); cumple = true;
     }
     const sig = cumple ? paso.siSi : paso.siNo;
-    if (sig) return igEjecutarPaso(cuenta, flujo, sig, destinatario, igsid, prof + 1);
+    if (sig) return igEjecutarPaso(companyId, cuenta, flujo, sig, destinatario, igsid, prof + 1);
+    return;
+  }
+
+  // Espera y continúa después. No sirve un setTimeout: Render duerme el proceso y el plan
+  // gratuito se reinicia, así que la espera se guarda y la retoma el repaso de cada 10 min.
+  // Eso hace que la granularidad real sea de 10 minutos, no de segundos.
+  if (paso.tipo === "retraso") {
+    if (!paso.siguiente) return;
+    const min = Math.max(1, Math.min(43200, Number(paso.minutos) || 60));
+    await saveIG(s => {
+      s.pendientes = [...(s.pendientes || []), {
+        cuando: Date.now() + min * 60000,
+        companyId: String(companyId), flujoId: String(flujo.id), pasoId: String(paso.siguiente), igsid: String(igsid),
+      }].slice(-500);   // tope de seguridad por si algo se desboca
+      return s;
+    });
+    return;
+  }
+
+  // Aviso interno al equipo. No sale nada hacia Instagram.
+  if (paso.tipo === "accion") {
+    const texto = String(paso.texto || "").trim();
+    if (texto) {
+      await crearNotif({
+        type: "contenido", title: "⚡ Automatización de Instagram",
+        body: texto, to: [], url: "/",
+        dedupKey: "igacc_" + flujo.id + "_" + paso.id + "_" + igsid,
+      }).catch(e => console.error("IG acción:", e.message));
+    }
+    if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, destinatario, igsid, prof + 1);
     return;
   }
 
@@ -2241,7 +2292,7 @@ async function igProcesarComentario(entry) {
       // Instagram deja mandar a alguien que no te ha escrito. De ahí en adelante manda el
       // botón, que al pulsarse abre la ventana de 24 h y permite seguir la conversación.
       const pasos = igPasosDe(regla);
-      await igEjecutarPaso(cuenta, regla, pasos[0]?.id, { comment_id: commentId }, autor);
+      await igEjecutarPaso(companyId, cuenta, regla, regla.inicio || pasos[0]?.id, { comment_id: commentId }, autor);
       console.log(`IG: cadena "${regla.palabra}" iniciada con quien comentó ${commentId}`);
     } catch (e) {
       console.error("IG respuesta privada:", e.message);
@@ -2275,9 +2326,36 @@ async function igProcesarPostback(entry, m) {
 
   try {
     // Ya hay conversación abierta: a partir de aquí se escribe a la persona, no al comentario.
-    await igEjecutarPaso(cuenta, flujo, ref.pasoId, { id: igsid }, igsid);
+    await igEjecutarPaso(companyId, cuenta, flujo, ref.pasoId, { id: igsid }, igsid);
     console.log(`IG: paso ${ref.pasoId} de "${flujo.palabra}" enviado a ${igsid}`);
   } catch (e) { console.error("IG postback:", e.message); }
+}
+
+// Retoma las esperas cumplidas. La llama `repasoCorto` cada 10 minutos.
+async function igProcesarPendientes() {
+  const s = await loadIG();
+  const cola = s.pendientes || [];
+  if (!cola.length) return;
+  const ahora = Date.now();
+  const toca = cola.filter(p => p.cuando <= ahora);
+  if (!toca.length) return;
+  // Se sacan de la cola ANTES de ejecutar: si el envío falla, reintentarlo cada 10 minutos
+  // para siempre sería peor que perderlo.
+  await saveIG(s2 => { s2.pendientes = (s2.pendientes || []).filter(p => p.cuando > ahora); return s2; });
+
+  for (const p of toca) {
+    const cuenta = s.cuentas[p.companyId];
+    const flujo = (s.reglas[p.companyId] || []).find(f => String(f.id) === String(p.flujoId));
+    if (!cuenta || !flujo || flujo.activa === false) continue;
+    try {
+      await igEjecutarPaso(p.companyId, cuenta, flujo, p.pasoId, { id: p.igsid }, p.igsid);
+      console.log(`IG: espera cumplida, paso ${p.pasoId} enviado a ${p.igsid}`);
+    } catch (e) {
+      // Lo normal aquí es "outside of allowed window": la ventana de 24 h se cerró durante la
+      // espera. No es un fallo del código y no tiene arreglo por nuestra parte.
+      console.error("IG pendiente:", e.message);
+    }
+  }
 }
 
 app.post("/api/ig/webhook", (req, res) => {

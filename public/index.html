@@ -88,6 +88,10 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
    convierte al panel en ancestro de referencia de los `fixed` que cuelguen de él (ver
    CLAUDE.md). Termina en el estado natural, así que no retiene nada. */
 @keyframes drawerIn{from{opacity:.5;transform:translateX(26px)}to{opacity:1;transform:none}}
+/* Constructor de cadenas. `ccSlideIn` termina en el estado natural, así que no retiene
+   transform — un transform retenido convertiría al panel en ancestro de los `fixed`. */
+@keyframes ccPulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes ccSlideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
 @keyframes drawerInMob{from{opacity:.5;transform:translateY(26px)}to{opacity:1;transform:none}}
 
 /* Borde iluminado que recorre el marco.
@@ -2346,6 +2350,388 @@ const MES_AB=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov",
 const diaLbl=ds=>{if(!ds)return "sin fecha";const p=ds.split("-").map(Number);const dt=new Date(p[0],p[1]-1,p[2]);
   return ["DOM","LUN","MAR","MIÉ","JUE","VIE","SÁB"][dt.getDay()]+" "+p[2]+" "+MES_AB[p[1]-1];};
 
+// ═══ CONSTRUCTOR DE CADENAS ══════════════════════════════════════
+// Lienzo de nodos: los bloques se arrastran, las aristas son curvas bézier y las ramas Sí/No
+// llevan su etiqueta. Cada tipo tiene su color, y ese color manda en el nodo, en su chip, en
+// la arista que sale de él y en el punto de la que entra.
+const CC_W=224, CC_H=112;
+const CC_TIPOS={
+  disparador:{nombre:"Disparador",col:"#6FE7F2",bg:"rgba(111, 231, 242, 0.1)",bor:"rgba(111, 231, 242, 0.4)",
+    desc:"Lo que inicia la cadena",detLabel:"Condición de inicio",ph:'Ej: alguien comenta "INFO" en un post…',
+    hint:"Toda cadena parte aquí. Solo puede haber un disparador."},
+  mensaje:{nombre:"Mensaje",col:"#9BB4FF",bg:"rgba(155, 180, 255, 0.1)",bor:"rgba(155, 180, 255, 0.4)",
+    desc:"Envía un DM automático",detLabel:"Texto del mensaje",ph:"Escribe el mensaje que se enviará…",
+    hint:"Se envía por DM apenas se llega a este paso."},
+  condicion:{nombre:"Condición",col:"#C9BFFF",bg:"rgba(201, 191, 255, 0.1)",bor:"rgba(201, 191, 255, 0.4)",
+    desc:"Divide el camino en Sí / No",detLabel:"Pregunta / condición",ph:"Ej: ¿respondió al mensaje?",
+    hint:"La cadena sigue por la rama Sí o No según lo que haga la persona."},
+  retraso:{nombre:"Retraso",col:"#C9CFDC",bg:"rgba(200, 210, 228, 0.1)",bor:"rgba(200, 210, 228, 0.4)",
+    desc:"Espera antes de seguir",detLabel:"Tiempo de espera",ph:"Ej: 1 día, 3 horas…",
+    hint:"La cadena se pausa este tiempo antes del siguiente paso."},
+  accion:{nombre:"Acción",col:"#7FE8C0",bg:"rgba(127, 232, 192, 0.1)",bor:"rgba(127, 232, 192, 0.4)",
+    desc:"Etiqueta, notifica o deriva",detLabel:"Qué hace esta acción",ph:'Ej: etiquetar como "interesado" y avisar al equipo…',
+    hint:"Acciones internas: etiquetas, avisos al equipo, mover a otra cadena."},
+};
+const ccId=()=>Math.random().toString(36).slice(2,8);
+// El retraso se guarda en minutos, pero nadie piensa en minutos cuando quiere "2 días".
+const CC_UNIDADES=[["minutos",1],["horas",60],["días",1440]];
+const ccDescomponer=min=>{
+  const m=Math.max(1,Number(min)||60);
+  if(m%1440===0)return[m/1440,1440];
+  if(m%60===0)return[m/60,60];
+  return[m,1];
+};
+
+function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
+  const [pan,sPan]=useState({x:-180,y:20});
+  const [drag,sDrag]=useState(null);
+  const [panDrag,sPanDrag]=useState(null);
+  const [sel,sSel]=useState(null);
+  const [saved,sSaved]=useState(false);
+  const tRef=useRef(null);
+  useEffect(()=>()=>clearTimeout(tRef.current),[]);
+
+  const pasos=flujo.pasos||[];
+  const mut=fn=>onChange({...flujo,pasos:fn(pasos)});
+  const editPaso=(id,campo,v)=>mut(p=>p.map(x=>x.id===id?{...x,[campo]:v}:x));
+  const inicio=flujo.inicio||pasos[0]?.id||"";
+
+  // El disparador no es un paso: es la regla en sí (palabra + publicación). Se dibuja como
+  // nodo porque en el diseño toda cadena arranca de uno, pero no se guarda en `pasos`.
+  const TRIG="__disparador";
+  const trigTitulo=flujo.palabra?('Comentario con "'+flujo.palabra+'"'):"Sin palabra todavía";
+  const pubSel=(pubs||[]).find(p=>p.id===flujo.mediaId);
+  const trigDetalle=flujo.palabra
+    ?("Se activa cuando alguien comenta \""+flujo.palabra+"\" en "+(pubSel?"la publicación elegida":"cualquier publicación de la cuenta")+".")
+    :"";
+
+  const nodos=[
+    {id:TRIG,tipo:"disparador",titulo:trigTitulo,detalle:trigDetalle,x:flujo.tx??320,y:flujo.ty??30},
+    ...pasos.map(p=>({...p,titulo:p.titulo||CC_TIPOS[p.tipo]?.nombre||"Paso"})),
+  ];
+  const porId={};nodos.forEach(n=>{porId[n.id]=n;});
+
+  // Las aristas se derivan de la propia lógica: los botones de un mensaje, las dos ramas de una
+  // condición, la salida única de un retraso o una acción. No hay conexiones sueltas que
+  // mantener sincronizadas aparte — el grafo ES la configuración.
+  const aristas=[];
+  if(inicio&&porId[inicio])aristas.push({from:TRIG,to:inicio});
+  for(const p of pasos){
+    if(p.tipo==="mensaje")(p.botones||[]).forEach(b=>{if(b.siguiente&&porId[b.siguiente])aristas.push({from:p.id,to:b.siguiente,label:b.titulo||"botón"});});
+    else if(p.tipo==="condicion"){
+      if(p.siSi&&porId[p.siSi])aristas.push({from:p.id,to:p.siSi,label:"Sí"});
+      if(p.siNo&&porId[p.siNo])aristas.push({from:p.id,to:p.siNo,label:"No"});
+    }else if(p.siguiente&&porId[p.siguiente])aristas.push({from:p.id,to:p.siguiente});
+  }
+  const conEntrada=new Set(aristas.map(a=>a.to));
+
+  const moverNodo=(id,x,y)=>{
+    if(id===TRIG)onChange({...flujo,tx:Math.round(x),ty:Math.round(y)});
+    else mut(p=>p.map(n=>n.id===id?{...n,x:Math.round(x),y:Math.round(y)}:n));
+  };
+
+  // Al añadir, el bloque cuelga del seleccionado —o del último— y se coloca debajo, saltando
+  // lo que ya ocupe esa columna. Y se conecta solo: un bloque suelto no sirve de nada.
+  const addNodo=tipo=>{
+    const desde=porId[sel]||nodos[nodos.length-1];
+    const debajo=nodos.filter(n=>Math.abs(n.x-desde.x)<CC_W&&n.y>desde.y);
+    const y=debajo.length?Math.max(...debajo.map(n=>n.y))+180:desde.y+180;
+    const nuevo={id:ccId(),tipo,titulo:CC_TIPOS[tipo].nombre+" nuevo",texto:"",botones:[],siSi:"",siNo:"",siguiente:"",minutos:60,x:desde.x,y};
+    const conectar=lista=>{
+      if(desde.id===TRIG){if(!inicio)return lista;return lista;}
+      return lista.map(p=>{
+        if(p.id!==desde.id)return p;
+        if(p.tipo==="mensaje")return (p.botones||[]).length?p:{...p,botones:[{id:ccId(),titulo:"Continuar",siguiente:nuevo.id}]};
+        if(p.tipo==="condicion")return p.siSi?p:{...p,siSi:nuevo.id};
+        return p.siguiente?p:{...p,siguiente:nuevo.id};
+      });
+    };
+    const listos=[...conectar(pasos),nuevo];
+    onChange({...flujo,pasos:listos,...((desde.id===TRIG&&!inicio)||!pasos.length?{inicio:nuevo.id}:{})});
+    sSel(nuevo.id);
+  };
+
+  const borrarNodo=id=>{
+    mut(p=>p.filter(x=>x.id!==id).map(x=>({
+      ...x,
+      botones:(x.botones||[]).map(b=>b.siguiente===id?{...b,siguiente:""}:b),
+      siSi:x.siSi===id?"":x.siSi, siNo:x.siNo===id?"":x.siNo,
+      siguiente:x.siguiente===id?"":x.siguiente,
+    })));
+    if(flujo.inicio===id)onChange({...flujo,inicio:""});
+    if(sel===id)sSel(null);
+  };
+
+  const nSel=porId[sel];
+  const tSel=nSel?CC_TIPOS[nSel.tipo]:null;
+
+  // Selector de destino, reutilizado por botones, ramas y salidas únicas.
+  const selDestino=(valor,onCh,vacio,excluir)=>(
+    <select value={valor||""} onChange={e=>onCh(e.target.value)}
+      style={{padding:"8px 11px",borderRadius:10,background:"#0B0E17",border:"1px solid #262D40",color:valor?"#F4F2ED":"#6B7484",fontFamily:"inherit",fontSize:12.5,outline:"none",width:"100%",boxSizing:"border-box"}}>
+      <option value="">{vacio}</option>
+      {nodos.filter(n=>n.id!==TRIG&&n.id!==excluir).map(n=>
+        <option key={n.id} value={n.id}>{CC_TIPOS[n.tipo]?.nombre} · {n.titulo}</option>)}
+    </select>);
+
+  const etiqueta=(txt,extra)=>(<label style={{fontSize:12.5,fontWeight:600,color:"#C9CFDC",...extra}}>{txt}</label>);
+
+  return(<div style={{height:"calc(100vh - 150px)",minHeight:520,display:"flex",flexDirection:"column",overflow:"hidden",
+    fontFamily:"'Instrument Sans', system-ui, sans-serif",color:"#F4F2ED",background:"#05060B",boxSizing:"border-box",
+    borderRadius:16,border:"1px solid #161B2A"}}>
+
+    {/* ── Barra superior ── */}
+    <header style={{display:"flex",alignItems:"center",gap:14,padding:"12px 22px",background:"rgba(5, 6, 11, 0.94)",borderBottom:"1px solid #161B2A",flexShrink:0,zIndex:10}}>
+      <div style={{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg, #6FE7F2, #9BB4FF)",color:"#05060B",fontSize:12,fontWeight:700}}>IN</div>
+      <div style={{width:1,height:22,background:"#1E2536"}}/>
+      <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+        <span style={{fontFamily:"ui-monospace, monospace",fontSize:9.5,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484"}}>Constructor de cadena</span>
+        <input value={flujo.nombre||""} onChange={e=>onChange({...flujo,nombre:e.target.value})} placeholder="Cadena sin nombre"
+          onFocus={e=>e.target.style.borderBottomColor="rgba(111, 231, 242, 0.5)"} onBlur={e=>e.target.style.borderBottomColor="transparent"}
+          style={{padding:"2px 0",background:"transparent",border:"none",borderBottom:"1px dashed transparent",color:"#F4F2ED",fontFamily:"inherit",fontSize:15,fontWeight:600,outline:"none",width:240}}/>
+      </div>
+      <div style={{flex:"1 1 auto"}}/>
+      <button onClick={()=>onChange({...flujo,activa:flujo.activa===false})}
+        style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:999,
+          background:flujo.activa!==false?"rgba(111, 231, 242, 0.08)":"transparent",
+          border:"1px solid "+(flujo.activa!==false?"rgba(111, 231, 242, 0.4)":"#262D40"),
+          color:flujo.activa!==false?"#6FE7F2":"#8E93A6",fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        <span style={{width:8,height:8,borderRadius:"50%",background:flujo.activa!==false?"#6FE7F2":"#4A5265",
+          animation:flujo.activa!==false?"ccPulse 2.2s ease-in-out infinite":"none"}}/>
+        {flujo.activa!==false?"Cadena activa":"Pausada"}
+      </button>
+      <button onClick={()=>{onGuardar();sSaved(true);clearTimeout(tRef.current);tRef.current=setTimeout(()=>sSaved(false),1600);}} disabled={guardando}
+        style={{padding:"9px 20px",borderRadius:999,background:"#6FE7F2",border:"1px solid #6FE7F2",color:"#05060B",fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:guardando?"default":"pointer"}}>
+        {guardando?"Guardando…":(saved?"Guardado ✓":"Guardar")}
+      </button>
+      <button onClick={onCerrar} title="Volver a la lista"
+        style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"1px solid #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
+    </header>
+
+    <div style={{flex:"1 1 auto",display:"flex",minHeight:0}}>
+
+      {/* ── Paleta de bloques ── */}
+      <aside style={{width:216,flexShrink:0,display:"flex",flexDirection:"column",gap:8,padding:"18px 14px",borderRight:"1px solid #161B2A",background:"rgba(11, 14, 23, 0.55)",overflow:"auto",boxSizing:"border-box"}}>
+        <span style={{fontFamily:"ui-monospace, monospace",fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484",padding:"0 4px 4px"}}>Bloques</span>
+        {["mensaje","condicion","retraso","accion"].map(k=>{const t=CC_TIPOS[k];return(
+          <button key={k} onClick={()=>addNodo(k)}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=t.bor;e.currentTarget.style.transform="translateY(-1px)";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="#1E2536";e.currentTarget.style.transform="none";}}
+            style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:12,background:"#0B0E17",border:"1px solid #1E2536",cursor:"pointer",textAlign:"left",fontFamily:"inherit",transition:"border-color 0.25s, transform 0.2s"}}>
+            <span style={{width:26,height:26,flexShrink:0,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:t.bg,border:"1px solid "+t.bor}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:t.col}}/>
+            </span>
+            <span style={{display:"flex",flexDirection:"column",gap:2}}>
+              <span style={{fontSize:13,fontWeight:600,color:"#F4F2ED"}}>{t.nombre}</span>
+              <span style={{fontSize:11,color:"#6B7484",lineHeight:1.4}}>{t.desc}</span>
+            </span>
+          </button>);})}
+        <p style={{margin:"8px 4px 0",fontSize:11,lineHeight:1.55,color:"#4A5265"}}>Toca un bloque para añadirlo — se conecta al bloque seleccionado en el lienzo.</p>
+      </aside>
+
+      {/* ── Lienzo ── */}
+      <div
+        onMouseDown={e=>{sPanDrag({sx:e.clientX,sy:e.clientY,px:pan.x,py:pan.y});sSel(null);}}
+        onMouseMove={e=>{
+          if(drag)moverNodo(drag.id,drag.px+e.clientX-drag.sx,drag.py+e.clientY-drag.sy);
+          else if(panDrag)sPan({x:panDrag.px+e.clientX-panDrag.sx,y:panDrag.py+e.clientY-panDrag.sy});
+        }}
+        onMouseUp={()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);}}
+        onMouseLeave={()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);}}
+        style={{flex:"1 1 auto",position:"relative",overflow:"hidden",cursor:panDrag?"grabbing":"grab",
+          backgroundColor:"#05060B",backgroundImage:"radial-gradient(rgba(200, 210, 228, 0.12) 1px, transparent 1.2px)",
+          backgroundSize:"26px 26px",backgroundPosition:pan.x+"px "+pan.y+"px"}}>
+        <div style={{position:"absolute",top:0,left:0,transform:"translate("+pan.x+"px, "+pan.y+"px)"}}>
+          <svg width="4000" height="4000" style={{position:"absolute",top:0,left:0,pointerEvents:"none",overflow:"visible"}}>
+            {aristas.map((e,i)=>{
+              const a=porId[e.from],b=porId[e.to];
+              const t=CC_TIPOS[a.tipo];
+              const x1=a.x+CC_W/2,y1=a.y+CC_H,x2=b.x+CC_W/2,y2=b.y;
+              return(<g key={i}>
+                <path d={"M "+x1+" "+y1+" C "+x1+" "+(y1+55)+", "+x2+" "+(y2-55)+", "+x2+" "+y2} fill="none" stroke={t.bor} strokeWidth="1.6"/>
+                <circle cx={x2} cy={y2} r="3" fill={CC_TIPOS[b.tipo].col}/>
+              </g>);})}
+          </svg>
+          {aristas.filter(e=>e.label).map((e,i)=>{
+            const a=porId[e.from],b=porId[e.to];
+            const si=e.label==="Sí",no=e.label==="No";
+            return(<span key={"c"+i} style={{position:"absolute",left:((a.x+CC_W/2)+(b.x+CC_W/2))/2,top:((a.y+CC_H)+b.y)/2,
+              transform:"translate(-50%, -50%)",padding:"3px 10px",borderRadius:999,background:"#0B0E17",
+              border:"1px solid "+(si?"rgba(127, 232, 192, 0.4)":no?"rgba(255, 107, 107, 0.4)":"rgba(155, 180, 255, 0.4)"),
+              color:si?"#7FE8C0":no?"#FF8B8B":"#9BB4FF",fontSize:11,fontWeight:700,pointerEvents:"none",whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{e.label}</span>);})}
+          {nodos.map(n=>{
+            const t=CC_TIPOS[n.tipo];
+            const isSel=n.id===sel;
+            const puedeBorrar=n.id!==TRIG;
+            const detalle=n.tipo==="disparador"?n.detalle
+              :n.tipo==="retraso"?((()=>{const[v,u]=ccDescomponer(n.minutos);return "Espera "+v+" "+(CC_UNIDADES.find(x=>x[1]===u)||["minutos"])[0]+".";})())
+              :n.tipo==="condicion"?"Se comprueba si la persona sigue la cuenta."
+              :(n.texto||"");
+            return(<div key={n.id}
+              onMouseDown={e=>{e.stopPropagation();sDrag({id:n.id,sx:e.clientX,sy:e.clientY,px:n.x,py:n.y});sSel(n.id);}}
+              style={{position:"absolute",left:n.x,top:n.y,width:CC_W,boxSizing:"border-box",borderRadius:16,padding:"13px 15px 14px",
+                background:"linear-gradient(170deg, rgba(13, 17, 27, 0.97), rgba(6, 8, 14, 0.99))",
+                border:"1px solid "+(isSel?t.bor.replace("0.4","0.85"):"rgba(200, 210, 228, 0.12)"),
+                boxShadow:isSel?"0 0 0 1px "+t.bor+", 0 18px 44px rgba(2, 3, 8, 0.6)":"0 12px 30px rgba(2, 3, 8, 0.45)",
+                cursor:"grab",userSelect:"none",transition:"border-color 0.2s, box-shadow 0.2s"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",borderRadius:999,background:t.bg,border:"1px solid "+t.bor,color:t.col,fontSize:10.5,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{t.nombre}</span>
+                {puedeBorrar&&<button onClick={e=>{e.stopPropagation();borrarNodo(n.id);}} onMouseDown={e=>e.stopPropagation()}
+                  style={{marginLeft:"auto",width:20,height:20,borderRadius:"50%",background:"transparent",border:"none",color:"#4A5265",fontFamily:"inherit",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
+              </div>
+              <div style={{fontSize:13.5,fontWeight:600,lineHeight:1.35,marginBottom:4}}>{n.titulo}</div>
+              <div style={{fontSize:11.5,color:"#6B7484",lineHeight:1.45,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{detalle||"Sin contenido — edítalo en el panel"}</div>
+              <span style={{position:"absolute",bottom:-5,left:108,width:8,height:8,borderRadius:"50%",background:"#0B0E17",border:"1.5px solid "+t.col}}/>
+              {conEntrada.has(n.id)&&<span style={{position:"absolute",top:-5,left:108,width:8,height:8,borderRadius:"50%",background:t.col}}/>}
+            </div>);})}
+        </div>
+        <span style={{position:"absolute",bottom:14,left:16,fontSize:11,color:"#4A5265",pointerEvents:"none"}}>Arrastra los bloques para ordenarlos · arrastra el fondo para moverte</span>
+      </div>
+
+      {/* ── Panel de edición ── */}
+      {nSel&&<aside style={{width:300,flexShrink:0,display:"flex",flexDirection:"column",gap:16,padding:"18px 20px",borderLeft:"1px solid #161B2A",
+        background:"linear-gradient(170deg, rgba(13, 17, 27, 0.99), rgba(6, 8, 14, 1))",overflow:"auto",boxSizing:"border-box",
+        animation:"ccSlideIn 0.28s cubic-bezier(0.22, 1, 0.36, 1)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:999,background:tSel.bg,border:"1px solid "+tSel.bor,color:tSel.col,fontSize:11,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{tSel.nombre}</span>
+          <button onClick={()=>sSel(null)} style={{marginLeft:"auto",width:28,height:28,borderRadius:"50%",background:"transparent",border:"1px solid #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>✕</button>
+        </div>
+
+        {nSel.id!==TRIG&&<div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {etiqueta("Título del bloque")}
+          <input value={nSel.titulo||""} onChange={e=>editPaso(nSel.id,"titulo",e.target.value)}
+            style={{padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+        </div>}
+
+        {/* Disparador: palabra y publicación. Es la regla en sí. */}
+        {nSel.id===TRIG&&<>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(tSel.detLabel)}
+            <input value={flujo.palabra||""} onChange={e=>onChange({...flujo,palabra:e.target.value})} placeholder="EXPLORA"
+              style={{padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,fontWeight:700,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>No distingue mayúsculas ni tildes, y basta con que el comentario la contenga.</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("¿En qué publicación?")}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(74px, 1fr))",gap:6,maxHeight:210,overflowY:"auto",padding:2}}>
+              <button onClick={()=>onChange({...flujo,mediaId:""})} title="En cualquier publicación"
+                style={{position:"relative",aspectRatio:"1",borderRadius:10,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",
+                  background:!flujo.mediaId?"rgba(111, 231, 242, 0.08)":"#0B0E17",border:"2px solid "+(!flujo.mediaId?"#6FE7F2":"#262D40"),
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3}}>
+                <span style={{fontSize:15}}>✳️</span>
+                <span style={{fontSize:9.5,fontWeight:700,color:!flujo.mediaId?"#6FE7F2":"#6B7484"}}>Todas</span>
+              </button>
+              {(pubs||[]).map(p=>{const on=flujo.mediaId===p.id;return(
+                <button key={p.id} onClick={()=>onChange({...flujo,mediaId:p.id})} title={p.titulo}
+                  style={{position:"relative",aspectRatio:"1",borderRadius:10,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",background:"#0B0E17",border:"2px solid "+(on?"#6FE7F2":"#262D40")}}>
+                  <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#4A5265"}}>{p.tipo==="VIDEO"?"🎬":"📷"}</div>
+                  {p.img&&<img src={p.img} alt="" draggable={false} onError={e=>{e.target.style.display="none";}}
+                    style={{position:"relative",width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:on?1:.8}}/>}
+                  {p.comentarios!=null&&<span style={{position:"absolute",top:3,right:3,padding:"0 5px",borderRadius:999,background:"rgba(2,3,8,.75)",fontFamily:"ui-monospace, monospace",fontSize:9,color:"#fff"}}>{p.comentarios}</span>}
+                </button>);})}
+            </div>
+            {pubs===null&&<span style={{fontSize:11.5,color:"#4A5265"}}>Cargando publicaciones…</span>}
+          </div>
+          <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>{tSel.hint}</span>
+          <div style={{flex:"1 1 auto"}}/>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Primer bloque de la cadena")}
+            {selDestino(inicio,v=>onChange({...flujo,inicio:v}),"— elige por dónde empieza —")}
+          </div>
+        </>}
+
+        {/* Mensaje: texto y botones. Cada botón es una arista. */}
+        {nSel.tipo==="mensaje"&&<>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(tSel.detLabel)}
+            <textarea value={nSel.texto||""} onChange={e=>editPaso(nSel.id,"texto",e.target.value)} placeholder={tSel.ph} rows={5}
+              style={{resize:"vertical",padding:"11px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13,lineHeight:1.5,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+            <span style={{fontFamily:"ui-monospace, monospace",fontSize:10.5,color:(nSel.texto||"").length>640?"#FF8B8B":"#4A5265",alignSelf:"flex-end"}}>{(nSel.texto||"").length}/640</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:9}}>
+            {etiqueta("Botones")}
+            {(nSel.botones||[]).map((b,k)=>(
+              <div key={b.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"10px 11px",borderRadius:11,background:"#0B0E17",border:"1px solid #1E2536"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input value={b.titulo} maxLength={20} onChange={e=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n===k?{...x,titulo:e.target.value}:x))}
+                    placeholder="Ya te sigo"
+                    style={{flex:1,minWidth:0,padding:"7px 10px",borderRadius:9,background:"#05060B",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:12.5,fontWeight:600,outline:"none"}}/>
+                  <button onClick={()=>editPaso(nSel.id,"botones",(nSel.botones||[]).filter((_,n)=>n!==k))}
+                    style={{width:24,height:24,borderRadius:7,background:"transparent",border:"none",color:"#4A5265",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕</button>
+                </div>
+                {selDestino(b.siguiente,v=>editPaso(nSel.id,"botones",(nSel.botones||[]).map((x,n)=>n===k?{...x,siguiente:v}:x)),"— lleva a… —",nSel.id)}
+              </div>))}
+            {(nSel.botones||[]).length<3&&
+              <button onClick={()=>editPaso(nSel.id,"botones",[...(nSel.botones||[]),{id:ccId(),titulo:"",siguiente:""}])}
+                style={{alignSelf:"flex-start",padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px dashed #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Botón</button>}
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>
+              Hasta 3 botones, 20 caracteres cada uno. <b style={{color:"#C9CFDC"}}>Sin al menos un botón la cadena termina aquí</b>: es el toque de la persona lo que abre la ventana de 24 h de Instagram.
+            </span>
+          </div>
+        </>}
+
+        {/* Condición: las dos ramas. */}
+        {nSel.tipo==="condicion"&&<>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(tSel.detLabel)}
+            <div style={{padding:"11px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",fontSize:13,color:"#C9CFDC",lineHeight:1.5}}>¿La persona sigue la cuenta?</div>
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>Es la única condición que Instagram deja comprobar hoy, y la da hecha.</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Si me sigue",{color:"#7FE8C0"})}
+            {selDestino(nSel.siSi,v=>editPaso(nSel.id,"siSi",v),"— terminar la cadena —",nSel.id)}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Si no me sigue",{color:"#FF8B8B"})}
+            {selDestino(nSel.siNo,v=>editPaso(nSel.id,"siNo",v),"— terminar la cadena —",nSel.id)}
+          </div>
+        </>}
+
+        {/* Retraso: cantidad, unidad y salida. */}
+        {nSel.tipo==="retraso"&&(()=>{const[v,u]=ccDescomponer(nSel.minutos);return(<>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(tSel.detLabel)}
+            <div style={{display:"flex",gap:8}}>
+              <input type="number" min="1" value={v} onChange={e=>editPaso(nSel.id,"minutos",Math.max(1,Number(e.target.value)||1)*u)}
+                style={{width:88,padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box"}}/>
+              <select value={u} onChange={e=>editPaso(nSel.id,"minutos",v*Number(e.target.value))}
+                style={{flex:1,padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13,outline:"none",boxSizing:"border-box"}}>
+                {CC_UNIDADES.map(([n,m])=><option key={m} value={m}>{n}</option>)}
+              </select>
+            </div>
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>{tSel.hint}</span>
+          </div>
+          <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(239, 217, 160, 0.06)",border:"1px solid rgba(239, 217, 160, 0.28)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+            Instagram solo deja escribir dentro de las <b>24 h</b> desde la última acción de la persona. Una espera más larga que eso fallará salvo que vuelva a interactuar. Además el reloj se revisa cada 10 minutos, así que la espera real puede pasarse un poco.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Después continuar con")}
+            {selDestino(nSel.siguiente,x=>editPaso(nSel.id,"siguiente",x),"— terminar la cadena —",nSel.id)}
+          </div>
+        </>);})()}
+
+        {/* Acción: aviso interno. */}
+        {nSel.tipo==="accion"&&<>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(tSel.detLabel)}
+            <textarea value={nSel.texto||""} onChange={e=>editPaso(nSel.id,"texto",e.target.value)} placeholder={tSel.ph} rows={5}
+              style={{resize:"vertical",padding:"11px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13,lineHeight:1.5,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>Llega como aviso al equipo en la campanita de la app. La persona no ve nada de esto.</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("Después continuar con")}
+            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"— terminar la cadena —",nSel.id)}
+          </div>
+        </>}
+
+        <div style={{flex:"1 1 auto"}}/>
+        {nSel.id!==TRIG&&<button onClick={()=>borrarNodo(nSel.id)}
+          style={{padding:"10px 16px",borderRadius:999,background:"transparent",border:"1px solid rgba(255, 107, 107, 0.35)",color:"#FF8B8B",fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:"pointer"}}>Eliminar bloque</button>}
+      </aside>}
+    </div>
+  </div>);
+}
+
 function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners}){
   const [selCo,sSelCo]=useState(()=>cos[0]?.id||0);
   useEffect(()=>{if(cos.length&&!cos.find(c=>String(c.id)===String(selCo)))sSelCo(cos[0].id);},[cos]);
@@ -2380,6 +2766,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const [reglas,sReglas]=useState([]);
   const [guardando,sGuardando]=useState(false);
   const [pubs,sPubs]=useState(null);
+  const [abierta,sAbierta]=useState(null);   // índice de la cadena que se está construyendo
   // Las reglas de antes tenían un solo `mensaje`. Se convierten a cadena de un paso al
   // cargarlas, para que el constructor las muestre sin que haya que migrar nada a mano.
   const cargarAuto=()=>API.igStatus(selCo).then(d=>{
@@ -2413,28 +2800,13 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const pasoVacio=tipo=>tipo==="condicion"
     ?{id:nid(),tipo:"condicion",texto:"",botones:[],siSi:"",siNo:""}
     :{id:nid(),tipo:"mensaje",texto:"",botones:[]};
-  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",palabra:"",activa:true,pasos:[pasoVacio()]}]);
-  const editRegla=(i,campo,v)=>sReglas(r=>r.map((x,j)=>j===i?{...x,[campo]:v}:x));
-  const borrarRegla=i=>sReglas(r=>r.filter((_,j)=>j!==i));
-
-  // ── Pasos y botones de la cadena ──
-  const mutPasos=(i,fn)=>sReglas(r=>r.map((x,j)=>j===i?{...x,pasos:fn(x.pasos||[])}:x));
-  const nuevoPaso=(i,tipo)=>mutPasos(i,p=>[...p,pasoVacio(tipo)]);
-  const editPaso=(i,j,campo,v)=>mutPasos(i,p=>p.map((x,k)=>k===j?{...x,[campo]:v}:x));
-  // Al borrar un paso hay que limpiar lo que apuntaba a él, o quedarían botones que no
-  // llevan a ninguna parte y la cadena se cortaría en silencio.
-  const borrarPaso=(i,j)=>mutPasos(i,p=>{
-    const muerto=p[j]?.id;
-    return p.filter((_,k)=>k!==j).map(x=>({
-      ...x,
-      botones:(x.botones||[]).map(b=>b.siguiente===muerto?{...b,siguiente:""}:b),
-      siSi:x.siSi===muerto?"":x.siSi, siNo:x.siNo===muerto?"":x.siNo,
-    }));
+  // Nace con un mensaje ya puesto y marcado como inicio: una cadena vacía no se puede
+  // arrancar, y obligar a crear el primer bloque a mano no aporta nada.
+  const nuevaRegla=()=>sReglas(r=>{
+    const p=pasoVacio();
+    p.titulo="Mensaje de bienvenida";p.x=320;p.y=210;
+    return[...r,{id:"n"+Date.now(),nombre:"",mediaId:"",palabra:"",activa:true,inicio:p.id,pasos:[p],tx:320,ty:30}];
   });
-  const mutBotones=(i,j,fn)=>editPaso(i,j,"botones",fn((reglas[i]?.pasos?.[j]?.botones)||[]));
-  const nuevoBoton=(i,j)=>mutBotones(i,j,b=>[...b,{id:nid(),titulo:"",siguiente:""}]);
-  const editBoton=(i,j,k,campo,v)=>mutBotones(i,j,b=>b.map((x,n)=>n===k?{...x,[campo]:v}:x));
-  const borrarBoton=(i,j,k)=>mutBotones(i,j,b=>b.filter((_,n)=>n!==k));
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
@@ -3044,7 +3416,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>}
 
       {/* ── AUTOMATIZACIÓN ── */}
-      {vista==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:820}}>
+      {vista==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:abierta==null?820:"none"}}>
         {!igEst?<div style={{color:D.tx3,fontSize:13,padding:"20px 2px"}}>Cargando…</div>
         :!igEst.configurado?(
           <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
@@ -3065,140 +3437,35 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             Instagram permite <b>un solo mensaje por comentario</b> y solo dentro de los 7 días siguientes; para seguir conversando, la persona tiene que responder.
           </div>
 
-          {reglas.length===0&&<div style={{padding:"34px 20px",textAlign:"center",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13}}>Todavía no hay ninguna automatización.</div>}
-
-          {reglas.map((r,i)=>(
-            <div key={r.id} style={{display:"flex",flexDirection:"column",gap:11,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2}}>
-              <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
-                <span style={{fontFamily:"var(--font-mono)",fontSize:10,letterSpacing:".12em",textTransform:"uppercase",color:D.tx5}}>Automatización {i+1}</span>
-                <button onClick={()=>editRegla(i,"activa",!r.activa)}
-                  style={{marginLeft:"auto",padding:"5px 12px",borderRadius:999,background:r.activa?"rgba(143,242,194,.09)":"transparent",border:"1px solid "+(r.activa?"rgba(143,242,194,.4)":D.line2),color:r.activa?"#8FF2C2":D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
-                  {r.activa?"Activa":"Pausada"}
-                </button>
-                <button onClick={()=>borrarRegla(i)} title="Eliminar" style={{width:28,height:28,borderRadius:8,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="trash" s={13} c={D.tx4}/></button>
-              </div>
-
-              {/* Cuadrícula en vez de desplegable: los pies de foto se parecen mucho entre sí
-                  —varios empiezan igual— y elegir a ciegas por texto lleva a atar la campaña
-                  a la publicación equivocada. Con la miniatura se reconoce de un vistazo. */}
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                  <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>¿En qué publicación?</label>
-                  {(() => {const p=(pubs||[]).find(x=>x.id===r.mediaId);
-                    return p?<a href={p.permalink} target="_blank" rel="noopener" style={{marginLeft:"auto",fontSize:11.5,color:D.cian,textDecoration:"none"}}>ver en Instagram ↗</a>:null;})()}
-                </div>
-
-                {pubs===null&&<span style={{fontSize:11.5,color:D.tx5}}>Cargando publicaciones…</span>}
-                {pubs&&pubs.length===0&&<span style={{fontSize:11.5,color:D.tx5}}>No se pudieron leer las publicaciones. La regla funcionará igual para toda la cuenta.</span>}
-
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(96px, 1fr))",gap:8,maxHeight:268,overflowY:"auto",padding:2}}>
-                  <button onClick={()=>editRegla(i,"mediaId","")} title="La regla responde en cualquier publicación"
-                    style={{position:"relative",aspectRatio:"1",borderRadius:11,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",
-                      background:!r.mediaId?"rgba(111,231,242,.08)":D.bg,border:"2px solid "+(!r.mediaId?D.cian:D.line2),
-                      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5}}>
-                    <span style={{fontSize:19}}>✳️</span>
-                    <span style={{fontSize:10.5,fontWeight:700,color:!r.mediaId?D.cian:D.tx4,lineHeight:1.25,padding:"0 6px"}}>En todas</span>
-                  </button>
-
-                  {(pubs||[]).map(p=>{
-                    const on=r.mediaId===p.id;
-                    return(<button key={p.id} onClick={()=>editRegla(i,"mediaId",p.id)} title={p.titulo}
-                      style={{position:"relative",aspectRatio:"1",borderRadius:11,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",
-                        background:D.bg,border:"2px solid "+(on?D.cian:D.line2)}}>
-                      {/* Las URL de la CDN de Instagram caducan. Si una falla se oculta y queda
-                          el icono de debajo, igual que en Métricas — un hueco negro sin
-                          explicación haría dudar de si la publicación existe. */}
-                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:D.tx4}}>{p.tipo==="VIDEO"?"🎬":"📷"}</div>
-                      {p.img&&<img src={p.img} alt="" draggable={false} onError={e=>{e.target.style.display="none";}}
-                        style={{position:"relative",width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:on?1:.82}}/>}
-                      {/* El número de comentarios ayuda a reconocer el post más que el pie. */}
-                      {p.comentarios!=null&&<span style={{position:"absolute",top:5,right:5,padding:"1px 6px",borderRadius:999,background:"rgba(2,3,8,.72)",fontFamily:"var(--font-mono)",fontSize:9.5,color:"#fff"}}>{p.comentarios}</span>}
-                      {on&&<span style={{position:"absolute",top:5,left:5,width:16,height:16,borderRadius:"50%",background:D.cian,color:D.bg,fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
-                      <span style={{position:"absolute",left:0,right:0,bottom:0,padding:"12px 6px 5px",fontSize:9.5,lineHeight:1.3,color:"#fff",textAlign:"left",
-                        background:"linear-gradient(to top, rgba(2,3,8,.9), transparent)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.titulo}</span>
-                    </button>);})}
-                </div>
-              </div>
-
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>Palabra que lo dispara</label>
-                <input value={r.palabra} onChange={e=>editRegla(i,"palabra",e.target.value)} placeholder="EXPLORA"
-                  style={{padding:"8px 11px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,fontWeight:700,outline:"none",maxWidth:280}}/>
-                <span style={{fontSize:11.5,color:D.tx5}}>No distingue mayúsculas ni tildes, y basta con que el comentario la contenga.</span>
-              </div>
-
-              {/* ── La cadena ── El primer paso sale por respuesta privada al comentario, que
-                  es el único mensaje que Instagram regala. Los botones son lo que abre la
-                  ventana de 24 h: sin que la persona toque uno, la conversación termina ahí. */}
-              <div style={{display:"flex",flexDirection:"column",gap:9,marginTop:2}}>
-                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>La conversación</label>
-
-                {(r.pasos||[]).map((p,j)=>{
-                  // Un paso no puede apuntarse a sí mismo: sería un bucle inmediato.
-                  const destinos=(r.pasos||[]).map((x,n)=>({id:x.id,n:n+1,x})).filter(d=>d.id!==p.id);
-                  const sel=(valor,onCh,vacio)=>(
-                    <select value={valor||""} onChange={e=>onCh(e.target.value)}
-                      style={{padding:"6px 9px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:valor?D.tx:D.tx4,fontFamily:"inherit",fontSize:11.5,outline:"none",maxWidth:200}}>
-                      <option value="">{vacio}</option>
-                      {destinos.map(d=><option key={d.id} value={d.id}>Paso {d.n}{d.x.tipo==="condicion"?" · ¿me sigue?":(d.x.texto?" · "+d.x.texto.slice(0,24):"")}</option>)}
-                    </select>);
-
-                  return(<div key={p.id} style={{display:"flex",flexDirection:"column",gap:8,padding:"11px 13px",borderRadius:12,background:D.bg,border:"1px solid "+D.line3}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                      <span style={{width:20,height:20,borderRadius:"50%",background:j===0?D.cian:"rgba(200,210,228,.08)",color:j===0?D.bg:D.tx3,fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{j+1}</span>
-                      <span style={{fontSize:11.5,fontWeight:700,color:p.tipo==="condicion"?D.lav:D.tx2}}>
-                        {p.tipo==="condicion"?"¿Me sigue?":"Mensaje"}
-                      </span>
-                      {j===0&&<span style={{fontSize:10.5,color:D.tx5}}>— sale como respuesta privada al comentario</span>}
-                      {(r.pasos||[]).length>1&&<button onClick={()=>borrarPaso(i,j)} title="Eliminar paso" style={{marginLeft:"auto",width:24,height:24,borderRadius:7,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="trash" s={12} c={D.tx4}/></button>}
-                    </div>
-
-                    {p.tipo==="condicion"?(
-                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                        <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>Se comprueba si la persona sigue la cuenta y la conversación toma un camino u otro.</span>
-                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11.5,color:"#8FF2C2",minWidth:72}}>Sí me sigue</span>
-                          {sel(p.siSi,v=>editPaso(i,j,"siSi",v),"— terminar —")}
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11.5,color:D.rojo,minWidth:72}}>No me sigue</span>
-                          {sel(p.siNo,v=>editPaso(i,j,"siNo",v),"— terminar —")}
-                        </div>
-                      </div>
-                    ):(<>
-                      <textarea value={p.texto} onChange={e=>editPaso(i,j,"texto",e.target.value)} placeholder="¡Hola! Te mando la info…"
-                        style={{width:"100%",boxSizing:"border-box",minHeight:66,padding:"8px 10px",borderRadius:9,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,resize:"vertical",outline:"none"}}/>
-                      <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:10.5,color:(p.texto||"").length>640?D.rojo:D.tx5}}>
-                        <span>Los botones son lo que deja seguir la conversación.</span>
-                        <span style={{fontFamily:"var(--font-mono)",flexShrink:0}}>{(p.texto||"").length}/640</span>
-                      </div>
-
-                      {(p.botones||[]).map((b,k)=>(
-                        <div key={b.id} style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",paddingLeft:10,borderLeft:"2px solid "+D.line2}}>
-                          <input value={b.titulo} onChange={e=>editBoton(i,j,k,"titulo",e.target.value)} placeholder="Ya te sigo" maxLength={20}
-                            style={{flex:"0 1 160px",minWidth:0,padding:"6px 9px",borderRadius:8,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:11.5,fontWeight:600,outline:"none"}}/>
-                          <span style={{fontSize:11,color:D.tx5}}>lleva a</span>
-                          {sel(b.siguiente,v=>editBoton(i,j,k,"siguiente",v),"— elige el paso —")}
-                          <button onClick={()=>borrarBoton(i,j,k)} title="Quitar botón" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0,fontSize:13}}>✕</button>
-                        </div>))}
-
-                      {(p.botones||[]).length<3&&
-                        <button onClick={()=>nuevoBoton(i,j)} style={{alignSelf:"flex-start",padding:"5px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Botón</button>}
-                    </>)}
-                  </div>);
-                })}
-
-                <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                  <button onClick={()=>nuevoPaso(i,"mensaje")} style={{padding:"6px 13px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>+ Mensaje</button>
-                  <button onClick={()=>nuevoPaso(i,"condicion")} style={{padding:"6px 13px",borderRadius:999,background:"transparent",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>+ ¿Me sigue?</button>
-                </div>
-              </div>
-            </div>))}
-
-          <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-            <Bt v="s" onClick={nuevaRegla} icon="plus">Nueva automatización</Bt>
-            <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
-          </div>
+          {/* Sin cadena abierta: la lista. Con una abierta: el constructor a pantalla completa. */}
+          {abierta==null?(<>
+            {reglas.length===0&&<div style={{padding:"34px 20px",textAlign:"center",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13}}>Todavía no hay ninguna cadena.</div>}
+            {reglas.map((r,i)=>{
+              const nPasos=(r.pasos||[]).length;
+              const pub=(pubs||[]).find(p=>p.id===r.mediaId);
+              return(<button key={r.id} onClick={()=>sAbierta(i)}
+                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2,cursor:"pointer",fontFamily:"inherit",textAlign:"left",width:"100%"}}>
+                <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.activa!==false?"#6FE7F2":D.tx5,boxShadow:r.activa!==false?"0 0 8px #6FE7F2":"none"}}/>
+                <span style={{display:"flex",flexDirection:"column",gap:3,minWidth:0,flex:1}}>
+                  <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{r.nombre||(r.palabra?("Cadena de “"+r.palabra+"”"):"Cadena sin nombre")}</span>
+                  <span style={{fontSize:11.5,color:D.tx4}}>
+                    {r.palabra?("Comentan “"+r.palabra+"”"):"Sin palabra"} · {pub?"una publicación":"todas las publicaciones"} · {nPasos} bloque{nPasos===1?"":"s"}
+                  </span>
+                </span>
+                {pub&&pub.img&&<img src={pub.img} alt="" onError={e=>{e.target.style.display="none";}} style={{width:38,height:38,borderRadius:9,objectFit:"cover",flexShrink:0}}/>}
+                <span style={{flexShrink:0,fontSize:11.5,color:r.activa!==false?"#6FE7F2":D.tx5,fontWeight:600}}>{r.activa!==false?"Activa":"Pausada"}</span>
+                <span style={{flexShrink:0,color:D.tx4,fontSize:15}}>›</span>
+              </button>);})}
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+              <Bt v="s" onClick={()=>{nuevaRegla();sAbierta(reglas.length);}} icon="plus">Nueva cadena</Bt>
+              <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
+            </div>
+          </>):(
+            <CadenaBuilder flujo={reglas[abierta]} pubs={pubs}
+              onChange={f=>sReglas(rs=>rs.map((x,j)=>j===abierta?f:x))}
+              onCerrar={()=>sAbierta(null)}
+              onGuardar={guardarReglas} guardando={guardando}/>
+          )}
         </>)}
       </div>}
     </>)}
