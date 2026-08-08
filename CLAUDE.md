@@ -291,8 +291,35 @@ POST https://graph.instagram.com/v23.0/<IG_ID>/messages
 - El `companyId` viaja firmado en el `state` del OAuth: sin firma, cualquiera podría completar
   el flujo apuntando a otra empresa y quedarse con la cuenta de un cliente ajeno.
 
-Las palabras que disparan y su mensaje se editan en **Contenido → ⚡ Automatización**, por
-empresa, y viven en `app_data.ig.reglas`. La comparación ignora mayúsculas y tildes.
+Las cadenas se editan en **Contenido → Automatización**, por empresa, y viven en
+`app_data.ig.reglas`. La comparación de la palabra ignora mayúsculas y tildes.
+
+### Las cadenas de mensajes
+
+Una regla es una lista de `pasos`. El primero sale por respuesta privada al comentario; los
+siguientes, por DM normal.
+
+**El botón es lo que hace posible la cadena.** Instagram regala un solo mensaje por comentario,
+pero cuando la persona **pulsa un botón** eso cuenta como interacción suya y abre la ventana de
+24 h. Sin ese primer toque la conversación muere en el primer mensaje. Por eso ManyChat empieza
+siempre con un botón: no es adorno.
+
+**El estado no se guarda por persona.** El id del paso siguiente viaja dentro del `payload` del
+botón (`f:<flujo>:<paso>`), así que al pulsarlo el mensaje ya trae escrito adónde ir. Guardar en
+qué punto va cada conversación obligaría a limpiar sesiones colgadas para siempre.
+
+- Tipos de paso: `mensaje` (texto + hasta 3 botones) y `condicion` (¿la persona sigue la
+  cuenta?, vía `is_user_follow_business`).
+- Límites de Instagram, no nuestros: **640** caracteres de texto, **3** botones, **20**
+  caracteres por botón.
+- Si la comprobación de seguidor falla, se sigue por la rama del «sí»: es preferible entregar de
+  más que dejar a alguien colgado por un fallo de red.
+- La profundidad se corta a 8 saltos: dos condiciones que se apunten entre sí colgarían el
+  proceso.
+- Los comentarios llegan en `entry[].changes`; los botones pulsados, en `entry[].messaging`. Son
+  dos formas distintas en el mismo webhook y hay que mirar las dos.
+- Las reglas viejas de un solo `mensaje` se leen como una cadena de un paso; no hace falta
+  migrar nada.
 
 ## Dominios y despliegue
 

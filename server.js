@@ -2094,15 +2094,31 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
   const { companyId, reglas } = req.body || {};
   if (!companyId) return res.status(400).json({ error: "companyId requerido" });
   if (!Array.isArray(reglas)) return res.status(400).json({ error: "reglas debe ser una lista" });
-  const limpias = reglas.slice(0, 20).map(r => ({
-    id: String(r.id || crypto.randomBytes(4).toString("hex")),
-    // Vacío = la regla vale para toda la cuenta. Es lo que quieres para algo permanente
-    // ("info" siempre responde); una publicación concreta es para campañas puntuales.
-    mediaId: String(r.mediaId || "").trim(),
-    palabra: String(r.palabra || "").trim().slice(0, 40),
-    mensaje: String(r.mensaje || "").trim().slice(0, 900),
-    activa: r.activa !== false,
-  })).filter(r => r.palabra && r.mensaje);
+  const limpias = reglas.slice(0, 20).map(r => {
+    const pasos = (Array.isArray(r.pasos) ? r.pasos : []).slice(0, 20).map(p => ({
+      id: String(p.id || crypto.randomBytes(3).toString("hex")),
+      tipo: p.tipo === "condicion" ? "condicion" : "mensaje",
+      // 640 es el tope de Instagram para el texto de una plantilla con botones.
+      texto: String(p.texto || "").trim().slice(0, 640),
+      botones: (Array.isArray(p.botones) ? p.botones : []).slice(0, 3).map(b => ({
+        id: String(b.id || crypto.randomBytes(3).toString("hex")),
+        // 20 caracteres: más allá Instagram lo corta y queda un botón ilegible.
+        titulo: String(b.titulo || "").trim().slice(0, 20),
+        siguiente: String(b.siguiente || "").trim(),
+      })).filter(b => b.titulo),
+      siSi: String(p.siSi || "").trim(),
+      siNo: String(p.siNo || "").trim(),
+    })).filter(p => p.tipo === "condicion" || p.texto);
+    return {
+      id: String(r.id || crypto.randomBytes(4).toString("hex")),
+      // Vacío = la regla vale para toda la cuenta. Es lo que quieres para algo permanente
+      // ("info" siempre responde); una publicación concreta es para campañas puntuales.
+      mediaId: String(r.mediaId || "").trim(),
+      palabra: String(r.palabra || "").trim().slice(0, 40),
+      pasos,
+      activa: r.activa !== false,
+    };
+  }).filter(r => r.palabra && r.pasos.length);
   const s = await saveIG(s2 => { s2.reglas[String(companyId)] = limpias; return s2; });
   res.json({ ok: true, reglas: s.reglas[String(companyId)] });
 });
@@ -2119,15 +2135,74 @@ app.get("/api/ig/webhook", (req, res) => {
 // "Exploro" con tilde. Comparar en crudo dejaría fuera media Latinoamérica.
 const igNorm = t => String(t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-async function igResponderPrivado(cuenta, commentId, texto) {
+// ── Motor de cadenas ──
+// El estado NO se guarda por persona. El identificador del paso siguiente viaja dentro del
+// `payload` del botón, así que cuando alguien lo pulsa el mensaje ya trae escrito adónde ir.
+// Guardar el punto de cada conversación obligaría a limpiar sesiones colgadas para siempre.
+const igPayload = (flujoId, pasoId) => `f:${flujoId}:${pasoId}`;
+function igLeerPayload(p) {
+  const m = String(p || "").match(/^f:([^:]+):(.+)$/);
+  return m ? { flujoId: m[1], pasoId: m[2] } : null;
+}
+
+async function igEnviar(cuenta, destinatario, mensaje) {
   const r = await fetch(`${IG_API}/${encodeURIComponent(cuenta.igId)}/messages?access_token=${encodeURIComponent(cuenta.token)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient: { comment_id: commentId }, message: { text: texto } }),
+    body: JSON.stringify({ recipient: destinatario, message: mensaje }),
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d?.error?.message || `Meta respondió ${r.status}`);
   return d;
+}
+
+// ¿La persona sigue a la cuenta? Es la condición que pide todo el mundo y Meta la da hecha.
+async function igSigue(cuenta, igsid) {
+  const r = await fetch(`${IG_API}/${encodeURIComponent(igsid)}?fields=is_user_follow_business&access_token=${encodeURIComponent(cuenta.token)}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d?.error?.message || `Meta respondió ${r.status}`);
+  return !!d.is_user_follow_business;
+}
+
+// Las reglas viejas tenían un solo `mensaje`. Se leen como una cadena de un paso para no
+// romper lo que ya estaba configurado ni obligar a migrar la base a mano.
+function igPasosDe(flujo) {
+  if (Array.isArray(flujo.pasos) && flujo.pasos.length) return flujo.pasos;
+  return flujo.mensaje ? [{ id: "p1", tipo: "mensaje", texto: flujo.mensaje, botones: [] }] : [];
+}
+
+// Ejecuta un paso y, si es una condición, salta al que corresponda. La profundidad frena los
+// bucles: dos condiciones que se apunten entre sí colgarían el proceso para siempre.
+async function igEjecutarPaso(cuenta, flujo, pasoId, destinatario, igsid, prof = 0) {
+  if (prof > 8) { console.error("IG: cadena demasiado profunda, se corta"); return; }
+  const pasos = igPasosDe(flujo);
+  const paso = pasos.find(p => String(p.id) === String(pasoId)) || pasos[0];
+  if (!paso) return;
+
+  if (paso.tipo === "condicion") {
+    let cumple = false;
+    try { cumple = await igSigue(cuenta, igsid); }
+    catch (e) {
+      // Si no se puede comprobar, se sigue por la rama del "sí": es preferible entregar de
+      // más que dejar a alguien colgado por un fallo de red.
+      console.error("IG condición:", e.message); cumple = true;
+    }
+    const sig = cumple ? paso.siSi : paso.siNo;
+    if (sig) return igEjecutarPaso(cuenta, flujo, sig, destinatario, igsid, prof + 1);
+    return;
+  }
+
+  const texto = String(paso.texto || "").slice(0, 640);
+  if (!texto) return;
+  const botones = (paso.botones || [])
+    .filter(b => b.titulo && b.siguiente)
+    .slice(0, 3)   // Instagram admite 3 como mucho
+    .map(b => ({ type: "postback", title: String(b.titulo).slice(0, 20), payload: igPayload(flujo.id, b.siguiente) }));
+
+  const mensaje = botones.length
+    ? { attachment: { type: "template", payload: { template_type: "button", text: texto, buttons: botones } } }
+    : { text: texto };
+  await igEnviar(cuenta, destinatario, mensaje);
 }
 
 async function igProcesarComentario(entry) {
@@ -2162,14 +2237,47 @@ async function igProcesarComentario(entry) {
 
     await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });
     try {
-      await igResponderPrivado(cuenta, commentId, regla.mensaje);
-      console.log(`IG: DM enviado por "${regla.palabra}" a quien comentó ${commentId}`);
+      // El primer paso va por respuesta privada al comentario: es el único mensaje que
+      // Instagram deja mandar a alguien que no te ha escrito. De ahí en adelante manda el
+      // botón, que al pulsarse abre la ventana de 24 h y permite seguir la conversación.
+      const pasos = igPasosDe(regla);
+      await igEjecutarPaso(cuenta, regla, pasos[0]?.id, { comment_id: commentId }, autor);
+      console.log(`IG: cadena "${regla.palabra}" iniciada con quien comentó ${commentId}`);
     } catch (e) {
       console.error("IG respuesta privada:", e.message);
       // Se libera para poder reintentar a mano si fue un fallo puntual de red.
       await saveIG(s2 => { delete s2.respondidos[commentId]; return s2; });
     }
   }
+}
+
+// Alguien pulsó un botón. El paso al que hay que ir viene escrito en el propio payload, así
+// que no hace falta recordar en qué punto de la cadena estaba esta persona.
+async function igProcesarPostback(entry, m) {
+  const payload = m?.postback?.payload || m?.message?.quick_reply?.payload;
+  if (!payload) return;
+  const ref = igLeerPayload(payload);
+  if (!ref) return;
+
+  const igId = String(entry?.id || m?.recipient?.id || "");
+  const igsid = String(m?.sender?.id || "");
+  if (!igsid) return;
+  // El eco de nuestros propios mensajes también llega aquí; ignorarlo evita responderse solo.
+  if (igsid === igId) return;
+
+  const s = await loadIG();
+  const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
+  if (!par) return;
+  const [companyId, cuenta] = par;
+
+  const flujo = (s.reglas[companyId] || []).find(r => String(r.id) === ref.flujoId);
+  if (!flujo || flujo.activa === false) return;
+
+  try {
+    // Ya hay conversación abierta: a partir de aquí se escribe a la persona, no al comentario.
+    await igEjecutarPaso(cuenta, flujo, ref.pasoId, { id: igsid }, igsid);
+    console.log(`IG: paso ${ref.pasoId} de "${flujo.palabra}" enviado a ${igsid}`);
+  } catch (e) { console.error("IG postback:", e.message); }
 }
 
 app.post("/api/ig/webhook", (req, res) => {
@@ -2184,7 +2292,12 @@ app.post("/api/ig/webhook", (req, res) => {
   (async () => {
     try {
       if (req.body?.object !== "instagram") return;
-      for (const entry of (req.body.entry || [])) await igProcesarComentario(entry);
+      for (const entry of (req.body.entry || [])) {
+        // Los comentarios llegan en `changes`; los mensajes y los botones pulsados, en
+        // `messaging`. Son dos formas distintas en el mismo webhook y hay que mirar las dos.
+        await igProcesarComentario(entry);
+        for (const m of (entry.messaging || [])) await igProcesarPostback(entry, m);
+      }
     } catch (e) { console.error("IG webhook:", e.message); }
   })();
 });

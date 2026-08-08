@@ -2380,7 +2380,13 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const [reglas,sReglas]=useState([]);
   const [guardando,sGuardando]=useState(false);
   const [pubs,sPubs]=useState(null);
-  const cargarAuto=()=>API.igStatus(selCo).then(d=>{sIgEst(d);sReglas(d.reglas||[]);});
+  // Las reglas de antes tenían un solo `mensaje`. Se convierten a cadena de un paso al
+  // cargarlas, para que el constructor las muestre sin que haya que migrar nada a mano.
+  const cargarAuto=()=>API.igStatus(selCo).then(d=>{
+    sIgEst(d);
+    sReglas((d.reglas||[]).map(r=>(Array.isArray(r.pasos)&&r.pasos.length)?r
+      :{...r,pasos:[{id:"p1",tipo:"mensaje",texto:r.mensaje||"",botones:[]}]}));
+  });
   useEffect(()=>{if(vista==="automatizacion")cargarAuto();},[vista,selCo]);
   // Las publicaciones reales de Instagram, para poder atar una regla a una en concreto.
   useEffect(()=>{
@@ -2403,9 +2409,32 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       else{sReglas(d.reglas||[]);addN("✅ Automatización guardada");}
     }finally{sGuardando(false);}
   };
-  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",palabra:"",mensaje:"",activa:true}]);
+  const nid=()=>Math.random().toString(36).slice(2,8);
+  const pasoVacio=tipo=>tipo==="condicion"
+    ?{id:nid(),tipo:"condicion",texto:"",botones:[],siSi:"",siNo:""}
+    :{id:nid(),tipo:"mensaje",texto:"",botones:[]};
+  const nuevaRegla=()=>sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",palabra:"",activa:true,pasos:[pasoVacio()]}]);
   const editRegla=(i,campo,v)=>sReglas(r=>r.map((x,j)=>j===i?{...x,[campo]:v}:x));
   const borrarRegla=i=>sReglas(r=>r.filter((_,j)=>j!==i));
+
+  // ── Pasos y botones de la cadena ──
+  const mutPasos=(i,fn)=>sReglas(r=>r.map((x,j)=>j===i?{...x,pasos:fn(x.pasos||[])}:x));
+  const nuevoPaso=(i,tipo)=>mutPasos(i,p=>[...p,pasoVacio(tipo)]);
+  const editPaso=(i,j,campo,v)=>mutPasos(i,p=>p.map((x,k)=>k===j?{...x,[campo]:v}:x));
+  // Al borrar un paso hay que limpiar lo que apuntaba a él, o quedarían botones que no
+  // llevan a ninguna parte y la cadena se cortaría en silencio.
+  const borrarPaso=(i,j)=>mutPasos(i,p=>{
+    const muerto=p[j]?.id;
+    return p.filter((_,k)=>k!==j).map(x=>({
+      ...x,
+      botones:(x.botones||[]).map(b=>b.siguiente===muerto?{...b,siguiente:""}:b),
+      siSi:x.siSi===muerto?"":x.siSi, siNo:x.siNo===muerto?"":x.siNo,
+    }));
+  });
+  const mutBotones=(i,j,fn)=>editPaso(i,j,"botones",fn((reglas[i]?.pasos?.[j]?.botones)||[]));
+  const nuevoBoton=(i,j)=>mutBotones(i,j,b=>[...b,{id:nid(),titulo:"",siguiente:""}]);
+  const editBoton=(i,j,k,campo,v)=>mutBotones(i,j,b=>b.map((x,n)=>n===k?{...x,[campo]:v}:x));
+  const borrarBoton=(i,j,k)=>mutBotones(i,j,b=>b.filter((_,n)=>n!==k));
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
@@ -3098,10 +3127,71 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 <span style={{fontSize:11.5,color:D.tx5}}>No distingue mayúsculas ni tildes, y basta con que el comentario la contenga.</span>
               </div>
 
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>Mensaje que le llega por privado</label>
-                <textarea value={r.mensaje} onChange={e=>editRegla(i,"mensaje",e.target.value)} placeholder="¡Hola! Acá tienes la info…"
-                  style={{width:"100%",boxSizing:"border-box",minHeight:80,padding:"9px 11px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,resize:"vertical",outline:"none"}}/>
+              {/* ── La cadena ── El primer paso sale por respuesta privada al comentario, que
+                  es el único mensaje que Instagram regala. Los botones son lo que abre la
+                  ventana de 24 h: sin que la persona toque uno, la conversación termina ahí. */}
+              <div style={{display:"flex",flexDirection:"column",gap:9,marginTop:2}}>
+                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>La conversación</label>
+
+                {(r.pasos||[]).map((p,j)=>{
+                  // Un paso no puede apuntarse a sí mismo: sería un bucle inmediato.
+                  const destinos=(r.pasos||[]).map((x,n)=>({id:x.id,n:n+1,x})).filter(d=>d.id!==p.id);
+                  const sel=(valor,onCh,vacio)=>(
+                    <select value={valor||""} onChange={e=>onCh(e.target.value)}
+                      style={{padding:"6px 9px",borderRadius:8,background:D.bg,border:"1px solid "+D.line2,color:valor?D.tx:D.tx4,fontFamily:"inherit",fontSize:11.5,outline:"none",maxWidth:200}}>
+                      <option value="">{vacio}</option>
+                      {destinos.map(d=><option key={d.id} value={d.id}>Paso {d.n}{d.x.tipo==="condicion"?" · ¿me sigue?":(d.x.texto?" · "+d.x.texto.slice(0,24):"")}</option>)}
+                    </select>);
+
+                  return(<div key={p.id} style={{display:"flex",flexDirection:"column",gap:8,padding:"11px 13px",borderRadius:12,background:D.bg,border:"1px solid "+D.line3}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{width:20,height:20,borderRadius:"50%",background:j===0?D.cian:"rgba(200,210,228,.08)",color:j===0?D.bg:D.tx3,fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{j+1}</span>
+                      <span style={{fontSize:11.5,fontWeight:700,color:p.tipo==="condicion"?D.lav:D.tx2}}>
+                        {p.tipo==="condicion"?"¿Me sigue?":"Mensaje"}
+                      </span>
+                      {j===0&&<span style={{fontSize:10.5,color:D.tx5}}>— sale como respuesta privada al comentario</span>}
+                      {(r.pasos||[]).length>1&&<button onClick={()=>borrarPaso(i,j)} title="Eliminar paso" style={{marginLeft:"auto",width:24,height:24,borderRadius:7,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="trash" s={12} c={D.tx4}/></button>}
+                    </div>
+
+                    {p.tipo==="condicion"?(
+                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                        <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>Se comprueba si la persona sigue la cuenta y la conversación toma un camino u otro.</span>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11.5,color:"#8FF2C2",minWidth:72}}>Sí me sigue</span>
+                          {sel(p.siSi,v=>editPaso(i,j,"siSi",v),"— terminar —")}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11.5,color:D.rojo,minWidth:72}}>No me sigue</span>
+                          {sel(p.siNo,v=>editPaso(i,j,"siNo",v),"— terminar —")}
+                        </div>
+                      </div>
+                    ):(<>
+                      <textarea value={p.texto} onChange={e=>editPaso(i,j,"texto",e.target.value)} placeholder="¡Hola! Te mando la info…"
+                        style={{width:"100%",boxSizing:"border-box",minHeight:66,padding:"8px 10px",borderRadius:9,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,resize:"vertical",outline:"none"}}/>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:10.5,color:(p.texto||"").length>640?D.rojo:D.tx5}}>
+                        <span>Los botones son lo que deja seguir la conversación.</span>
+                        <span style={{fontFamily:"var(--font-mono)",flexShrink:0}}>{(p.texto||"").length}/640</span>
+                      </div>
+
+                      {(p.botones||[]).map((b,k)=>(
+                        <div key={b.id} style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",paddingLeft:10,borderLeft:"2px solid "+D.line2}}>
+                          <input value={b.titulo} onChange={e=>editBoton(i,j,k,"titulo",e.target.value)} placeholder="Ya te sigo" maxLength={20}
+                            style={{flex:"0 1 160px",minWidth:0,padding:"6px 9px",borderRadius:8,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:11.5,fontWeight:600,outline:"none"}}/>
+                          <span style={{fontSize:11,color:D.tx5}}>lleva a</span>
+                          {sel(b.siguiente,v=>editBoton(i,j,k,"siguiente",v),"— elige el paso —")}
+                          <button onClick={()=>borrarBoton(i,j,k)} title="Quitar botón" style={{width:22,height:22,borderRadius:6,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0,fontSize:13}}>✕</button>
+                        </div>))}
+
+                      {(p.botones||[]).length<3&&
+                        <button onClick={()=>nuevoBoton(i,j)} style={{alignSelf:"flex-start",padding:"5px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Botón</button>}
+                    </>)}
+                  </div>);
+                })}
+
+                <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                  <button onClick={()=>nuevoPaso(i,"mensaje")} style={{padding:"6px 13px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>+ Mensaje</button>
+                  <button onClick={()=>nuevoPaso(i,"condicion")} style={{padding:"6px 13px",borderRadius:999,background:"transparent",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>+ ¿Me sigue?</button>
+                </div>
               </div>
             </div>))}
 
