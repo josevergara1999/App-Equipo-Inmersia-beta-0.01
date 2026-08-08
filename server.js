@@ -2118,6 +2118,76 @@ app.post("/api/ig/webhook", (req, res) => {
   })();
 });
 
+// ── Desautorización y borrado de datos ──
+// Meta llama a estas dos cuando alguien quita la app desde Instagram o pide que se borren sus
+// datos. Las exige antes del App Review, pero la primera vale desde ya: sin ella nos
+// quedaríamos con un token muerto intentando publicar en una cuenta que ya no nos quiere.
+//
+// Llegan como formulario, no como JSON, y con un `signed_request` firmado con la clave de la
+// app: `<firma>.<payload>`, ambos en base64url. Verificar la firma es obligatorio — sin eso,
+// cualquiera podría desconectar las cuentas de tus clientes mandando un POST.
+const igForm = express.urlencoded({ extended: false });
+
+function igSignedRequest(sr) {
+  try {
+    const [firma, payload] = String(sr).split(".");
+    if (!firma || !payload) return null;
+    const esperada = crypto.createHmac("sha256", igAppSecret()).update(payload).digest("base64url");
+    if (firma !== esperada) return null;
+    return JSON.parse(Buffer.from(payload, "base64url").toString());
+  } catch { return null; }
+}
+
+// Borra lo que tengamos de esa cuenta de Instagram, venga de donde venga la petición.
+async function igOlvidar(igUserId) {
+  const s = await loadIG();
+  const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === String(igUserId));
+  if (!par) return null;
+  const [companyId] = par;
+  await saveIG(s2 => { delete s2.cuentas[companyId]; delete s2.reglas[companyId]; return s2; });
+  return companyId;
+}
+
+app.post("/api/ig/deauth", igForm, async (req, res) => {
+  const d = igSignedRequest(req.body?.signed_request);
+  if (!d) return res.sendStatus(403);
+  const cid = await igOlvidar(d.user_id);
+  console.log(`IG: desautorizada la cuenta ${d.user_id}${cid ? ` (empresa ${cid})` : " (no la teníamos)"}`);
+  res.sendStatus(200);
+});
+
+// Meta exige responder con una URL donde la persona pueda seguir el estado, y un código.
+app.post("/api/ig/borrar-datos", igForm, async (req, res) => {
+  const d = igSignedRequest(req.body?.signed_request);
+  if (!d) return res.sendStatus(403);
+  const codigo = crypto.randomBytes(8).toString("hex");
+  const cid = await igOlvidar(d.user_id);
+  await saveIG(s => {
+    s.borrados = s.borrados || {};
+    s.borrados[codigo] = { igId: String(d.user_id), companyId: cid || null, fecha: new Date().toISOString() };
+    return s;
+  });
+  const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "https" : "http";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  res.json({ url: `${proto}://${host}/api/ig/borrar-datos/estado?code=${codigo}`, confirmation_code: codigo });
+});
+
+app.get("/api/ig/borrar-datos/estado", async (req, res) => {
+  const s = await loadIG();
+  const r = (s.borrados || {})[String(req.query.code || "")];
+  res.type("html").send(`<!doctype html><meta charset="utf-8"><title>Eliminación de datos — Inmersia</title>
+<body style="font-family:system-ui,sans-serif;background:#05060B;color:#C9CFDC;margin:0;padding:48px 24px;line-height:1.6">
+<div style="max-width:560px;margin:0 auto">
+<h1 style="color:#F4F2ED;font-size:24px">Eliminación de datos</h1>
+${r
+  ? `<p>Solicitud <b style="color:#6FE7F2">${req.query.code}</b>: <b>completada</b> el ${new Date(r.fecha).toLocaleDateString("es-CL")}.</p>
+     <p>Se eliminaron el permiso de acceso a Instagram y las reglas de respuesta automática asociadas a esa cuenta.</p>`
+  : `<p>No encontramos ninguna solicitud con ese código.</p>`}
+<p style="color:#6B7484;font-size:14px;margin-top:32px">¿Dudas? <a href="mailto:inmersiatours@gmail.com" style="color:#6FE7F2">inmersiatours@gmail.com</a> ·
+<a href="https://inmersiaperformance.cl/privacidad.html#eliminacion" style="color:#6FE7F2">Política de privacidad</a></p>
+</div></body>`);
+});
+
 // ===============================
 // 🟢 SERVIR FRONTEND
 // ===============================
