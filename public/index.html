@@ -2920,6 +2920,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const [stReady,sStReady]=useState(true);
   const [stMotivo,sStMotivo]=useState("");
   const [dzOpen,sDzOpen]=useState(false);
+  // Qué pieza aprobada está desplegada. Solo una a la vez: son las cerradas, se consultan de
+  // una en una y varias abiertas devolverían la parrilla que se quiso quitar.
+  const [aprobAbierta,sAprobAbierta]=useState(null);
   const fileRef=useRef(null);
   useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
   // Instagram de la empresa seleccionada. Se relee al cambiar de empresa porque la conexión
@@ -3439,11 +3442,11 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <span style={{fontSize:26,fontWeight:700,letterSpacing:"-.01em"}}>Contenido</span>
         <span style={{fontSize:12.5,color:D.tx3}}>Conectado en vivo con <span style={{color:D.tx2,fontWeight:600}}>Org Semanal</span> y el <span style={{color:D.tx2,fontWeight:600}}>portal del cliente</span> — lo que cambia aquí, cambia allá.</span>
       </div>
+      {/* En la fila del título quedan SOLO las acciones. El selector de empresa se fue de aquí:
+          elegir de qué empresa estás viendo el contenido no es una acción, y con la misma
+          píldora y el mismo tamaño que "+ Nueva pieza" la fila entera se leía como seis botones
+          equivalentes. */}
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={dGrupo}>
-          {cos.map(c=>{const on=String(selCo)===String(c.id);return(
-            <button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 16px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{c.name}</button>);})}
-        </div>
         {/* Subir y crear piezas solo tiene sentido en producción. En las otras dos vistas
             estorbaba y confundía sobre qué se está haciendo. */}
         {vista==="produccion"&&<>
@@ -3460,16 +3463,32 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>
     </div>
 
+    {/* Selector de empresa: qué estás mirando, no qué vas a hacer. Lleva su etiqueta delante
+        para que se lea como un rótulo y no como un menú de botones. */}
+    <div style={{display:"flex",alignItems:"center",gap:11,flexWrap:"wrap",marginBottom:16}}>
+      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4}}>Empresa</span>
+      <div style={dGrupo}>
+        {cos.map(c=>{const on=String(selCo)===String(c.id);return(
+          <button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 16px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{c.name}</button>);})}
+      </div>
+    </div>
+
     {/* Las tres vistas. Producción es el ciclo de siempre; las otras dos empiezan donde ese
-        ciclo termina, y por eso no son etapas suyas sino pantallas aparte. */}
-    <div style={{display:"flex",gap:4,marginBottom:22,padding:4,borderRadius:999,background:"rgba(200,210,228,.03)",border:"1px solid "+D.line3,width:"fit-content",maxWidth:"100%",flexWrap:"wrap"}}>
+        ciclo termina, y por eso no son etapas suyas sino pantallas aparte.
+        Son pestañas subrayadas, no píldoras: encima está el selector de empresa, que sí es un
+        grupo de píldoras, y con la misma forma las dos filas parecían el mismo control repetido.
+        Cambiar de empresa y cambiar de pantalla no son la misma clase de gesto. */}
+    <div style={{display:"flex",gap:26,marginBottom:20,borderBottom:"1px solid "+D.line3,flexWrap:"wrap"}}>
       {[["produccion","Producción",porEtapa.produccion.length+porEtapa.listo.length+porEtapa.enviado.length+porEtapa.rechazado.length],
         ["publicar","Publicar",porEtapa.aprobado.length],
         ["automatizacion","Automatización",(igEst?.reglas||reglas||[]).filter(r=>r.activa!==false).length]].map(([k,l,n])=>{
         const on=vista===k;
-        return(<button key={k} onClick={()=>sVista(k)} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 18px",borderRadius:999,border:"none",background:on?"#1A2032":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:13,fontWeight:on?700:600,cursor:"pointer"}}>
+        return(<button key={k} onClick={()=>sVista(k)}
+          style={{display:"inline-flex",alignItems:"center",gap:8,padding:"0 2px 11px",background:"transparent",border:"none",
+            borderBottom:"2px solid "+(on?D.cian:"transparent"),marginBottom:-1,
+            color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:14,fontWeight:on?700:600,cursor:"pointer"}}>
           {l}
-          {n>0&&<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:on?D.cian:D.tx5}}>{n}</span>}
+          {n>0&&<span style={{fontFamily:"var(--font-mono)",fontSize:10.5,padding:"1px 7px",borderRadius:999,background:on?"rgba(111,231,242,.12)":"rgba(200,210,228,.05)",color:on?D.cian:D.tx5}}>{n}</span>}
         </button>);})}
     </div>
 
@@ -3513,18 +3532,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </div>}
       </div>}
 
-      {/* RESUMEN POR ETAPA */}
-      {vista==="produccion"&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
-        {CONT_META.map(m=>(
-          <span key={m.k} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"7px 14px",borderRadius:999,background:"rgba(200,210,228,.03)",border:"1px solid "+m.col+"40"}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:m.col,boxShadow:"0 0 8px "+m.col}}/>
-            <span style={{fontFamily:"var(--font-mono)",fontSize:13,fontWeight:700,color:m.col}}>{porEtapa[m.k].length}</span>
-            <span style={{fontSize:11.5,color:D.tx3}}>{m.est}</span>
-          </span>))}
-      </div>}
+      {/* Aquí había un resumen por etapa: cinco píldoras con el número de piezas de cada una.
+          Se quitó por dos razones. Repetía un dato que la cabecera de cada grupo ya da tres
+          centímetros más abajo ("En producción · 0 piezas"), y sobre todo se leía como una
+          contradicción de la franja de cupos que tiene justo encima: los cupos cuentan SOLO el
+          mes en curso y esas píldoras contaban todas las piezas de la empresa de cualquier mes
+          (`coTasks` filtra por empresa y nada más), así que salía "8 Post disponibles de 8"
+          encima de "7 aprobadas por cliente". Los dos números eran correctos y hablaban de
+          periodos distintos, que es la peor clase de número junto a otro número. */}
 
       {/* GRUPOS */}
-      {vista==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30}}>
+      {vista==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30,marginTop:8}}>
         {CONT_META.map(m=>(
           <div key={m.k} id={"grp-"+m.k} style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",paddingBottom:8,borderBottom:"1px solid #141928"}}>
@@ -3534,9 +3552,32 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
               <span style={{fontSize:11.5,color:D.tx4,marginLeft:"auto"}}>{m.desc}</span>
             </div>
             {porEtapa[m.k].length===0&&<span style={{fontSize:12,color:D.tx5,padding:"4px 2px"}}>Nada en esta etapa.</span>}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(250px, 1fr))",gap:12}}>
-              {porEtapa[m.k].map(t=>card(t,m))}
-            </div>
+
+            {/* "Aprobado por cliente" va en lista, no en parrilla. Es la etapa que más crece y
+                la única cerrada: son piezas que ya no se tocan, se consultan. En tarjetas
+                ocupaban cuatro filas de la pantalla para repetir siete veces el mismo botón de
+                subir material que ahí ya no sirve de nada. En lista se ve el título y el tipo
+                de un vistazo, y quien quiera el detalle lo despliega. La ficha desplegada es la
+                MISMA tarjeta de siempre, así que no se pierde ni un dato ni una acción. */}
+            {m.k==="aprobado"
+              ?<div style={{display:"flex",flexDirection:"column",gap:7}}>
+                {porEtapa[m.k].map(t=>{
+                  const ab=aprobAbierta===t.id, tt=TT[t.type];
+                  return(<div key={t.id} style={{borderRadius:12,border:"1px solid "+(ab?m.col+"55":D.line2),background:D.panel,overflow:"hidden",transition:"border-color .18s"}}>
+                    <button onClick={()=>sAprobAbierta(ab?null:t.id)} aria-expanded={ab}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                      <span style={{flexShrink:0,padding:"3px 10px",borderRadius:999,border:"1px solid "+((tt?.c)||D.tx3)+"55",color:(tt?.c)||D.tx3,fontSize:10.5,fontWeight:700}}>{tt?.l||t.type}</span>
+                      <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
+                      <span style={{flexShrink:0,fontFamily:"var(--font-mono)",fontSize:11,color:D.tx4}}>{t.date?diaLbl(t.date):"sin fecha"}</span>
+                      {t.socialPost?.at&&<span style={{flexShrink:0,fontSize:11,color:D.lav}} title="Ya publicada en Instagram">📸</span>}
+                      <span style={{flexShrink:0,color:D.tx4,fontSize:14,lineHeight:1,transform:ab?"rotate(90deg)":"none",transition:"transform .18s"}}>›</span>
+                    </button>
+                    {ab&&<div className="d-in" style={{padding:"0 10px 10px"}}>{card(t,m)}</div>}
+                  </div>);})}
+              </div>
+              :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(250px, 1fr))",gap:12}}>
+                {porEtapa[m.k].map(t=>card(t,m))}
+              </div>}
           </div>))}
       </div>}
 
