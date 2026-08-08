@@ -2994,10 +2994,19 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                       style={{padding:"9px 14px",borderRadius:999,background:(sinUrl||!ig)?"transparent":D.cian,border:"1px solid "+((sinUrl||!ig)?D.line2:D.cian),color:(sinUrl||!ig)?D.tx4:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(pubId===t.id||sinUrl||!ig)?"default":"pointer"}}>
                       {pubId===t.id?"Publicando…":"Publicar ahora"}
                     </button>
-                    {t.date&&<button onClick={()=>publicarIG(t,true)} disabled={pubId===t.id||sinUrl||!ig}
-                      style={{padding:"9px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:(pubId===t.id||sinUrl||!ig)?"default":"pointer"}}>
-                      Programar para su día
-                    </button>}
+                    {/* Programar en el pasado no existe: en vez de dejar pulsar y fallar con un
+                        aviso que se desvanece, el botón se apaga y dice por qué. */}
+                    {t.date&&(()=>{
+                      const cuando=new Date(`${t.date}T${t.publishTime||"12:00"}:00`).getTime();
+                      const pasado=cuando<Date.now();
+                      const off=pubId===t.id||sinUrl||!ig||pasado;
+                      return(<>
+                        <button onClick={()=>publicarIG(t,true)} disabled={off}
+                          style={{padding:"9px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:off?D.tx5:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:off?"default":"pointer"}}>
+                          Programar
+                        </button>
+                        {pasado&&<span style={{fontSize:11,color:D.tx5,lineHeight:1.45}}>Su día ya pasó. Publica ahora, o pide al cliente que la reagende.</span>}
+                      </>);})()}
                     {sinUrl&&<span style={{fontSize:11,color:"#EFD9A0",lineHeight:1.45}}>El archivo no está en el almacenamiento: Instagram necesita una URL pública.</span>}
                   </>}
               </div>
@@ -3040,21 +3049,46 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 <button onClick={()=>borrarRegla(i)} title="Eliminar" style={{width:28,height:28,borderRadius:8,background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="trash" s={13} c={D.tx4}/></button>
               </div>
 
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>¿En qué publicación?</label>
-                <select value={r.mediaId||""} onChange={e=>editRegla(i,"mediaId",e.target.value)}
-                  style={{padding:"8px 10px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,outline:"none",maxWidth:"100%"}}>
-                  <option value="">En todas las publicaciones de la cuenta</option>
-                  {(pubs||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{p.comentarios!=null?"  ·  "+p.comentarios+" com.":""}</option>)}
-                </select>
+              {/* Cuadrícula en vez de desplegable: los pies de foto se parecen mucho entre sí
+                  —varios empiezan igual— y elegir a ciegas por texto lleva a atar la campaña
+                  a la publicación equivocada. Con la miniatura se reconoce de un vistazo. */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                  <label style={{fontSize:12,fontWeight:600,color:D.tx2}}>¿En qué publicación?</label>
+                  {(() => {const p=(pubs||[]).find(x=>x.id===r.mediaId);
+                    return p?<a href={p.permalink} target="_blank" rel="noopener" style={{marginLeft:"auto",fontSize:11.5,color:D.cian,textDecoration:"none"}}>ver en Instagram ↗</a>:null;})()}
+                </div>
+
                 {pubs===null&&<span style={{fontSize:11.5,color:D.tx5}}>Cargando publicaciones…</span>}
                 {pubs&&pubs.length===0&&<span style={{fontSize:11.5,color:D.tx5}}>No se pudieron leer las publicaciones. La regla funcionará igual para toda la cuenta.</span>}
-                {r.mediaId&&(()=>{const p=(pubs||[]).find(x=>x.id===r.mediaId);return p?(
-                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:D.bg,border:"1px solid "+D.line3}}>
-                    {p.img&&<img src={p.img} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
-                    <span style={{fontSize:11.5,color:D.tx3,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{p.titulo}</span>
-                    <a href={p.permalink} target="_blank" rel="noopener" style={{fontSize:11.5,color:D.cian,textDecoration:"none",flexShrink:0}}>ver ↗</a>
-                  </div>):null;})()}
+
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(96px, 1fr))",gap:8,maxHeight:268,overflowY:"auto",padding:2}}>
+                  <button onClick={()=>editRegla(i,"mediaId","")} title="La regla responde en cualquier publicación"
+                    style={{position:"relative",aspectRatio:"1",borderRadius:11,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",
+                      background:!r.mediaId?"rgba(111,231,242,.08)":D.bg,border:"2px solid "+(!r.mediaId?D.cian:D.line2),
+                      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5}}>
+                    <span style={{fontSize:19}}>✳️</span>
+                    <span style={{fontSize:10.5,fontWeight:700,color:!r.mediaId?D.cian:D.tx4,lineHeight:1.25,padding:"0 6px"}}>En todas</span>
+                  </button>
+
+                  {(pubs||[]).map(p=>{
+                    const on=r.mediaId===p.id;
+                    return(<button key={p.id} onClick={()=>editRegla(i,"mediaId",p.id)} title={p.titulo}
+                      style={{position:"relative",aspectRatio:"1",borderRadius:11,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",
+                        background:D.bg,border:"2px solid "+(on?D.cian:D.line2)}}>
+                      {/* Las URL de la CDN de Instagram caducan. Si una falla se oculta y queda
+                          el icono de debajo, igual que en Métricas — un hueco negro sin
+                          explicación haría dudar de si la publicación existe. */}
+                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:D.tx4}}>{p.tipo==="VIDEO"?"🎬":"📷"}</div>
+                      {p.img&&<img src={p.img} alt="" draggable={false} onError={e=>{e.target.style.display="none";}}
+                        style={{position:"relative",width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:on?1:.82}}/>}
+                      {/* El número de comentarios ayuda a reconocer el post más que el pie. */}
+                      {p.comentarios!=null&&<span style={{position:"absolute",top:5,right:5,padding:"1px 6px",borderRadius:999,background:"rgba(2,3,8,.72)",fontFamily:"var(--font-mono)",fontSize:9.5,color:"#fff"}}>{p.comentarios}</span>}
+                      {on&&<span style={{position:"absolute",top:5,left:5,width:16,height:16,borderRadius:"50%",background:D.cian,color:D.bg,fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
+                      <span style={{position:"absolute",left:0,right:0,bottom:0,padding:"12px 6px 5px",fontSize:9.5,lineHeight:1.3,color:"#fff",textAlign:"left",
+                        background:"linear-gradient(to top, rgba(2,3,8,.9), transparent)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.titulo}</span>
+                    </button>);})}
+                </div>
               </div>
 
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
