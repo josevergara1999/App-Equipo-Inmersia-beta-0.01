@@ -2043,6 +2043,17 @@ app.get("/api/ig/callback", async (req, res) => {
     }
 
     await saveIG(s => {
+      // Una cuenta de Instagram pertenece a UNA empresa. Si estaba enganchada a otra —basta con
+      // haberla conectado una vez con otra seleccionada— se suelta de allí antes de guardarla
+      // aquí. Sin esto quedaban dos empresas apuntando al mismo igId, y el webhook resolvía por
+      // orden de inserción: entregaba a la primera, que podía no tener ninguna regla, y la
+      // automatización no respondía nunca sin dar un solo error.
+      for (const [cid, c] of Object.entries(s.cuentas)) {
+        if (cid !== String(st.cid) && String(c.igId) === String(igId)) {
+          console.log(`IG: @${me?.username || igId} estaba en la empresa ${cid}; se suelta y pasa a la ${st.cid}`);
+          delete s.cuentas[cid];
+        }
+      }
       s.cuentas[st.cid] = {
         igId, username: me?.username || "", token,
         expira: Date.now() + ((largo?.expires_in || 5184000) * 1000),
@@ -2378,31 +2389,42 @@ async function igProcesarComentario(entry) {
     // dice lo suyo y con qué valores, que es lo único que permite arreglarla.
     console.log(`IG webhook: comentario ${commentId} en cuenta ${igId}, publicación ${mediaId || "(sin id)"}, texto "${texto.slice(0, 60)}"`);
 
-    const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
-    if (!par) {
+    // TODAS las empresas que tengan esta cuenta, no la primera que aparezca. Una misma cuenta
+    // de Instagram puede haber quedado enganchada a dos empresas —basta con haberla conectado
+    // una vez con otra seleccionada—, y quedarse con la primera del objeto significaba elegir
+    // por orden de inserción: el webhook llegaba bien, encontraba la empresa equivocada, veía
+    // que no tenía reglas y lo tiraba. La cadena estaba impecable en la otra.
+    const pares = Object.entries(s.cuentas).filter(([, c]) => String(c.igId) === igId);
+    if (!pares.length) {
       console.error(`IG: nadie tiene la cuenta ${igId}. Guardadas: ${Object.entries(s.cuentas).map(([e, c]) => e + "=" + c.igId).join(", ") || "ninguna"}`);
       continue;
     }
-    const [companyId, cuenta] = par;
 
     // Meta reintenta la entrega del webhook. Sin esta guarda, el mismo comentario dispararía
     // el mensaje dos veces —y Meta solo admite uno, así que el segundo sería un error feo.
     if (s.respondidos[commentId]) { console.log(`IG: el comentario ${commentId} ya se respondió el ${s.respondidos[commentId]}`); continue; }
 
-    // Una regla atada a una publicación gana sobre una general: si alguien montó una campaña
-    // en un post concreto, esa es la respuesta que quiere, no la genérica de la cuenta.
-    const activas = (s.reglas[companyId] || []).filter(r => r.activa);
-    const candidatas = activas.filter(r => igNorm(texto).includes(igNorm(r.palabra)));
-    const regla = candidatas.find(r => r.mediaId && r.mediaId === mediaId)
-      || candidatas.find(r => !r.mediaId);
-    if (!regla) {
-      console.error(candidatas.length
+    // Se busca en cada una hasta encontrar una regla que encaje. Dentro de una empresa, una
+    // regla atada a una publicación gana sobre una general: si alguien montó una campaña en un
+    // post concreto, esa es la respuesta que quiere, no la genérica de la cuenta.
+    let companyId = null, cuenta = null, regla = null;
+    const rastro = [];
+    for (const [cid, c] of pares) {
+      const activas = (s.reglas[cid] || []).filter(r => r.activa);
+      const candidatas = activas.filter(r => igNorm(texto).includes(igNorm(r.palabra)));
+      const r = candidatas.find(x => x.mediaId && x.mediaId === mediaId) || candidatas.find(x => !x.mediaId);
+      if (r) { companyId = cid; cuenta = c; regla = r; break; }
+      rastro.push(candidatas.length
         // La palabra encaja pero la publicación no: es el caso silencioso más traicionero,
         // porque en pantalla la cadena se ve perfecta y atada al post correcto.
-        ? `IG: la palabra encaja en ${candidatas.length} regla(s), pero ninguna es de esta publicación. El webhook trae ${mediaId || "(sin id)"} y las reglas apuntan a: ${candidatas.map(r => r.mediaId || "(todas)").join(", ")}`
-        : `IG: ningún patrón encaja con "${texto.slice(0, 40)}". Palabras activas de la empresa ${companyId}: ${activas.map(r => JSON.stringify(r.palabra)).join(", ") || "ninguna"}`);
+        ? `empresa ${cid}: la palabra encaja en ${candidatas.length} regla(s) pero ninguna es de esta publicación (el webhook trae ${mediaId || "(sin id)"}, las reglas apuntan a ${candidatas.map(x => x.mediaId || "(todas)").join(", ")})`
+        : `empresa ${cid}: ninguna palabra encaja (activas: ${activas.map(x => JSON.stringify(x.palabra)).join(", ") || "ninguna"})`);
+    }
+    if (!regla) {
+      console.error(`IG: ningún patrón encaja con "${texto.slice(0, 40)}". ${rastro.join(" · ")}`);
       continue;
     }
+    if (pares.length > 1) console.log(`IG: la cuenta ${igId} está en ${pares.length} empresas; responde la ${companyId}`);
 
     await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });
     try {
@@ -2439,12 +2461,20 @@ async function igProcesarPostback(entry, m) {
   if (!ref) return;
 
   const s = await loadIG();
-  const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
-  if (!par) return;
-  const [companyId, cuenta] = par;
+  // Igual que con los comentarios: se miran todas las empresas que tengan esta cuenta y se
+  // elige la que de verdad conoce esta cadena. El id del flujo viene en el propio botón, así
+  // que aquí no hay que adivinar nada — solo no quedarse con la primera por costumbre. Con la
+  // cuenta enganchada a dos empresas, el primer mensaje salía y la cadena moría al pulsar.
+  const pares = Object.entries(s.cuentas).filter(([, c]) => String(c.igId) === igId);
+  if (!pares.length) { console.error(`IG postback: nadie tiene la cuenta ${igId}`); return; }
 
-  const flujo = (s.reglas[companyId] || []).find(r => String(r.id) === ref.flujoId);
-  if (!flujo || flujo.activa === false) return;
+  let companyId = null, cuenta = null, flujo = null;
+  for (const [cid, c] of pares) {
+    const f = (s.reglas[cid] || []).find(r => String(r.id) === ref.flujoId);
+    if (f) { companyId = cid; cuenta = c; flujo = f; break; }
+  }
+  if (!flujo) { console.error(`IG postback: la cadena ${ref.flujoId} no está en ninguna empresa con la cuenta ${igId}`); return; }
+  if (flujo.activa === false) { console.log(`IG postback: la cadena "${flujo.palabra}" está pausada`); return; }
 
   try {
     // Ya hay conversación abierta: a partir de aquí se escribe a la persona, no al comentario.
