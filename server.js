@@ -2017,6 +2017,19 @@ app.get("/api/ig/callback", async (req, res) => {
       };
       return s;
     });
+
+    // Suscribir ESTA cuenta a los webhooks. Estar suscrito al campo `comments` en el panel de
+    // Meta no alcanza: eso declara qué campos quiere la app, pero cada cuenta autorizada tiene
+    // que activarse aparte. Sin esto el OAuth funciona, la publicación funciona, y los
+    // comentarios sencillamente no llegan nunca — un fallo mudo y muy caro de diagnosticar.
+    try {
+      const rs = await fetch(`${IG_API}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=comments`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}` },
+      });
+      const sd = await rs.json().catch(() => ({}));
+      console.log(`IG: suscripción de @${me?.username || igId} a comments -> ${rs.status} ${JSON.stringify(sd)}`);
+    } catch (e) { console.error("IG subscribed_apps:", e.message); }
+
     fin(true, `@${me?.username || igId} conectada`);
   } catch (e) { fin(false, e.message); }
 });
