@@ -96,6 +96,9 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
    inline, y una animación que tocara `transform` lo pisaría mientras dura — el preview
    aparecería descolocado y luego saltaría a su sitio. */
 @keyframes ccFadeIn{from{opacity:0}to{opacity:1}}
+/* La hoja de edición del teléfono entra desde abajo, que es de donde viene. Sin fill-mode:
+   el transform no debe quedarse retenido o la hoja se vuelve ancestro de los `fixed`. */
+@keyframes ccSubir{from{transform:translateY(100%)}to{transform:none}}
 @keyframes drawerInMob{from{opacity:.5;transform:translateY(26px)}to{opacity:1;transform:none}}
 
 /* Borde iluminado que recorre el marco.
@@ -2422,8 +2425,12 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   // que incluye la barra de desplazamiento y dejaría el lienzo asomando por la derecha.
   const cajaRef=useRef(null);
   const [caja,sCaja]=useState(null);
+  // Mismo corte que el resto de la app (`isMob`, 768 px), para que el constructor no tenga su
+  // propia idea de qué es un teléfono.
+  const [movil,sMovil]=useState(()=>window.innerWidth<768);
   useEffect(()=>{
     const medir=()=>{
+      sMovil(window.innerWidth<768);
       const el=cajaRef.current;if(!el)return;
       const r=el.getBoundingClientRect();
       const d=document.documentElement;
@@ -2437,6 +2444,15 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
     window.addEventListener("resize",medir);
     return()=>window.removeEventListener("resize",medir);
   },[]);
+  // En el teléfono el constructor SÍ ocupa la pantalla entera: no hay hueco para dejar la app
+  // detrás, y encajarlo en la columna de contenido lo dejaba inservible. Con la pantalla tomada,
+  // la página de atrás no debe desplazarse bajo el dedo al arrastrar el lienzo.
+  useEffect(()=>{
+    if(!movil)return;
+    const antes=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{document.body.style.overflow=antes;};
+  },[movil]);
 
   const pasos=flujo.pasos||[];
   const mut=fn=>onChange({...flujo,pasos:fn(pasos)});
@@ -2525,6 +2541,14 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
     if(sel===id)sSel(null);
   };
 
+  // Un solo sitio donde se resuelve el arrastre, para que el ratón y el dedo hagan exactamente
+  // lo mismo en vez de mantener dos copias del cálculo.
+  const mover=(x,y)=>{
+    if(drag)moverNodo(drag.id,drag.px+x-drag.sx,drag.py+y-drag.sy);
+    else if(panDrag)sPan({x:panDrag.px+x-panDrag.sx,y:panDrag.py+y-panDrag.sy});
+  };
+  const soltar=()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);};
+
   const nSel=porId[sel];
   const tSel=nSel?CC_TIPOS[nSel.tipo]:null;
 
@@ -2539,70 +2563,98 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
 
   const etiqueta=(txt,extra)=>(<label style={{fontSize:12.5,fontWeight:600,color:"#C9CFDC",...extra}}>{txt}</label>);
 
-  return(<div ref={cajaRef} style={{width:caja?caja.w:"100%",height:caja?caja.h:"calc(100vh - 150px)",minHeight:480,
-    display:"flex",flexDirection:"column",overflow:"hidden",
-    fontFamily:"'Instrument Sans', system-ui, sans-serif",color:"#F4F2ED",background:"#05060B",boxSizing:"border-box",
-    borderRadius:16,border:"1px solid #161B2A"}}>
+  // En el teléfono se monta en el <body> a pantalla completa; en el escritorio se queda en su
+  // sitio dentro de la página y crece hacia abajo y a la derecha.
+  const marco=movil
+    ? {position:"fixed",inset:0,zIndex:1000,paddingTop:"env(safe-area-inset-top, 0px)",paddingBottom:"env(safe-area-inset-bottom, 0px)"}
+    : {width:caja?caja.w:"100%",height:caja?caja.h:"calc(100vh - 150px)",minHeight:480,borderRadius:16,border:"1px solid #161B2A"};
+
+  const cuerpo=(<div ref={cajaRef} style={{...marco,
+    display:"flex",flexDirection:"column",overflow:"hidden",position:marco.position||"relative",
+    fontFamily:"'Instrument Sans', system-ui, sans-serif",color:"#F4F2ED",background:"#05060B",boxSizing:"border-box"}}>
 
     {/* ── Barra superior ── */}
-    <header style={{display:"flex",alignItems:"center",gap:14,padding:"12px 22px",background:"rgba(5, 6, 11, 0.94)",borderBottom:"1px solid #161B2A",flexShrink:0,zIndex:10}}>
-      <div style={{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg, #6FE7F2, #9BB4FF)",color:"#05060B",fontSize:12,fontWeight:700}}>IN</div>
-      <div style={{width:1,height:22,background:"#1E2536"}}/>
-      <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-        <span style={{fontFamily:"ui-monospace, monospace",fontSize:9.5,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484"}}>Constructor de cadena</span>
+    {/* En el teléfono se cae el logo, el separador y el rótulo "constructor de cadena": son
+        adorno, y ahí cada píxel de ancho lo necesita el nombre de la cadena. El interruptor de
+        activa/pausada se queda en el punto de color, sin texto. */}
+    <header style={{display:"flex",alignItems:"center",gap:movil?9:14,padding:movil?"9px 12px":"12px 22px",background:"rgba(5, 6, 11, 0.94)",borderBottom:"1px solid #161B2A",flexShrink:0,zIndex:10}}>
+      {!movil&&<>
+        <div style={{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg, #6FE7F2, #9BB4FF)",color:"#05060B",fontSize:12,fontWeight:700}}>IN</div>
+        <div style={{width:1,height:22,background:"#1E2536"}}/>
+      </>}
+      <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0,flex:movil?"1 1 auto":"0 1 auto"}}>
+        {!movil&&<span style={{fontFamily:"ui-monospace, monospace",fontSize:9.5,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484"}}>Constructor de cadena</span>}
         <input value={flujo.nombre||""} onChange={e=>onChange({...flujo,nombre:e.target.value})} placeholder="Cadena sin nombre"
           onFocus={e=>e.target.style.borderBottomColor="rgba(111, 231, 242, 0.5)"} onBlur={e=>e.target.style.borderBottomColor="transparent"}
-          style={{padding:"2px 0",background:"transparent",border:"none",borderBottom:"1px dashed transparent",color:"#F4F2ED",fontFamily:"inherit",fontSize:15,fontWeight:600,outline:"none",width:240}}/>
+          style={{padding:"2px 0",background:"transparent",border:"none",borderBottom:"1px dashed transparent",color:"#F4F2ED",fontFamily:"inherit",fontSize:movil?14:15,fontWeight:600,outline:"none",width:movil?"100%":240,minWidth:0}}/>
       </div>
-      <div style={{flex:"1 1 auto"}}/>
+      {!movil&&<div style={{flex:"1 1 auto"}}/>}
       <button onClick={()=>onChange({...flujo,activa:flujo.activa===false})}
-        style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:999,
+        title={flujo.activa!==false?"Cadena activa — toca para pausar":"Pausada — toca para activar"}
+        style={{flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,
+          padding:movil?"0":"8px 16px",width:movil?34:"auto",height:movil?34:"auto",borderRadius:999,
           background:flujo.activa!==false?"rgba(111, 231, 242, 0.08)":"transparent",
           border:"1px solid "+(flujo.activa!==false?"rgba(111, 231, 242, 0.4)":"#262D40"),
           color:flujo.activa!==false?"#6FE7F2":"#8E93A6",fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         <span style={{width:8,height:8,borderRadius:"50%",background:flujo.activa!==false?"#6FE7F2":"#4A5265",
           animation:flujo.activa!==false?"ccPulse 2.2s ease-in-out infinite":"none"}}/>
-        {flujo.activa!==false?"Cadena activa":"Pausada"}
+        {!movil&&(flujo.activa!==false?"Cadena activa":"Pausada")}
       </button>
       <button onClick={()=>{onGuardar();sSaved(true);clearTimeout(tRef.current);tRef.current=setTimeout(()=>sSaved(false),1600);}} disabled={guardando}
-        style={{padding:"9px 20px",borderRadius:999,background:"#6FE7F2",border:"1px solid #6FE7F2",color:"#05060B",fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:guardando?"default":"pointer"}}>
-        {guardando?"Guardando…":(saved?"Guardado ✓":"Guardar")}
+        style={{flexShrink:0,padding:movil?"7px 13px":"9px 20px",borderRadius:999,background:"#6FE7F2",border:"1px solid #6FE7F2",color:"#05060B",fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:guardando?"default":"pointer"}}>
+        {guardando?"…":(saved?"✓":"Guardar")}
       </button>
       <button onClick={onCerrar} title="Volver a la lista"
-        style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"1px solid #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
+        style={{width:movil?34:32,height:movil?34:32,borderRadius:"50%",background:"transparent",border:"1px solid #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
     </header>
 
-    <div style={{flex:"1 1 auto",display:"flex",minHeight:0}}>
+    <div style={{flex:"1 1 auto",display:"flex",minHeight:0,position:"relative"}}>
 
       {/* ── Paleta de bloques ── */}
-      <aside style={{width:216,flexShrink:0,display:"flex",flexDirection:"column",gap:8,padding:"18px 14px",borderRight:"1px solid #161B2A",background:"rgba(11, 14, 23, 0.55)",overflow:"auto",boxSizing:"border-box"}}>
-        <span style={{fontFamily:"ui-monospace, monospace",fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484",padding:"0 4px 4px"}}>Bloques</span>
-        {["mensaje","condicion","retraso","accion"].map(k=>{const t=CC_TIPOS[k];return(
-          <button key={k} onClick={()=>addNodo(k)}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor=t.bor;e.currentTarget.style.transform="translateY(-1px)";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor="#1E2536";e.currentTarget.style.transform="none";}}
-            style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:12,background:"#0B0E17",border:"1px solid #1E2536",cursor:"pointer",textAlign:"left",fontFamily:"inherit",transition:"border-color 0.25s, transform 0.2s"}}>
-            <span style={{width:26,height:26,flexShrink:0,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:t.bg,border:"1px solid "+t.bor}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:t.col}}/>
-            </span>
-            <span style={{display:"flex",flexDirection:"column",gap:2}}>
-              <span style={{fontSize:13,fontWeight:600,color:"#F4F2ED"}}>{t.nombre}</span>
-              <span style={{fontSize:11,color:"#6B7484",lineHeight:1.4}}>{t.desc}</span>
-            </span>
-          </button>);})}
-        <p style={{margin:"8px 4px 0",fontSize:11,lineHeight:1.55,color:"#4A5265"}}>Toca un bloque para añadirlo — se conecta al bloque seleccionado en el lienzo.</p>
-      </aside>
+      {/* En el teléfono deja de ser una columna de 216 px —que se comería más de la mitad del
+          ancho— y pasa a una tira horizontal que se desliza, con solo el nombre del bloque.
+          La descripción y la nota de ayuda se caen: ahí no hay sitio y no son imprescindibles. */}
+      {movil
+        ?<div style={{position:"absolute",left:0,right:0,bottom:0,zIndex:4,display:"flex",gap:8,padding:"10px 12px",overflowX:"auto",
+          background:"rgba(5, 6, 11, 0.94)",borderTop:"1px solid #161B2A",WebkitOverflowScrolling:"touch"}}>
+          {["mensaje","condicion","retraso","accion"].map(k=>{const t=CC_TIPOS[k];return(
+            <button key={k} onClick={()=>addNodo(k)}
+              style={{flexShrink:0,display:"inline-flex",alignItems:"center",gap:7,padding:"9px 14px",borderRadius:999,background:"#0B0E17",border:"1px solid "+t.bor,cursor:"pointer",fontFamily:"inherit"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:t.col,flexShrink:0}}/>
+              <span style={{fontSize:12.5,fontWeight:600,color:"#F4F2ED",whiteSpace:"nowrap"}}>{t.nombre}</span>
+            </button>);})}
+        </div>
+        :<aside style={{width:216,flexShrink:0,display:"flex",flexDirection:"column",gap:8,padding:"18px 14px",borderRight:"1px solid #161B2A",background:"rgba(11, 14, 23, 0.55)",overflow:"auto",boxSizing:"border-box"}}>
+          <span style={{fontFamily:"ui-monospace, monospace",fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",color:"#6B7484",padding:"0 4px 4px"}}>Bloques</span>
+          {["mensaje","condicion","retraso","accion"].map(k=>{const t=CC_TIPOS[k];return(
+            <button key={k} onClick={()=>addNodo(k)}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=t.bor;e.currentTarget.style.transform="translateY(-1px)";}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="#1E2536";e.currentTarget.style.transform="none";}}
+              style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:12,background:"#0B0E17",border:"1px solid #1E2536",cursor:"pointer",textAlign:"left",fontFamily:"inherit",transition:"border-color 0.25s, transform 0.2s"}}>
+              <span style={{width:26,height:26,flexShrink:0,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:t.bg,border:"1px solid "+t.bor}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:t.col}}/>
+              </span>
+              <span style={{display:"flex",flexDirection:"column",gap:2}}>
+                <span style={{fontSize:13,fontWeight:600,color:"#F4F2ED"}}>{t.nombre}</span>
+                <span style={{fontSize:11,color:"#6B7484",lineHeight:1.4}}>{t.desc}</span>
+              </span>
+            </button>);})}
+          <p style={{margin:"8px 4px 0",fontSize:11,lineHeight:1.55,color:"#4A5265"}}>Toca un bloque para añadirlo — se conecta al bloque seleccionado en el lienzo.</p>
+        </aside>}
 
       {/* ── Lienzo ── */}
+      {/* Los gestos van duplicados a propósito. El navegador sintetiza un clic a partir de un
+          toque, pero NO sintetiza `mousemove` a partir de `touchmove`: con solo los eventos de
+          ratón, en el teléfono no se podía ni mover el mapa ni arrastrar un bloque. `touchAction:
+          none` es lo que impide que el gesto se lo quede el scroll de la página. */}
       <div
         onMouseDown={e=>{sPanDrag({sx:e.clientX,sy:e.clientY,px:pan.x,py:pan.y});sSel(null);}}
-        onMouseMove={e=>{
-          if(drag)moverNodo(drag.id,drag.px+e.clientX-drag.sx,drag.py+e.clientY-drag.sy);
-          else if(panDrag)sPan({x:panDrag.px+e.clientX-panDrag.sx,y:panDrag.py+e.clientY-panDrag.sy});
-        }}
-        onMouseUp={()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);}}
-        onMouseLeave={()=>{if(drag)sDrag(null);if(panDrag)sPanDrag(null);}}
-        style={{flex:"1 1 auto",position:"relative",overflow:"hidden",cursor:panDrag?"grabbing":"grab",
+        onTouchStart={e=>{const t=e.touches[0];if(!t)return;sPanDrag({sx:t.clientX,sy:t.clientY,px:pan.x,py:pan.y});sSel(null);}}
+        onMouseMove={e=>mover(e.clientX,e.clientY)}
+        onTouchMove={e=>{const t=e.touches[0];if(t)mover(t.clientX,t.clientY);}}
+        onMouseUp={soltar} onTouchEnd={soltar} onTouchCancel={soltar}
+        onMouseLeave={soltar}
+        style={{flex:"1 1 auto",position:"relative",overflow:"hidden",cursor:panDrag?"grabbing":"grab",touchAction:"none",
           backgroundColor:"#05060B",backgroundImage:"radial-gradient(rgba(200, 210, 228, 0.12) 1px, transparent 1.2px)",
           backgroundSize:"26px 26px",backgroundPosition:pan.x+"px "+pan.y+"px"}}>
         <div style={{position:"absolute",top:0,left:0,transform:"translate("+pan.x+"px, "+pan.y+"px)"}}>
@@ -2648,6 +2700,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
               :(n.texto||"");
             return(<div key={n.id}
               onMouseDown={e=>{e.stopPropagation();sDrag({id:n.id,sx:e.clientX,sy:e.clientY,px:n.x,py:n.y});sSel(n.id);}}
+              onTouchStart={e=>{e.stopPropagation();const t=e.touches[0];if(!t)return;sDrag({id:n.id,sx:t.clientX,sy:t.clientY,px:n.x,py:n.y});sSel(n.id);}}
               style={{position:"absolute",left:n.x,top:n.y,width:CC_W,boxSizing:"border-box",borderRadius:16,padding:"13px 15px 14px",
                 background:"linear-gradient(170deg, rgba(13, 17, 27, 0.97), rgba(6, 8, 14, 0.99))",
                 border:"1px solid "+(isSel?t.bor.replace("0.4","0.85"):"rgba(200, 210, 228, 0.12)"),
@@ -2683,13 +2736,24 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                   style={{position:"absolute",top:-11,right:10,padding:"2px 9px",borderRadius:999,background:"#0B0E17",border:"1px dashed rgba(239, 217, 160, 0.5)",color:"#EFD9A0",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>sin conectar</span>}
             </div>);})}
         </div>
-        <span style={{position:"absolute",bottom:14,left:16,fontSize:11,color:"#4A5265",pointerEvents:"none"}}>Arrastra los bloques para ordenarlos · arrastra el fondo para moverte</span>
+        {/* En el teléfono se cae: caería justo detrás de la tira de bloques. */}
+        {!movil&&<span style={{position:"absolute",bottom:14,left:16,fontSize:11,color:"#4A5265",pointerEvents:"none"}}>Arrastra los bloques para ordenarlos · arrastra el fondo para moverte</span>}
       </div>
 
       {/* ── Panel de edición ── */}
-      {nSel&&<aside style={{width:360,flexShrink:0,display:"flex",flexDirection:"column",gap:16,padding:"18px 20px",borderLeft:"1px solid #161B2A",
-        background:"linear-gradient(170deg, rgba(13, 17, 27, 0.99), rgba(6, 8, 14, 1))",overflow:"auto",boxSizing:"border-box",
-        animation:"ccSlideIn 0.28s cubic-bezier(0.22, 1, 0.36, 1)"}}>
+      {/* En el teléfono una columna de 360 px no cabe al lado de nada: se convierte en una hoja
+          que sube desde abajo y ocupa hasta tres cuartos de la pantalla, dejando ver el lienzo
+          por encima para no perder de vista qué bloque se está editando. Entra deslizando desde
+          abajo, no desde el lado, porque es de donde viene. */}
+      {nSel&&<aside style={movil
+        ?{position:"absolute",left:0,right:0,bottom:0,zIndex:6,maxHeight:"76%",display:"flex",flexDirection:"column",gap:14,
+          padding:"14px 16px calc(16px + env(safe-area-inset-bottom, 0px))",borderTop:"1px solid #262D40",
+          borderTopLeftRadius:18,borderTopRightRadius:18,
+          background:"linear-gradient(170deg, rgba(13, 17, 27, 0.99), rgba(6, 8, 14, 1))",overflow:"auto",boxSizing:"border-box",
+          boxShadow:"0 -18px 44px rgba(2, 3, 8, 0.7)",animation:"ccSubir 0.26s cubic-bezier(0.22, 1, 0.36, 1)"}
+        :{width:360,flexShrink:0,display:"flex",flexDirection:"column",gap:16,padding:"18px 20px",borderLeft:"1px solid #161B2A",
+          background:"linear-gradient(170deg, rgba(13, 17, 27, 0.99), rgba(6, 8, 14, 1))",overflow:"auto",boxSizing:"border-box",
+          animation:"ccSlideIn 0.28s cubic-bezier(0.22, 1, 0.36, 1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:999,background:tSel.bg,border:"1px solid "+tSel.bor,color:tSel.col,fontSize:11,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{tSel.nombre}</span>
           <button onClick={()=>sSel(null)} style={{marginLeft:"auto",width:28,height:28,borderRadius:"50%",background:"transparent",border:"1px solid #262D40",color:"#8E93A6",fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>✕</button>
@@ -2728,8 +2792,11 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                 <button key={p.id} onClick={()=>onChange({...flujo,mediaId:p.id})} title={p.titulo}
                   // Se guarda el rectángulo, no solo la publicación: el preview va en un Portal
                   // y necesita saber dónde está la miniatura para colocarse a su lado.
-                  onMouseEnter={e=>{const r=e.currentTarget.getBoundingClientRect();sPrevPub({p,l:r.left,r:r.right,cy:r.top+r.height/2});}}
-                  onFocus={e=>{const r=e.currentTarget.getBoundingClientRect();sPrevPub({p,l:r.left,r:r.right,cy:r.top+r.height/2});}}
+                  // En el teléfono no hay ratón: el toque dispara un `mouseenter` que nunca tiene
+                  // su `mouseleave`, así que el preview se quedaría pegado tapando la rejilla. Y
+                  // ahí sobra: a pantalla completa las miniaturas ya se ven.
+                  onMouseEnter={e=>{if(movil)return;const r=e.currentTarget.getBoundingClientRect();sPrevPub({p,l:r.left,r:r.right,cy:r.top+r.height/2});}}
+                  onFocus={e=>{if(movil)return;const r=e.currentTarget.getBoundingClientRect();sPrevPub({p,l:r.left,r:r.right,cy:r.top+r.height/2});}}
                   onBlur={()=>sPrevPub(null)}
                   style={{position:"relative",aspectRatio:"1",borderRadius:10,cursor:"pointer",padding:0,overflow:"hidden",fontFamily:"inherit",background:"#0B0E17",
                     border:"2px solid "+(on?"#6FE7F2":hov?"rgba(111, 231, 242, 0.55)":"#262D40"),
@@ -2741,7 +2808,9 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                 </button>);})}
             </div>
             {pubs===null&&<span style={{fontSize:11.5,color:"#4A5265"}}>Cargando publicaciones…</span>}
-            {(pubs||[]).length>0&&<span style={{fontSize:11,color:"#4A5265",lineHeight:1.5}}>Pasa el ratón por encima para verla en grande.</span>}
+            {/* Solo en escritorio: en el teléfono no hay ratón, y a pantalla completa las
+                miniaturas ya salen grandes, así que la ayuda sobraría y mentiría. */}
+            {!movil&&(pubs||[]).length>0&&<span style={{fontSize:11,color:"#4A5265",lineHeight:1.5}}>Pasa el ratón por encima para verla en grande.</span>}
           </div>
           <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>{tSel.hint}</span>
           <div style={{flex:"1 1 auto"}}/>
@@ -2906,6 +2975,10 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
       </Portal>);
     })()}
   </div>);
+
+  // En el teléfono va montado en el <body>: a pantalla completa dentro de la columna de
+  // contenido no existe, y `position: fixed` se rompe en cuanto un ancestro tiene `transform`.
+  return movil?<Portal>{cuerpo}</Portal>:cuerpo;
 }
 
 function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners}){
