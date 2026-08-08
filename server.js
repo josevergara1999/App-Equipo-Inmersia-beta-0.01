@@ -2012,13 +2012,18 @@ app.get("/api/ig/callback", async (req, res) => {
     const rm = await fetch(`https://graph.instagram.com/me?fields=user_id,username`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const me = await rm.json().catch(() => ({}));
-    if (!rm.ok || !me?.user_id) {
+    const meTxt = await rm.text();
+    let me = {}; try { me = JSON.parse(meTxt); } catch { /* se maneja abajo */ }
+    // El id se saca del TEXTO, no del JSON ya convertido. Meta lo manda como número de 17
+    // cifras y eso pasa del entero seguro de JavaScript: al parsearlo se redondea y queda un
+    // id que no existe. Guardamos 28135170359435772 donde Instagram decía ...773, y por eso
+    // fallaba cada llamada. No se ve en ninguna traza: el número simplemente cambia solo.
+    const igId = (meTxt.match(/"user_id"\s*:\s*"?(\d+)"?/) || [])[1] || "";
+    if (!rm.ok || !igId) {
       const detalle = me?.error?.message || `Instagram respondió ${rm.status}`;
-      console.error("IG callback, /me falló:", JSON.stringify(me).slice(0, 300));
-      return fin(false, `Instagram entregó el permiso pero no deja consultar la cuenta (${detalle}). Suele ser que a la cuenta le falta el rol de tester en la app, o que la app aún no tiene acceso avanzado aprobado.`);
+      console.error("IG callback, /me falló:", meTxt.slice(0, 300));
+      return fin(false, `Instagram entregó el permiso pero no deja consultar la cuenta (${detalle}). Suele ser que a la cuenta le falta el rol de evaluador en la app, o que la app aún no tiene acceso avanzado aprobado.`);
     }
-    const igId = String(me.user_id);
 
     await saveIG(s => {
       s.cuentas[st.cid] = {
