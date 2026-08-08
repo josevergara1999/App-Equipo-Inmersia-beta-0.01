@@ -285,9 +285,24 @@ POST https://graph.instagram.com/v23.0/<IG_ID>/messages
   `req.rawBody`: validar sobre el JSON re-serializado no calza nunca.
 - **Se contesta 200 antes de trabajar.** Meta corta a los 20 s y reintenta.
 - `respondidos` en `app_data.ig` evita responder dos veces al mismo comentario: Meta reintenta
-  la entrega, y el segundo intento sería un error porque solo se admite un mensaje.
-- Los tokens duran 60 días y se renuevan solos cuando quedan menos de 10. Si se dejaran vencer,
-  la automatización moriría en silencio.
+  la entrega, y el segundo intento sería un error porque solo se admite un mensaje. Se podan
+  los de más de 7 días, que es la ventana en la que un comentario puede volver a dispararse.
+- Los tokens duran 60 días y se renuevan solos cuando quedan menos de 10, **desde
+  `repasoDiario`**. Antes la única llamada estaba en la pantalla de elegir publicación, así que
+  la automatización se mantenía viva solo si alguien entraba ahí cada dos meses. Si aun así no
+  se puede renovar, se avisa a los admins: el vencimiento silencioso es lo caro.
+
+### Una cuenta de Instagram pertenece a UNA empresa
+
+Puede quedar enganchada a dos —basta con haberla conectado una vez con otra seleccionada— y
+entonces la búsqueda del webhook elige por orden de inserción: entrega a la primera, ve que no
+tiene reglas y lo tira **sin escribir un solo error**, con la cadena impecable en la otra. Al
+conectar se suelta de donde estuviera, y tanto los comentarios como los botones recorren todas
+las empresas que tengan esa cuenta hasta dar con la que conoce la cadena.
+
+Cuando algo de Instagram «no responde y no da error», mirar primero si el dato está duplicado
+entre empresas. Y los descartes de `igProcesarComentario` dejan traza en los logs de Render:
+buscar `IG` ahí es el primer sitio a mirar.
 - El `companyId` viaja firmado en el `state` del OAuth: sin firma, cualquiera podría completar
   el flujo apuntando a otra empresa y quedarse con la cuenta de un cliente ajeno.
 
@@ -328,8 +343,6 @@ qué punto va cada conversación obligaría a limpiar sesiones colgadas para sie
   nuestro.
 - Límites de Instagram, no nuestros: **640** caracteres de texto, **3** botones, **20**
   caracteres por botón.
-- Si la comprobación de seguidor falla, se sigue por la rama del «sí»: es preferible entregar de
-  más que dejar a alguien colgado por un fallo de red.
 - La profundidad se corta a 8 saltos: dos condiciones que se apunten entre sí colgarían el
   proceso.
 - Los comentarios llegan en `entry[].changes`; los botones pulsados, en `entry[].messaging`. Son

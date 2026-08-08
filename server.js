@@ -788,6 +788,35 @@ async function repasoDiario(forzar) {
       hecho.push("evento hoy");
     }
 
+    // 5 · Renovar los permisos de Instagram que estén por vencer.
+    //
+    // `igToken` ya sabía renovar cuando quedan menos de 10 días, pero hasta ahora la única
+    // llamada estaba en la pantalla de elegir publicación. O sea: la automatización se
+    // mantenía viva solo si alguien del equipo entraba a esa pantalla cada dos meses. Si nadie
+    // lo hacía, el permiso vencía y las cadenas dejaban de responder sin un solo aviso —justo
+    // lo que el comentario de esa función decía querer evitar—. Aquí se repasan todas las
+    // cuentas conectadas, una vez al día y sin que nadie tenga que abrir nada.
+    try {
+      const ig = await loadIG();
+      for (const [cid, antes] of Object.entries(ig.cuentas || {})) {
+        const c = await igToken(cid);
+        if (!c) continue;
+        const dias = Math.round(((c.expira || 0) - Date.now()) / 86400000);
+        if (c.expira !== antes.expira) { console.log(`IG: permiso de @${c.username || cid} renovado, ahora vence en ${dias} días`); hecho.push("token ig"); continue; }
+        // Si sigue en la recta final y el intento no lo movió, es que Meta lo rechazó. Sin este
+        // aviso el final es mudo: un día las cadenas dejan de responder y nadie sabe por qué.
+        if (dias <= 10) {
+          await crearNotif({
+            type: "contenido", title: "⚠️ El permiso de Instagram está por vencer",
+            body: `@${c.username || cid} vence en ${dias} día${dias === 1 ? "" : "s"} y no se pudo renovar solo. Hay que reconectar la cuenta o las automatizaciones dejarán de responder.`,
+            to: correosDe(TEAM.filter(u => u.role === "admin")), url: "/", important: true,
+            dedupKey: "igvence_" + cid + "_" + hoy,
+          });
+          hecho.push("aviso token ig");
+        }
+      }
+    } catch (e) { console.error("IG renovación diaria:", e.message); }
+
     await sbPut("notif_daily", hoy);
     return { ok: true, hoy, hecho };
   } catch (e) { console.error("repaso diario:", e.message); return { error: e.message }; }
@@ -2426,7 +2455,19 @@ async function igProcesarComentario(entry) {
     }
     if (pares.length > 1) console.log(`IG: la cuenta ${igId} está en ${pares.length} empresas; responde la ${companyId}`);
 
-    await saveIG(s2 => { s2.respondidos[commentId] = new Date().toISOString(); return s2; });
+    await saveIG(s2 => {
+      s2.respondidos[commentId] = new Date().toISOString();
+      // Se podan los de más de 7 días. Esa es la ventana en la que Instagram deja contestar a
+      // un comentario: pasada, el id ya no puede volver a dispararse, así que guardarlo no
+      // protege de nada. Sus dos vecinos en esta fila ya tienen tope —`contactos` 2000,
+      // `pendientes` 500— y esta se leía entera en cada webhook mientras crecía para siempre.
+      const limite = Date.now() - 7 * 24 * 3600000;
+      for (const [id, cuando] of Object.entries(s2.respondidos)) {
+        const t = Date.parse(cuando);
+        if (Number.isFinite(t) && t < limite) delete s2.respondidos[id];
+      }
+      return s2;
+    });
     try {
       // El primer paso va por respuesta privada al comentario: es el único mensaje que
       // Instagram deja mandar a alguien que no te ha escrito. De ahí en adelante manda el
