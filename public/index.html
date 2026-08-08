@@ -2410,12 +2410,32 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   const [prevPub,sPrevPub]=useState(null);
   const tRef=useRef(null);
   useEffect(()=>()=>clearTimeout(tRef.current),[]);
-  // El constructor tapa la pantalla entera. Sin esto la página de atrás sigue desplazándose
-  // por debajo al rodar la rueda sobre el lienzo.
+
+  // El constructor se queda donde está, pero se sale de los dos contenedores de 1120 px que lo
+  // estrechaban: crece hasta el borde de la ventana **solo hacia abajo y hacia la derecha**,
+  // desde su propia esquina. Así la barra de arriba y el menú de la izquierda siguen a la vista
+  // y se pueden usar sin cerrar la cadena.
+  //
+  // Se mide en vez de calcularse con números fijos: el hueco que queda a la derecha depende del
+  // ancho del menú lateral, del padding del shell y de si es móvil, y cualquier constante
+  // escrita aquí se rompería al tocar cualquiera de las tres. `clientWidth` y no `innerWidth`,
+  // que incluye la barra de desplazamiento y dejaría el lienzo asomando por la derecha.
+  const cajaRef=useRef(null);
+  const [caja,sCaja]=useState(null);
   useEffect(()=>{
-    const antes=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return()=>{document.body.style.overflow=antes;};
+    const medir=()=>{
+      const el=cajaRef.current;if(!el)return;
+      const r=el.getBoundingClientRect();
+      const d=document.documentElement;
+      const w=Math.max(320,d.clientWidth-r.left-16), h=Math.max(480,d.clientHeight-r.top-16);
+      // Si la medida no cambió de verdad se devuelve el MISMO objeto para que React no
+      // vuelva a pintar. Sin esto hay bucle: al ensancharse aparece o desaparece la barra de
+      // desplazamiento, eso cambia `clientWidth`, se vuelve a medir, y así sin parar.
+      sCaja(a=>(a&&Math.abs(a.w-w)<=2&&Math.abs(a.h-h)<=2)?a:{w,h});
+    };
+    medir();
+    window.addEventListener("resize",medir);
+    return()=>window.removeEventListener("resize",medir);
   },[]);
 
   const pasos=flujo.pasos||[];
@@ -2519,16 +2539,10 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
 
   const etiqueta=(txt,extra)=>(<label style={{fontSize:12.5,fontWeight:600,color:"#C9CFDC",...extra}}>{txt}</label>);
 
-  // A pantalla completa, y montado en el <body> con Portal.
-  //
-  // El shell mete cada página en un contenedor de 1120 px y Contenido añade otro cap igual,
-  // así que aquí dentro quedaban ~1050 px: descontando la paleta y el panel de edición, el
-  // lienzo se quedaba con medio ancho útil y no cabía la cadena. Un lienzo de nodos necesita
-  // el monitor entero, y esos dos `maxWidth` no se pueden quitar sin descuadrar el resto de
-  // la app. Portal es la salida que ya usan los modales y la barra del celular.
-  return(<Portal><div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",flexDirection:"column",overflow:"hidden",
+  return(<div ref={cajaRef} style={{width:caja?caja.w:"100%",height:caja?caja.h:"calc(100vh - 150px)",minHeight:480,
+    display:"flex",flexDirection:"column",overflow:"hidden",
     fontFamily:"'Instrument Sans', system-ui, sans-serif",color:"#F4F2ED",background:"#05060B",boxSizing:"border-box",
-    paddingTop:"env(safe-area-inset-top, 0px)",paddingBottom:"env(safe-area-inset-bottom, 0px)"}}>
+    borderRadius:16,border:"1px solid #161B2A"}}>
 
     {/* ── Barra superior ── */}
     <header style={{display:"flex",alignItems:"center",gap:14,padding:"12px 22px",background:"rgba(5, 6, 11, 0.94)",borderBottom:"1px solid #161B2A",flexShrink:0,zIndex:10}}>
@@ -2891,7 +2905,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
         </div>
       </Portal>);
     })()}
-  </div></Portal>);
+  </div>);
 }
 
 function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners}){
@@ -2957,6 +2971,25 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       if(d&&d.error)addN("❌ "+d.error);
       else{sReglas(d.reglas||[]);addN("✅ Automatización guardada");}
     }finally{sGuardando(false);}
+  };
+  // Borrar una cadena se guarda en el acto, no espera a "Guardar cambios": una automatización
+  // que parece eliminada y reaparece al recargar es peor que un clic de más. Si el servidor
+  // rechaza el guardado se devuelve la lista como estaba, para no dejar en pantalla una cadena
+  // borrada que en realidad sigue viva y respondiendo comentarios.
+  const borrarRegla=async i=>{
+    const r=reglas[i];
+    const cual=r.nombre||(r.palabra?("la cadena de “"+r.palabra+"”"):"esta cadena sin nombre");
+    if(!confirm("¿Eliminar "+cual+"?\n\nDeja de responder a los comentarios en cuanto se guarde. No se puede deshacer."))return;
+    const antes=reglas;
+    const nuevas=reglas.filter((_,j)=>j!==i);
+    sReglas(nuevas);
+    sGuardando(true);
+    try{
+      const d=await API.igReglas(selCo,nuevas);
+      if(d&&d.error){sReglas(antes);addN("❌ "+d.error);}
+      else{sReglas(d.reglas||[]);addN("🗑 Cadena eliminada");}
+    }catch(e){sReglas(antes);addN("❌ No se pudo eliminar");}
+    finally{sGuardando(false);}
   };
   const nid=()=>Math.random().toString(36).slice(2,8);
   const pasoVacio=tipo=>tipo==="condicion"
@@ -3605,19 +3638,29 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             {reglas.map((r,i)=>{
               const nPasos=(r.pasos||[]).length;
               const pub=(pubs||[]).find(p=>p.id===r.mediaId);
-              return(<button key={r.id} onClick={()=>sAbierta(i)}
-                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2,cursor:"pointer",fontFamily:"inherit",textAlign:"left",width:"100%"}}>
-                <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.activa!==false?"#6FE7F2":D.tx5,boxShadow:r.activa!==false?"0 0 8px #6FE7F2":"none"}}/>
-                <span style={{display:"flex",flexDirection:"column",gap:3,minWidth:0,flex:1}}>
-                  <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{r.nombre||(r.palabra?("Cadena de “"+r.palabra+"”"):"Cadena sin nombre")}</span>
-                  <span style={{fontSize:11.5,color:D.tx4}}>
-                    {r.palabra?("Comentan “"+r.palabra+"”"):"Sin palabra"} · {pub?"una publicación":"todas las publicaciones"} · {nPasos} bloque{nPasos===1?"":"s"}
+              // La fila deja de ser un solo <button>: la papelera es otro botón y uno no puede
+              // ir dentro del otro. El contenedor es un <div> y cada acción tiene el suyo.
+              return(<div key={r.id} style={{display:"flex",alignItems:"stretch",gap:8}}>
+                <button onClick={()=>sAbierta(i)}
+                  style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.activa!==false?"#6FE7F2":D.tx5,boxShadow:r.activa!==false?"0 0 8px #6FE7F2":"none"}}/>
+                  <span style={{display:"flex",flexDirection:"column",gap:3,minWidth:0,flex:1}}>
+                    <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{r.nombre||(r.palabra?("Cadena de “"+r.palabra+"”"):"Cadena sin nombre")}</span>
+                    <span style={{fontSize:11.5,color:D.tx4}}>
+                      {r.palabra?("Comentan “"+r.palabra+"”"):"Sin palabra"} · {pub?"una publicación":"todas las publicaciones"} · {nPasos} bloque{nPasos===1?"":"s"}
+                    </span>
                   </span>
-                </span>
-                {pub&&pub.img&&<img src={pub.img} alt="" onError={e=>{e.target.style.display="none";}} style={{width:38,height:38,borderRadius:9,objectFit:"cover",flexShrink:0}}/>}
-                <span style={{flexShrink:0,fontSize:11.5,color:r.activa!==false?"#6FE7F2":D.tx5,fontWeight:600}}>{r.activa!==false?"Activa":"Pausada"}</span>
-                <span style={{flexShrink:0,color:D.tx4,fontSize:15}}>›</span>
-              </button>);})}
+                  {pub&&pub.img&&<img src={pub.img} alt="" onError={e=>{e.target.style.display="none";}} style={{width:38,height:38,borderRadius:9,objectFit:"cover",flexShrink:0}}/>}
+                  <span style={{flexShrink:0,fontSize:11.5,color:r.activa!==false?"#6FE7F2":D.tx5,fontWeight:600}}>{r.activa!==false?"Activa":"Pausada"}</span>
+                  <span style={{flexShrink:0,color:D.tx4,fontSize:15}}>›</span>
+                </button>
+                <button onClick={()=>borrarRegla(i)} disabled={guardando} title="Eliminar esta cadena"
+                  style={{flexShrink:0,width:46,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:14,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,cursor:guardando?"default":"pointer",fontFamily:"inherit"}}
+                  onMouseEnter={e=>{if(guardando)return;e.currentTarget.style.borderColor="rgba(255,107,107,.45)";e.currentTarget.style.color="#FF8B8B";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=D.line2;e.currentTarget.style.color=D.tx4;}}>
+                  <Ic n="trash" s={15}/>
+                </button>
+              </div>);})}
             <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
               <Bt v="s" onClick={()=>{nuevaRegla();sAbierta(reglas.length);}} icon="plus">Nueva cadena</Bt>
               <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
