@@ -1891,7 +1891,11 @@ app.get("/api/social/post/:id", requireAuth, async (req, res) => {
 //
 // Acceso: con Standard Access basta para cuentas propias (Valle Aventura). Para cuentas de
 // clientes hace falta Advanced Access, que exige App Review y verificación de negocio.
-const IG_API = "https://graph.instagram.com/v23.0";
+// v25.0 y el token SIEMPRE como parámetro de consulta. Con `Authorization: Bearer` —que es lo
+// habitual en el resto de APIs de Meta— graph.instagram.com contesta "Unsupported request -
+// method type: get", un error que no menciona la autenticación por ninguna parte y manda a
+// buscar el fallo en los permisos, que es donde no está.
+const IG_API = "https://graph.instagram.com/v25.0";
 const igAppId = () => (process.env.IG_APP_ID || "").trim();
 const igAppSecret = () => (process.env.IG_APP_SECRET || "").trim();
 const igVerifyToken = () => (process.env.IG_WEBHOOK_VERIFY_TOKEN || "").trim();
@@ -2021,9 +2025,7 @@ app.get("/api/ig/callback", async (req, res) => {
     // un token inerte —lo que pasa cuando la cuenta no tiene el rol de tester y la app aún no
     // está aprobada—. El portal decía "conectado" y no funcionaba nada: peor que fallar.
     // La ruta documentada de Instagram Login es sin versión.
-    const rm = await fetch(`https://graph.instagram.com/me?fields=user_id,username`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const rm = await fetch(`${IG_API}/me?fields=user_id,username&access_token=${encodeURIComponent(token)}`);
     const meTxt = await rm.text();
     let me = {}; try { me = JSON.parse(meTxt); } catch { /* se maneja abajo */ }
     // El id se saca del TEXTO, no del JSON ya convertido. Meta lo manda como número de 17
@@ -2051,9 +2053,7 @@ app.get("/api/ig/callback", async (req, res) => {
     // que activarse aparte. Sin esto el OAuth funciona, la publicación funciona, y los
     // comentarios sencillamente no llegan nunca — un fallo mudo y muy caro de diagnosticar.
     try {
-      const rs = await fetch(`${IG_API}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=comments`, {
-        method: "POST", headers: { Authorization: `Bearer ${token}` },
-      });
+      const rs = await fetch(`${IG_API}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=comments&access_token=${encodeURIComponent(token)}`, { method: "POST" });
       const sd = await rs.json().catch(() => ({}));
       console.log(`IG: suscripción de @${me?.username || igId} a comments -> ${rs.status} ${JSON.stringify(sd)}`);
     } catch (e) { console.error("IG subscribed_apps:", e.message); }
@@ -2094,9 +2094,9 @@ app.get("/api/ig/webhook", (req, res) => {
 const igNorm = t => String(t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
 async function igResponderPrivado(cuenta, commentId, texto) {
-  const r = await fetch(`${IG_API}/${encodeURIComponent(cuenta.igId)}/messages`, {
+  const r = await fetch(`${IG_API}/${encodeURIComponent(cuenta.igId)}/messages?access_token=${encodeURIComponent(cuenta.token)}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${cuenta.token}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ recipient: { comment_id: commentId }, message: { text: texto } }),
   });
   const d = await r.json().catch(() => ({}));
