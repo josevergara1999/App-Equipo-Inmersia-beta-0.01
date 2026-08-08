@@ -6,13 +6,23 @@ const CACHE = "inmersia-v5";
 // de CDN, otro origen, y los cachea el navegador por su cuenta con su propio max-age largo.
 const SHELL = ['/index.html', '/manifest.json', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
-// Una navegación a cualquier ruta devuelve el mismo index.html —la app es una SPA y el
-// servidor tiene un `app.get("*")` al final—, así que todas comparten una sola entrada.
+// Casi toda navegación acaba en el mismo index.html —la app es una SPA y el servidor tiene un
+// `app.get("*")` al final—, así que todas comparten una sola entrada en la caché.
+//
+// Pero NO todas: antes de ese comodín, el servidor sirve `/guion` con su propio HTML y
+// `express.static` entrega cualquier archivo suelto de public/. Si se tratan como el esqueleto
+// de la app, el service worker devuelve index.html en su lugar y esas páginas desaparecen sin
+// aviso. Se detectan por lo que son: una lista corta de rutas propias, más cualquier ruta que
+// termine en extensión.
+const NO_ES_APP = ['/guion'];
+const esNavegacionApp = (req, url) =>
+  req.mode === 'navigate' && !NO_ES_APP.includes(url.pathname) && !/\.[a-z0-9]+$/i.test(url.pathname);
+
 // Los iconos se piden con `?v=2`; guardar por pathname ignora la query y evita duplicados.
 const claveDe = (req, url) =>
-  (req.mode === 'navigate' || url.pathname === '/') ? '/index.html' : url.pathname;
+  (esNavegacionApp(req, url) || url.pathname === '/') ? '/index.html' : url.pathname;
 
-const esShell = (req, url) => req.mode === 'navigate' || url.pathname === '/' || SHELL.includes(url.pathname);
+const esShell = (req, url) => esNavegacionApp(req, url) || url.pathname === '/' || SHELL.includes(url.pathname);
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL).catch(() => {})));
