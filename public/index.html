@@ -2445,21 +2445,32 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   // Al añadir, el bloque cuelga del seleccionado —o del último— y se coloca debajo, saltando
   // lo que ya ocupe esa columna. Y se conecta solo: un bloque suelto no sirve de nada.
   const addNodo=tipo=>{
-    const desde=porId[sel]||nodos[nodos.length-1];
+    // De dónde cuelga. Si lo seleccionado es el disparador y la cadena ya tiene entrada, se
+    // cuelga del último bloque: enganchar al disparador pisaría el inicio, y dejarlo suelto
+    // —que es lo que hacía antes— es peor, porque el bloque aparece sin hilo y sin explicación.
+    let desde=porId[sel]||nodos[nodos.length-1];
+    if(desde.id===TRIG&&inicio&&pasos.length)desde=pasos[pasos.length-1];
+
     const debajo=nodos.filter(n=>Math.abs(n.x-desde.x)<CC_W&&n.y>desde.y);
     const y=debajo.length?Math.max(...debajo.map(n=>n.y))+180:desde.y+180;
-    const nuevo={id:ccId(),tipo,titulo:CC_TIPOS[tipo].nombre+" nuevo",texto:"",botones:[],siSi:"",siNo:"",siguiente:"",minutos:60,x:desde.x,y};
-    const conectar=lista=>{
-      if(desde.id===TRIG){if(!inicio)return lista;return lista;}
-      return lista.map(p=>{
-        if(p.id!==desde.id)return p;
-        if(p.tipo==="mensaje")return (p.botones||[]).length?p:{...p,botones:[{id:ccId(),titulo:"Continuar",siguiente:nuevo.id}]};
-        if(p.tipo==="condicion")return p.siSi?p:{...p,siSi:nuevo.id};
-        return p.siguiente?p:{...p,siguiente:nuevo.id};
-      });
-    };
-    const listos=[...conectar(pasos),nuevo];
-    onChange({...flujo,pasos:listos,...((desde.id===TRIG&&!inicio)||!pasos.length?{inicio:nuevo.id}:{})});
+    const nuevo={id:ccId(),tipo,titulo:CC_TIPOS[tipo].nombre+" nuevo",texto:"",botones:[],siSi:"",siNo:"",siguiente:"",minutos:60,que:"sigue",esperaMin:0,minSeguidores:0,x:desde.x,y};
+
+    // Se engancha al primer hueco libre del bloque de origen. Si ya los tiene todos ocupados
+    // se deja suelto a propósito: pisar una conexión existente sería peor.
+    const conectar=lista=>lista.map(p=>{
+      if(p.id!==desde.id)return p;
+      if(p.tipo==="mensaje"){
+        const bs=p.botones||[];
+        const libre=bs.findIndex(b=>!b.siguiente);
+        if(libre>=0)return {...p,botones:bs.map((b,i)=>i===libre?{...b,siguiente:nuevo.id}:b)};
+        return bs.length>=3?p:{...p,botones:[...bs,{id:ccId(),titulo:bs.length?"Otra opción":"Continuar",siguiente:nuevo.id}]};
+      }
+      if(p.tipo==="condicion")return !p.siSi?{...p,siSi:nuevo.id}:(!p.siNo?{...p,siNo:nuevo.id}:p);
+      return p.siguiente?p:{...p,siguiente:nuevo.id};
+    });
+
+    const arrancaLaCadena=desde.id===TRIG||!pasos.length||!inicio;
+    onChange({...flujo,pasos:[...(arrancaLaCadena?pasos:conectar(pasos)),nuevo],...(arrancaLaCadena?{inicio:nuevo.id}:{})});
     sSel(nuevo.id);
   };
 
@@ -2564,13 +2575,26 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                 <circle cx={x2} cy={y2} r="3" fill={CC_TIPOS[b.tipo].col}/>
               </g>);})}
           </svg>
-          {aristas.filter(e=>e.label).map((e,i)=>{
-            const a=porId[e.from],b=porId[e.to];
-            const si=e.label==="Sí",no=e.label==="No";
-            return(<span key={"c"+i} style={{position:"absolute",left:((a.x+CC_W/2)+(b.x+CC_W/2))/2,top:((a.y+CC_H)+b.y)/2,
-              transform:"translate(-50%, -50%)",padding:"3px 10px",borderRadius:999,background:"#0B0E17",
-              border:"1px solid "+(si?"rgba(127, 232, 192, 0.4)":no?"rgba(255, 107, 107, 0.4)":"rgba(155, 180, 255, 0.4)"),
-              color:si?"#7FE8C0":no?"#FF8B8B":"#9BB4FF",fontSize:11,fontWeight:700,pointerEvents:"none",whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{e.label}</span>);})}
+          {/* Las etiquetas caen en el punto medio de su curva, y dos ramas hacia bloques
+              cercanos acaban en el mismo sitio: se leía "ya Sí no" encima de sí mismo. Se
+              colocan una a una y, si una choca con otra ya puesta, baja hasta dejar de chocar. */}
+          {(()=>{
+            const puestas=[];
+            return aristas.filter(e=>e.label).map((e,i)=>{
+              const a=porId[e.from],b=porId[e.to];
+              let lx=((a.x+CC_W/2)+(b.x+CC_W/2))/2, ly=((a.y+CC_H)+b.y)/2;
+              for(let intento=0;intento<6;intento++){
+                if(!puestas.some(p=>Math.abs(p.lx-lx)<96&&Math.abs(p.ly-ly)<26))break;
+                ly+=27;
+              }
+              puestas.push({lx,ly});
+              const si=e.label==="Sí",no=e.label==="No";
+              return(<span key={"c"+i} style={{position:"absolute",left:lx,top:ly,
+                transform:"translate(-50%, -50%)",padding:"3px 10px",borderRadius:999,background:"#0B0E17",
+                border:"1px solid "+(si?"rgba(127, 232, 192, 0.4)":no?"rgba(255, 107, 107, 0.4)":"rgba(155, 180, 255, 0.4)"),
+                color:si?"#7FE8C0":no?"#FF8B8B":"#9BB4FF",fontSize:11,fontWeight:700,pointerEvents:"none",whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{e.label}</span>);
+            });
+          })()}
           {nodos.map(n=>{
             const t=CC_TIPOS[n.tipo];
             const isSel=n.id===sel;
@@ -2597,6 +2621,11 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
               <div style={{fontSize:11.5,color:"#6B7484",lineHeight:1.45,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{detalle||"Sin contenido — edítalo en el panel"}</div>
               <span style={{position:"absolute",bottom:-5,left:108,width:8,height:8,borderRadius:"50%",background:"#0B0E17",border:"1.5px solid "+t.col}}/>
               {conEntrada.has(n.id)&&<span style={{position:"absolute",top:-5,left:108,width:8,height:8,borderRadius:"50%",background:t.col}}/>}
+              {/* Un bloque sin hilo de entrada no se ejecuta nunca. Antes quedaba ahí flotando
+                  sin más, y la pregunta obvia era si estaba bien o no. */}
+              {n.id!==TRIG&&!conEntrada.has(n.id)&&
+                <span title="Nada lleva a este bloque, así que no se ejecutará"
+                  style={{position:"absolute",top:-11,right:10,padding:"2px 9px",borderRadius:999,background:"#0B0E17",border:"1px dashed rgba(239, 217, 160, 0.5)",color:"#EFD9A0",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>sin conectar</span>}
             </div>);})}
         </div>
         <span style={{position:"absolute",bottom:14,left:16,fontSize:11,color:"#4A5265",pointerEvents:"none"}}>Arrastra los bloques para ordenarlos · arrastra el fondo para moverte</span>
