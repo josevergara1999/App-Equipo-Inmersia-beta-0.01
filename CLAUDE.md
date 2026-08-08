@@ -308,9 +308,19 @@ siempre con un botón: no es adorno.
 botón (`f:<flujo>:<paso>`), así que al pulsarlo el mensaje ya trae escrito adónde ir. Guardar en
 qué punto va cada conversación obligaría a limpiar sesiones colgadas para siempre.
 
-- Tipos de paso: `mensaje` (texto + hasta 3 botones), `condicion` (¿la persona sigue la cuenta?,
-  vía `is_user_follow_business`), `retraso` y `accion` (aviso interno al equipo, no sale nada a
-  Instagram).
+- Tipos de paso: `mensaje` (texto + hasta 3 botones), `condicion`, `retraso` y `accion` (aviso
+  interno al equipo, no sale nada a Instagram).
+- **Condiciones**: `sigue`, `respondio`, `seguidores` (≥ N) y `verificado`. Ninguna es
+  inventada: las tres primeras y la cuarta salen de campos reales del perfil
+  (`is_user_follow_business`, `follower_count`, `is_verified_user`) salvo `respondio`, que se
+  resuelve con `app_data.ig.contactos` comparando la fecha del último mensaje suyo contra la del
+  nuestro — responder es escribir DESPUÉS de que le escribiéramos.
+- **Una condición puede esperar antes de evaluarse** (`esperaMin`). Es lo que convierte
+  «¿respondió?» en «¿no respondió en 3 horas?»: se agenda a sí misma en `pendientes` y al
+  volver ya no espera (`sinEspera`), o se reprogramaría para siempre.
+- **Si la comprobación falla, se va por la rama del «no».** Estas condiciones existen para
+  condicionar algo a un requisito; dar por bueno un «sí» sin verificar lo regalaría ante
+  cualquier fallo de red.
 - **El retraso no usa `setTimeout`.** Render duerme el proceso y el plan gratuito se reinicia,
   así que la espera se guarda en `app_data.ig.pendientes` y la retoma `repasoCorto` cada 10 min.
   La granularidad real es de 10 minutos, no de segundos. Y si la espera pasa de las 24 h desde

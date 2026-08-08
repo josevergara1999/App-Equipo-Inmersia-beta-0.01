@@ -2372,6 +2372,18 @@ const CC_TIPOS={
     desc:"Etiqueta, notifica o deriva",detLabel:"Qué hace esta acción",ph:'Ej: etiquetar como "interesado" y avisar al equipo…',
     hint:"Acciones internas: etiquetas, avisos al equipo, mover a otra cadena."},
 };
+// Solo lo que Meta deja comprobar de verdad. No hay condiciones inventadas: cada una sale de
+// un campo real de la API, o de algo que el propio servidor registró.
+const CC_CONDICIONES={
+  sigue:{pregunta:"¿Sigue la cuenta?",si:"Sí me sigue",no:"No me sigue",
+    hint:"Se pregunta a Instagram en el momento; el botón no basta, se verifica de verdad."},
+  respondio:{pregunta:"¿Respondió al mensaje?",si:"Sí respondió",no:"No respondió",
+    hint:"Cuenta como respuesta cualquier mensaje suyo posterior al nuestro. Combínalo con una espera para el clásico «no respondió en X horas»."},
+  seguidores:{pregunta:"¿Tiene X seguidores o más?",si:"Sí los tiene",no:"Tiene menos",
+    hint:"Útil para tratar distinto a cuentas grandes: derivarlas al equipo en vez de responder en automático."},
+  verificado:{pregunta:"¿Es una cuenta verificada?",si:"Sí, verificada",no:"No verificada",
+    hint:"La insignia azul de Instagram."},
+};
 const ccId=()=>Math.random().toString(36).slice(2,8);
 // El retraso se guarda en minutos, pero nadie piensa en minutos cuando quiere "2 días".
 const CC_UNIDADES=[["minutos",1],["horas",60],["días",1440]];
@@ -2565,7 +2577,9 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
             const puedeBorrar=n.id!==TRIG;
             const detalle=n.tipo==="disparador"?n.detalle
               :n.tipo==="retraso"?((()=>{const[v,u]=ccDescomponer(n.minutos);return "Espera "+v+" "+(CC_UNIDADES.find(x=>x[1]===u)||["minutos"])[0]+".";})())
-              :n.tipo==="condicion"?"Se comprueba si la persona sigue la cuenta."
+              :n.tipo==="condicion"?((CC_CONDICIONES[n.que||"sigue"]||CC_CONDICIONES.sigue).pregunta
+                  +(n.que==="seguidores"?" ("+(n.minSeguidores||0)+")":"")
+                  +(n.esperaMin?(()=>{const[v,u]=ccDescomponer(n.esperaMin);return " · tras "+v+" "+(CC_UNIDADES.find(x=>x[1]===u)||["min"])[0];})():""))
               :(n.texto||"");
             return(<div key={n.id}
               onMouseDown={e=>{e.stopPropagation();sDrag({id:n.id,sx:e.clientX,sy:e.clientY,px:n.x,py:n.y});sSel(n.id);}}
@@ -2671,21 +2685,51 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
         </>}
 
         {/* Condición: las dos ramas. */}
-        {nSel.tipo==="condicion"&&<>
+        {nSel.tipo==="condicion"&&(()=>{const que=nSel.que||"sigue";const C=CC_CONDICIONES[que];return(<>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta(tSel.detLabel)}
-            <div style={{padding:"11px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",fontSize:13,color:"#C9CFDC",lineHeight:1.5}}>¿La persona sigue la cuenta?</div>
-            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>Es la única condición que Instagram deja comprobar hoy, y la da hecha.</span>
+            <select value={que} onChange={e=>editPaso(nSel.id,"que",e.target.value)}
+              style={{padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13,outline:"none",width:"100%",boxSizing:"border-box"}}>
+              {Object.entries(CC_CONDICIONES).map(([k,c])=><option key={k} value={k}>{c.pregunta}</option>)}
+            </select>
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>{C.hint}</span>
           </div>
+
+          {que==="seguidores"&&<div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta("A partir de cuántos seguidores")}
+            <input type="number" min="0" value={nSel.minSeguidores||0} onChange={e=>editPaso(nSel.id,"minSeguidores",Math.max(0,Number(e.target.value)||0))}
+              style={{padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+          </div>}
+
+          {/* La espera es lo que convierte "¿respondió?" en "¿no respondió en 3 horas?". */}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {etiqueta("Si me sigue",{color:"#7FE8C0"})}
+            {etiqueta("Esperar antes de comprobar")}
+            {(()=>{const[v,u]=nSel.esperaMin?ccDescomponer(nSel.esperaMin):[0,60];return(
+              <div style={{display:"flex",gap:8}}>
+                <input type="number" min="0" value={nSel.esperaMin?v:0} onChange={e=>editPaso(nSel.id,"esperaMin",Math.max(0,Number(e.target.value)||0)*u)}
+                  style={{width:88,padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box"}}/>
+                <select value={u} onChange={e=>editPaso(nSel.id,"esperaMin",(nSel.esperaMin?v:0)*Number(e.target.value))}
+                  style={{flex:1,padding:"10px 13px",borderRadius:11,background:"#0B0E17",border:"1px solid #262D40",color:"#F4F2ED",fontFamily:"inherit",fontSize:13,outline:"none",boxSizing:"border-box"}}>
+                  {CC_UNIDADES.map(([n,m])=><option key={m} value={m}>{n}</option>)}
+                </select>
+              </div>);})()}
+            <span style={{fontSize:11.5,color:"#6B7484",lineHeight:1.5}}>
+              {nSel.esperaMin?"Se comprobará pasado ese tiempo, no al momento.":"Cero = se comprueba al instante."}
+            </span>
+          </div>
+          {!!nSel.esperaMin&&que==="respondio"&&
+            <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(239, 217, 160, 0.06)",border:"1px solid rgba(239, 217, 160, 0.28)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+              Si la espera pasa de <b>24 h</b> desde la última acción de la persona, el mensaje de la rama que toque no se podrá enviar. Es la ventana de Instagram.
+            </div>}
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {etiqueta(C.si,{color:"#7FE8C0"})}
             {selDestino(nSel.siSi,v=>editPaso(nSel.id,"siSi",v),"— terminar la cadena —",nSel.id)}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {etiqueta("Si no me sigue",{color:"#FF8B8B"})}
+            {etiqueta(C.no,{color:"#FF8B8B"})}
             {selDestino(nSel.siNo,v=>editPaso(nSel.id,"siNo",v),"— terminar la cadena —",nSel.id)}
           </div>
-        </>}
+        </>);})()}
 
         {/* Retraso: cantidad, unidad y salida. */}
         {nSel.tipo==="retraso"&&(()=>{const[v,u]=ccDescomponer(nSel.minutos);return(<>

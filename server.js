@@ -2119,6 +2119,10 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
       })).filter(b => b.titulo),
       siSi: String(p.siSi || "").trim(),
       siNo: String(p.siNo || "").trim(),
+      // Qué comprueba una condición, y sus parámetros.
+      que: ["sigue", "respondio", "seguidores", "verificado"].includes(p.que) ? p.que : "sigue",
+      esperaMin: Math.max(0, Math.min(43200, Number(p.esperaMin) || 0)),
+      minSeguidores: Math.max(0, Math.min(100000000, Number(p.minSeguidores) || 0)),
       // La posición en el lienzo es del constructor, pero se guarda con el paso: si no, cada
       // vez que se abriera la cadena los bloques saltarían a otro sitio y no se reconocería.
       x: Number.isFinite(+p.x) ? Math.round(+p.x) : 0,
@@ -2177,12 +2181,47 @@ async function igEnviar(cuenta, destinatario, mensaje) {
   return d;
 }
 
-// ¿La persona sigue a la cuenta? Es la condición que pide todo el mundo y Meta la da hecha.
-async function igSigue(cuenta, igsid) {
-  const r = await fetch(`${IG_API}/${encodeURIComponent(igsid)}?fields=is_user_follow_business&access_token=${encodeURIComponent(cuenta.token)}`);
+// Todo lo que Meta deja saber de quien escribe. Se pide de una vez: son los mismos permisos
+// y una sola llamada sirve para cualquiera de las condiciones.
+async function igPerfil(cuenta, igsid) {
+  const campos = "username,follower_count,is_verified_user,is_user_follow_business,is_business_follow_user";
+  const r = await fetch(`${IG_API}/${encodeURIComponent(igsid)}?fields=${campos}&access_token=${encodeURIComponent(cuenta.token)}`);
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d?.error?.message || `Meta respondió ${r.status}`);
-  return !!d.is_user_follow_business;
+  return d;
+}
+
+// Cuándo escribió por última vez cada persona, y cuándo le escribimos nosotros. Con esas dos
+// fechas se resuelve "¿respondió?" sin preguntarle nada a Instagram.
+const igContacto = (s, igsid) => (s.contactos || {})[String(igsid)] || {};
+const igMarcar = (igsid, campo) => saveIG(s => {
+  s.contactos = s.contactos || {};
+  const c = s.contactos[String(igsid)] || {};
+  s.contactos[String(igsid)] = { ...c, [campo]: Date.now() };
+  // Se conservan los 2000 contactos más recientes: sin tope, esta clave crecería sin fin.
+  const ids = Object.keys(s.contactos);
+  if (ids.length > 2000) {
+    const vivos = ids.sort((a, b) => (s.contactos[b].respondio || s.contactos[b].enviado || 0) - (s.contactos[a].respondio || s.contactos[a].enviado || 0)).slice(0, 2000);
+    const nuevo = {}; for (const id of vivos) nuevo[id] = s.contactos[id];
+    s.contactos = nuevo;
+  }
+  return s;
+});
+
+// Evalúa la condición del paso. Devuelve true/false, o lanza si no se puede comprobar.
+async function igEvaluar(cuenta, paso, igsid) {
+  const que = paso.que || "sigue";
+  if (que === "respondio") {
+    const s = await loadIG();
+    const c = igContacto(s, igsid);
+    // Responder es haber escrito DESPUÉS de nuestro último mensaje. Comparar contra "hace
+    // X horas" a secas daría por respondido a quien escribió antes de que le escribiéramos.
+    return !!(c.respondio && c.enviado && c.respondio > c.enviado);
+  }
+  const p = await igPerfil(cuenta, igsid);
+  if (que === "seguidores") return Number(p.follower_count || 0) >= Math.max(0, Number(paso.minSeguidores) || 0);
+  if (que === "verificado") return !!p.is_verified_user;
+  return !!p.is_user_follow_business;
 }
 
 // Las reglas viejas tenían un solo `mensaje`. Se leen como una cadena de un paso para no
@@ -2194,21 +2233,34 @@ function igPasosDe(flujo) {
 
 // Ejecuta un paso y, si es una condición, salta al que corresponda. La profundidad frena los
 // bucles: dos condiciones que se apunten entre sí colgarían el proceso para siempre.
-async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, igsid, prof = 0) {
+async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, igsid, prof = 0, opts = {}) {
   if (prof > 8) { console.error("IG: cadena demasiado profunda, se corta"); return; }
   const pasos = igPasosDe(flujo);
   const paso = pasos.find(p => String(p.id) === String(pasoId)) || pasos[0];
   if (!paso) return;
 
   if (paso.tipo === "condicion") {
+    // "No respondió en 3 horas" es una condición que hay que evaluar MÁS TARDE, no ahora.
+    // La condición se agenda a sí misma y al volver ya no espera (`sinEspera`), o se quedaría
+    // reprogramándose para siempre.
+    const espera = Math.max(0, Number(paso.esperaMin) || 0);
+    if (espera > 0 && !opts.sinEspera) {
+      await saveIG(s => {
+        s.pendientes = [...(s.pendientes || []), {
+          cuando: Date.now() + espera * 60000, companyId: String(companyId),
+          flujoId: String(flujo.id), pasoId: String(paso.id), igsid: String(igsid), sinEspera: true,
+        }].slice(-500);
+        return s;
+      });
+      return;
+    }
     let cumple = false;
-    try { cumple = await igSigue(cuenta, igsid); }
+    try { cumple = await igEvaluar(cuenta, paso, igsid); }
     catch (e) {
-      // Si no se puede comprobar, se va por la rama del "no". La condición se usa para
-      // condicionar un beneficio a que te sigan: dar por bueno un "sí" que no se pudo
-      // verificar regalaría ese beneficio ante cualquier fallo de red. La rama del "no"
-      // normalmente dice "aún no te veo siguiéndome, toca de nuevo", así que la persona
-      // tampoco queda colgada: puede reintentar.
+      // Si no se puede comprobar, se va por la rama del "no". Estas condiciones existen para
+      // condicionar algo —un beneficio, un descuento— a un requisito: dar por bueno un "sí"
+      // que no se pudo verificar lo regalaría ante cualquier fallo de red. La rama del "no"
+      // normalmente ofrece reintentar, así que la persona tampoco queda colgada.
       console.error("IG condición:", e.message); cumple = false;
     }
     const sig = cumple ? paso.siSi : paso.siNo;
@@ -2257,6 +2309,8 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
     ? { attachment: { type: "template", payload: { template_type: "button", text: texto, buttons: botones } } }
     : { text: texto };
   await igEnviar(cuenta, destinatario, mensaje);
+  // Se anota para poder resolver después "¿respondió?": responder es escribir DESPUÉS de esto.
+  await igMarcar(igsid, "enviado");
 }
 
 async function igProcesarComentario(entry) {
@@ -2308,16 +2362,20 @@ async function igProcesarComentario(entry) {
 // Alguien pulsó un botón. El paso al que hay que ir viene escrito en el propio payload, así
 // que no hace falta recordar en qué punto de la cadena estaba esta persona.
 async function igProcesarPostback(entry, m) {
-  const payload = m?.postback?.payload || m?.message?.quick_reply?.payload;
-  if (!payload) return;
-  const ref = igLeerPayload(payload);
-  if (!ref) return;
-
   const igId = String(entry?.id || m?.recipient?.id || "");
   const igsid = String(m?.sender?.id || "");
   if (!igsid) return;
   // El eco de nuestros propios mensajes también llega aquí; ignorarlo evita responderse solo.
-  if (igsid === igId) return;
+  if (igsid === igId || m?.message?.is_echo) return;
+
+  // Cualquier mensaje entrante cuenta como respuesta, lleve botón o no. Es lo que resuelve
+  // la condición "¿respondió?" sin tener que preguntarle nada a Instagram.
+  if (m?.message) await igMarcar(igsid, "respondio");
+
+  const payload = m?.postback?.payload || m?.message?.quick_reply?.payload;
+  if (!payload) return;
+  const ref = igLeerPayload(payload);
+  if (!ref) return;
 
   const s = await loadIG();
   const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === igId);
@@ -2351,7 +2409,7 @@ async function igProcesarPendientes() {
     const flujo = (s.reglas[p.companyId] || []).find(f => String(f.id) === String(p.flujoId));
     if (!cuenta || !flujo || flujo.activa === false) continue;
     try {
-      await igEjecutarPaso(p.companyId, cuenta, flujo, p.pasoId, { id: p.igsid }, p.igsid);
+      await igEjecutarPaso(p.companyId, cuenta, flujo, p.pasoId, { id: p.igsid }, p.igsid, 0, { sinEspera: !!p.sinEspera });
       console.log(`IG: espera cumplida, paso ${p.pasoId} enviado a ${p.igsid}`);
     } catch (e) {
       // Lo normal aquí es "outside of allowed window": la ventana de 24 h se cerró durante la
