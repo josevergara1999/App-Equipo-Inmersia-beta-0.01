@@ -1021,6 +1021,21 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
   const addN=(msg,targetUser)=>sNo(p=>[{id:Date.now(),msg,for:targetUser||null},...p].slice(0,30));
 
+  // Limpieza de contenido de prueba — solo admin, escondida en el menú "Más" → "Mantención".
+  // El servidor respalda antes de borrar y solo acepta a un admin (doble candado).
+  const [limpiarUI,sLimpiarUI]=useState(false);
+  const [limpiarTxt,sLimpiarTxt]=useState("");
+  const [limpiando,sLimpiando]=useState(false);
+  const hacerLimpieza=async()=>{
+    sLimpiando(true);
+    try{
+      const d=await API.limpiarContenido();
+      const tot=Object.values(d.borrado||{}).reduce((a,b)=>a+(b||0),0);
+      addN("🧹 Contenido de prueba borrado ("+tot+" ítems). Respaldo guardado.");
+      setTimeout(()=>window.location.reload(),900);
+    }catch(e){sLimpiando(false);sLimpiarTxt("");addN("⚠️ No se pudo limpiar: "+e.message);}
+  };
+
   // ── Centro de notificaciones (compartido, en el servidor) ──
   // `addN` son avisos de la sesión propia y se pierden al recargar. Esto es lo que le llega
   // a los demás y sobrevive: se relee cada minuto y cada vez que se vuelve a la pestaña.
@@ -1488,6 +1503,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {canProspectos&&<button onClick={()=>{sPg("prospectos");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>📍</span>Prospectos
               </button>}
+              {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--tx3)",fontSize:10,fontFamily:"inherit"}}>
+                <span style={{fontSize:22}}>🧹</span>Mantención
+              </button>}
               <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--danger)",fontSize:10,fontFamily:"inherit"}}>
                 <span style={{fontSize:22}}>🚪</span>Salir
               </button>
@@ -1516,6 +1534,27 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{display:"flex",gap:8,justifyContent:"center"}}>
             <Bt v="s" onClick={()=>{const exp=localStorage.getItem("meta_token_expiry");if(exp)localStorage.setItem("meta_exp_dismissed_"+Math.floor(parseInt(exp)/86400000),"1");sMetaExpWarn(false);}}>Entendido</Bt>
             <Bt v="p" icon="trend_up" onClick={()=>{const exp=localStorage.getItem("meta_token_expiry");if(exp)localStorage.setItem("meta_exp_dismissed_"+Math.floor(parseInt(exp)/86400000),"1");sMetaExpWarn(false);sPg("metricas");}}>Ver Métricas</Bt>
+          </div>
+        </div>
+      </div>}
+
+      {/* MANTENCIÓN — limpieza de contenido de prueba (solo admin, en menú Más). Respalda antes. */}
+      {limpiarUI&&<div onClick={()=>!limpiando&&sLimpiarUI(false)} style={{position:"fixed",inset:0,background:"rgba(5,7,10,.65)",zIndex:1002,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} className="su" style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:18,padding:24,width:"min(430px,100%)",boxSizing:"border-box",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>🧹 Empezar limpio</div>
+          <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.55,marginBottom:14}}>
+            Borra el <b>contenido de prueba</b>: piezas, Org Semanal, borradores, extras, guiones, días de grabación, reuniones y eventos.<br/><br/>
+            <b>Se mantienen</b> las empresas y sus planes (el cupo), los prospectos y las conexiones.<br/><br/>
+            Antes de borrar se guarda un <b>respaldo completo</b> (reversible). Escribe <b style={{color:"var(--accent)"}}>LIMPIAR</b> para confirmar.
+          </div>
+          <input value={limpiarTxt} onChange={e=>sLimpiarTxt(e.target.value)} placeholder="LIMPIAR" disabled={limpiando}
+            style={{width:"100%",boxSizing:"border-box",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,color:"var(--tx)",fontSize:15,padding:"11px 13px",marginBottom:14,fontFamily:"var(--font-mono)",letterSpacing:".1em"}}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>sLimpiarUI(false)} disabled={limpiando} style={{background:"transparent",border:"1px solid var(--border)",borderRadius:10,color:"var(--tx3)",fontSize:14,padding:"10px 16px",cursor:limpiando?"default":"pointer"}}>Cancelar</button>
+            <button onClick={hacerLimpieza} disabled={limpiando||limpiarTxt.trim()!=="LIMPIAR"}
+              style={{background:limpiarTxt.trim()==="LIMPIAR"&&!limpiando?"var(--danger)":"rgba(255,68,68,.25)",color:"#fff",border:"none",borderRadius:10,fontSize:14,fontWeight:700,padding:"10px 18px",cursor:limpiarTxt.trim()==="LIMPIAR"&&!limpiando?"pointer":"default"}}>
+              {limpiando?"Limpiando…":"Borrar contenido"}
+            </button>
           </div>
         </div>
       </div>}
@@ -1973,19 +2012,6 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
   const [evOpen,sEvOpen]=useState(false);
   const [agOpen,sAgOpen]=useState(false);
   const iniT=useRef(false);
-  // Limpieza de contenido de prueba (solo admin). Requiere escribir LIMPIAR para confirmar.
-  const [limpiarUI,sLimpiarUI]=useState(false);
-  const [limpiarTxt,sLimpiarTxt]=useState("");
-  const [limpiando,sLimpiando]=useState(false);
-  const hacerLimpieza=async()=>{
-    sLimpiando(true);
-    try{
-      const d=await API.limpiarContenido();
-      const tot=Object.values(d.borrado||{}).reduce((a,b)=>a+(b||0),0);
-      addN&&addN("🧹 Contenido de prueba borrado ("+tot+" ítems). Respaldo guardado.");
-      setTimeout(()=>window.location.reload(),900);
-    }catch(e){sLimpiando(false);sLimpiarTxt("");addN&&addN("⚠️ No se pudo limpiar: "+e.message);}
-  };
 
   useEffect(()=>{DB.loadAll().then(d=>{
     if(Array.isArray(d.eventos))sEventos(d.eventos);
@@ -2124,31 +2150,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
         <span style={{fontSize:30,fontWeight:600,letterSpacing:"-.02em",lineHeight:1.1,color:D.tx}}>Tienes <span style={{color:D.cian}}>{myTd.length}</span> tareas hoy</span>
         <span style={{fontSize:13,color:D.tx3}}>{stats.apr} esperan aprobación · {stats.pen} por agendar</span>
       </div>
-      {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);}} style={{alignSelf:"flex-end",background:"transparent",border:"1px solid "+D.line2,borderRadius:10,color:D.tx4,fontSize:12,padding:"8px 12px",cursor:"pointer",fontFamily:"var(--font-mono)"}}>🧹 Empezar limpio</button>}
     </div>
-
-    {/* Limpieza de contenido de prueba — solo admin, respalda antes de borrar */}
-    {limpiarUI&&(
-      <div onClick={()=>!limpiando&&sLimpiarUI(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
-        <div onClick={e=>e.stopPropagation()} style={{maxWidth:420,width:"100%",background:D.panel,border:"1px solid "+D.line2,borderRadius:16,padding:22}}>
-          <div style={{fontSize:18,fontWeight:700,color:D.tx,marginBottom:8}}>🧹 Empezar limpio</div>
-          <div style={{fontSize:13,color:D.tx3,lineHeight:1.5,marginBottom:14}}>
-            Borra el <b>contenido de prueba</b>: piezas, Org Semanal, borradores, extras, guiones, días de grabación, reuniones y eventos.<br/><br/>
-            <b>Se mantienen</b> las empresas y sus planes (el cupo), los prospectos y las conexiones.<br/><br/>
-            Antes de borrar se guarda un <b>respaldo completo</b> (reversible). Escribe <b style={{color:D.cian}}>LIMPIAR</b> para confirmar.
-          </div>
-          <input value={limpiarTxt} onChange={e=>sLimpiarTxt(e.target.value)} placeholder="LIMPIAR" disabled={limpiando}
-            style={{width:"100%",boxSizing:"border-box",background:D.bg,border:"1px solid "+D.line2,borderRadius:10,color:D.tx,fontSize:15,padding:"11px 13px",marginBottom:14,fontFamily:"var(--font-mono)",letterSpacing:".1em"}}/>
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <button onClick={()=>sLimpiarUI(false)} disabled={limpiando} style={{background:"transparent",border:"1px solid "+D.line2,borderRadius:10,color:D.tx3,fontSize:14,padding:"10px 16px",cursor:"pointer"}}>Cancelar</button>
-            <button onClick={hacerLimpieza} disabled={limpiando||limpiarTxt.trim()!=="LIMPIAR"}
-              style={{background:limpiarTxt.trim()==="LIMPIAR"&&!limpiando?"rgba(255,107,107,.9)":"rgba(255,107,107,.25)",color:"#fff",border:"none",borderRadius:10,fontSize:14,fontWeight:700,padding:"10px 18px",cursor:limpiarTxt.trim()==="LIMPIAR"&&!limpiando?"pointer":"default"}}>
-              {limpiando?"Limpiando…":"Borrar contenido"}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
 
     {/* ALERTAS */}
     {rechazadas.map(t=>(
