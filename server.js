@@ -154,7 +154,7 @@ async function sendEmail(to, subject, html) {
 // ===============================
 // 📧 TEST EMAIL
 // ===============================
-app.get("/api/test-email", async (req, res) => {
+app.get("/api/test-email", requireAuth, async (req, res) => {
   try {
     const testTo = process.env.EMAIL_USER || "inmersiatours@gmail.com";
     const result = await sendEmail(
@@ -527,15 +527,23 @@ app.post("/api/gcal/meeting", requireAuth, async (req, res) => {
 
     const [h, m] = String(time).split(":").map(Number);
     const dur = Math.max(15, +minutos || 60);
-    const fin = new Date(Date.UTC(2000, 0, 1, h, m + dur));
-    const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+    // El fin se calcula sobre la fecha real del evento, no sobre un día fijo: una reunión que
+    // cruza medianoche (23:30 + 60 min) tiene que terminar el día siguiente. Con el día fijo,
+    // `hhmm` descartaba el desbordamiento y el fin quedaba "00:30" en la MISMA fecha, antes que el
+    // inicio, y Google rechazaba el evento o lo creaba al revés.
+    const [Y, Mo, Da] = String(date).split("-").map(Number);
+    const ini = new Date(Y, (Mo || 1) - 1, Da || 1, h, m);
+    const fin = new Date(ini.getTime() + dur * 60000);
+    const pad = n => String(n).padStart(2, "0");
+    const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const hhmm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
     const correos = [...new Set((invitados || []).map(e => String(e).trim().toLowerCase()).filter(e => e.includes("@")))];
     const evento = {
       summary: title,
       description: description || "",
       start: { dateTime: `${date}T${time}:00`, timeZone: MEET_TZ },
-      end: { dateTime: `${date}T${hhmm(fin)}:00`, timeZone: MEET_TZ },
+      end: { dateTime: `${ymd(fin)}T${hhmm(fin)}:00`, timeZone: MEET_TZ },
       attendees: correos.map(email => ({ email })),
       conferenceData: { createRequest: { requestId: "inm-" + Date.now(), conferenceSolutionKey: { type: "hangoutsMeet" } } },
       guestsCanModify: false,
@@ -620,7 +628,12 @@ async function crearNotif({ type, title, body, url, to, important, meta, dedupKe
     };
     await sbPut("notifs", [n, ...lista].slice(0, NOTIF_MAX));
     let push = { sent: 0 };
-    try { push = await sendPush({ title: n.title, body: n.body, url: n.url, tag: n.type, important: !!important }, dest); }
+    // El `tag` agrupa/reemplaza notificaciones en la pantalla de bloqueo. Con `n.type`, dos
+    // piezas distintas compartían tag ("asignacion") y la segunda TAPABA a la primera: llegaban
+    // dos asignaciones y solo se veía una. Se usa el dedupKey (que suele ser por pieza) o, si no
+    // hay, el id único, para que avisos de cosas distintas convivan y solo se reemplace un
+    // reenvío del MISMO aviso.
+    try { push = await sendPush({ title: n.title, body: n.body, url: n.url, tag: n.dedupKey || n.id, important: !!important }, dest); }
     catch (e) { console.error("push desde notif:", e.message); }
     return { ok: true, id: n.id, push };
   });
@@ -801,14 +814,19 @@ async function repasoDiario(forzar) {
       for (const [cid, antes] of Object.entries(ig.cuentas || {})) {
         const c = await igToken(cid);
         if (!c) continue;
-        const dias = Math.round(((c.expira || 0) - Date.now()) / 86400000);
+        const quedanMs = (c.expira || 0) - Date.now();
+        const dias = Math.floor(quedanMs / 86400000);
         if (c.expira !== antes.expira) { console.log(`IG: permiso de @${c.username || cid} renovado, ahora vence en ${dias} días`); hecho.push("token ig"); continue; }
-        // Si sigue en la recta final y el intento no lo movió, es que Meta lo rechazó. Sin este
-        // aviso el final es mudo: un día las cadenas dejan de responder y nadie sabe por qué.
-        if (dias <= 10) {
+        // Se avisa solo si el token estaba DENTRO de la ventana de renovación (≤10 días, la misma
+        // que usa igToken) y aun así no se movió: eso es que Meta lo rechazó. Por encima de 10
+        // días igToken ni lo intenta, así que "no cambió" no es un fallo y avisar ahí era una
+        // falsa alarma —que además, con Math.round, saltaba justo en el borde de 10 días—. Ya
+        // vencido se dice "ya venció", no "vence en -37 días".
+        if (quedanMs <= 10 * 24 * 3600000) {
+          const cuando = quedanMs <= 0 ? "ya venció" : `vence en ${dias} día${dias === 1 ? "" : "s"}`;
           await crearNotif({
             type: "contenido", title: "⚠️ El permiso de Instagram está por vencer",
-            body: `@${c.username || cid} vence en ${dias} día${dias === 1 ? "" : "s"} y no se pudo renovar solo. Hay que reconectar la cuenta o las automatizaciones dejarán de responder.`,
+            body: `@${c.username || cid} ${cuando} y no se pudo renovar solo. Hay que reconectar la cuenta o las automatizaciones dejarán de responder.`,
             to: correosDe(TEAM.filter(u => u.role === "admin")), url: "/", important: true,
             dedupKey: "igvence_" + cid + "_" + hoy,
           });
@@ -2080,6 +2098,15 @@ app.get("/api/ig/callback", async (req, res) => {
       for (const [cid, c] of Object.entries(s.cuentas)) {
         if (cid !== String(st.cid) && String(c.igId) === String(igId)) {
           console.log(`IG: @${me?.username || igId} estaba en la empresa ${cid}; se suelta y pasa a la ${st.cid}`);
+          // Las reglas de la empresa vieja se mudan con la cuenta, salvo que la nueva ya tenga las
+          // suyas (no se pisan). Dejarlas atrás las volvía inalcanzables: el webhook solo recorre
+          // empresas presentes en `cuentas`, así que quedaban visibles y "activas" en pantalla
+          // pero muertas — justo el fallo silencioso que este soltado pretende evitar.
+          if ((s.reglas[cid] || []).length && !(s.reglas[String(st.cid)] || []).length) {
+            s.reglas[String(st.cid)] = s.reglas[cid];
+            console.log(`IG: ${s.reglas[cid].length} regla(s) mudadas de la empresa ${cid} a la ${st.cid}`);
+          }
+          delete s.reglas[cid];
           delete s.cuentas[cid];
         }
       }
@@ -2334,7 +2361,7 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
       console.error("IG condición:", e.message); cumple = false;
     }
     const sig = cumple ? paso.siSi : paso.siNo;
-    if (sig) return igEjecutarPaso(companyId, cuenta, flujo, sig, destinatario, igsid, prof + 1);
+    if (sig) return igEjecutarPaso(companyId, cuenta, flujo, sig, destinatario, igsid, prof + 1, opts);
     return;
   }
 
@@ -2364,7 +2391,7 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
         dedupKey: "igacc_" + flujo.id + "_" + paso.id + "_" + igsid,
       }).catch(e => console.error("IG acción:", e.message));
     }
-    if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, destinatario, igsid, prof + 1);
+    if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, destinatario, igsid, prof + 1, opts);
     return;
   }
 
@@ -2385,6 +2412,10 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
     ? { attachment: { type: "template", payload: { template_type: "button", text: texto, buttons: botones } } }
     : { text: texto };
   await igEnviar(cuenta, destinatario, mensaje);
+  // Marca que YA salió al menos un mensaje de esta cadena. Lo comparte todo el recorrido (opts se
+  // pasa en cada recursión), y quien arrancó la cadena lo mira para decidir si puede reintentar:
+  // si el primer mensaje ya se entregó, reintentar mandaría un segundo y Instagram lo rechaza.
+  if (opts && typeof opts === "object") opts.enviado = true;
   // Se anota para poder resolver después "¿respondió?": responder es escribir DESPUÉS de esto.
   await igMarcar(igsid, "enviado");
 
@@ -2395,7 +2426,7 @@ async function igEjecutarPaso(companyId, cuenta, flujo, pasoId, destinatario, ig
   //
   // Se continúa SIEMPRE por DM, nunca por la respuesta al comentario: esa se gasta con el
   // primer mensaje y un segundo intento por ahí lo rechaza Instagram.
-  if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, { id: igsid }, igsid, prof + 1);
+  if (paso.siguiente) return igEjecutarPaso(companyId, cuenta, flujo, paso.siguiente, { id: igsid }, igsid, prof + 1, opts);
 }
 
 async function igProcesarComentario(entry) {
@@ -2433,21 +2464,31 @@ async function igProcesarComentario(entry) {
     // el mensaje dos veces —y Meta solo admite uno, así que el segundo sería un error feo.
     if (s.respondidos[commentId]) { console.log(`IG: el comentario ${commentId} ya se respondió el ${s.respondidos[commentId]}`); continue; }
 
-    // Se busca en cada una hasta encontrar una regla que encaje. Dentro de una empresa, una
-    // regla atada a una publicación gana sobre una general: si alguien montó una campaña en un
-    // post concreto, esa es la respuesta que quiere, no la genérica de la cuenta.
+    // Se recogen las reglas que encajan en TODAS las empresas que tienen la cuenta y solo
+    // después se elige, para que la especificidad mande por encima del orden de las empresas: una
+    // regla atada a esta publicación gana sobre una general, esté en la empresa que esté. Al
+    // elegir empresa por empresa y cortar en la primera con match, una cadena general de una
+    // conexión vieja (o a medio configurar) tapaba la campaña real de la otra empresa.
     let companyId = null, cuenta = null, regla = null;
     const rastro = [];
+    const candidatas = [];   // { cid, c, r }
     for (const [cid, c] of pares) {
       const activas = (s.reglas[cid] || []).filter(r => r.activa);
-      const candidatas = activas.filter(r => igNorm(texto).includes(igNorm(r.palabra)));
-      const r = candidatas.find(x => x.mediaId && x.mediaId === mediaId) || candidatas.find(x => !x.mediaId);
-      if (r) { companyId = cid; cuenta = c; regla = r; break; }
-      rastro.push(candidatas.length
-        // La palabra encaja pero la publicación no: es el caso silencioso más traicionero,
-        // porque en pantalla la cadena se ve perfecta y atada al post correcto.
-        ? `empresa ${cid}: la palabra encaja en ${candidatas.length} regla(s) pero ninguna es de esta publicación (el webhook trae ${mediaId || "(sin id)"}, las reglas apuntan a ${candidatas.map(x => x.mediaId || "(todas)").join(", ")})`
-        : `empresa ${cid}: ninguna palabra encaja (activas: ${activas.map(x => JSON.stringify(x.palabra)).join(", ") || "ninguna"})`);
+      // Una regla SIN palabra encaja con TODO comentario (`"x".includes("")===true`): es un
+      // comodín que se traga cada comentario y quema el único mensaje permitido, dejando a la
+      // regla real sin poder disparar. Una cadena recién creada o un preset sin la palabra
+      // escrita cae aquí, así que se descartan.
+      const enc = activas.filter(r => igNorm(r.palabra) && igNorm(texto).includes(igNorm(r.palabra)));
+      enc.forEach(r => candidatas.push({ cid, c, r }));
+      if (!enc.length) rastro.push(`empresa ${cid}: ninguna palabra encaja (activas: ${activas.map(x => JSON.stringify(x.palabra)).join(", ") || "ninguna"})`);
+    }
+    // Especificidad global: primero una regla de ESTA publicación, luego una general.
+    const elegido = candidatas.find(x => x.r.mediaId && x.r.mediaId === mediaId) || candidatas.find(x => !x.r.mediaId);
+    if (elegido) { companyId = elegido.cid; cuenta = elegido.c; regla = elegido.r; }
+    else if (candidatas.length) {
+      // La palabra encaja pero la publicación no: el caso silencioso más traicionero, porque en
+      // pantalla la cadena se ve perfecta y atada al post correcto.
+      rastro.push(`la palabra encaja en ${candidatas.length} regla(s) pero ninguna es de esta publicación (el webhook trae ${mediaId || "(sin id)"}, las reglas apuntan a ${candidatas.map(x => x.r.mediaId || "(todas)").join(", ")})`);
     }
     if (!regla) {
       console.error(`IG: ningún patrón encaja con "${texto.slice(0, 40)}". ${rastro.join(" · ")}`);
@@ -2468,17 +2509,22 @@ async function igProcesarComentario(entry) {
       }
       return s2;
     });
+    const traza = { enviado: false };
     try {
       // El primer paso va por respuesta privada al comentario: es el único mensaje que
       // Instagram deja mandar a alguien que no te ha escrito. De ahí en adelante manda el
       // botón, que al pulsarse abre la ventana de 24 h y permite seguir la conversación.
       const pasos = igPasosDe(regla);
-      await igEjecutarPaso(companyId, cuenta, regla, regla.inicio || pasos[0]?.id, { comment_id: commentId }, autor);
+      await igEjecutarPaso(companyId, cuenta, regla, regla.inicio || pasos[0]?.id, { comment_id: commentId }, autor, 0, traza);
       console.log(`IG: cadena "${regla.palabra}" iniciada con quien comentó ${commentId}`);
     } catch (e) {
       console.error("IG respuesta privada:", e.message);
-      // Se libera para poder reintentar a mano si fue un fallo puntual de red.
-      await saveIG(s2 => { delete s2.respondidos[commentId]; return s2; });
+      // Solo se libera si NO llegó a salir ningún mensaje (p.ej. un fallo de red en el primero):
+      // ahí reintentar es seguro. Si el primer mensaje YA se entregó y falló un paso posterior,
+      // liberar sería fatal: en el reintento se mandaría una segunda respuesta privada al mismo
+      // comentario y Instagram solo admite una, así que el reintento fallaría siempre.
+      if (!traza.enviado) await saveIG(s2 => { delete s2.respondidos[commentId]; return s2; });
+      else console.error(`IG: la cadena de ${commentId} falló DESPUÉS del primer envío; no se libera para no duplicar la respuesta privada.`);
     }
   }
 }
@@ -2597,14 +2643,16 @@ function igSignedRequest(sr) {
   } catch { return null; }
 }
 
-// Borra lo que tengamos de esa cuenta de Instagram, venga de donde venga la petición.
+// Borra lo que tengamos de esa cuenta de Instagram, venga de donde venga la petición. Recorre
+// TODAS las empresas que la tengan, no solo la primera: una cuenta pudo quedar duplicada en filas
+// viejas, y borrar solo una dejaba a la otra con un token ya revocado, respondiendo comentarios
+// contra Meta con un permiso muerto y quemando el único mensaje por comentario.
 async function igOlvidar(igUserId) {
   const s = await loadIG();
-  const par = Object.entries(s.cuentas).find(([, c]) => String(c.igId) === String(igUserId));
-  if (!par) return null;
-  const [companyId] = par;
-  await saveIG(s2 => { delete s2.cuentas[companyId]; delete s2.reglas[companyId]; return s2; });
-  return companyId;
+  const cids = Object.entries(s.cuentas).filter(([, c]) => String(c.igId) === String(igUserId)).map(([cid]) => cid);
+  if (!cids.length) return null;
+  await saveIG(s2 => { for (const cid of cids) { delete s2.cuentas[cid]; delete s2.reglas[cid]; } return s2; });
+  return cids[0];
 }
 
 app.post("/api/ig/deauth", igForm, async (req, res) => {
