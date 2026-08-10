@@ -6937,7 +6937,7 @@ function IgPreview({file,files,type,caption,cuenta,color,fecha,hora}){
 
 // Banco de aprobados + calendario. En PC se arrastra; en móvil el drag&drop HTML5 no
 // dispara con el dedo, así que el mismo flujo funciona tocando la pieza y luego el día.
-function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
+function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
   const[view,sView]=useState("semana");
   const[wkOff,sWkOff]=useState(0);
   const[cM,sCM]=useState(new Date().getMonth());
@@ -6978,7 +6978,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
     const t=items.find(x=>String(x.id)===String(id));
     if(!t||t.state==="publicado")return;
     sSel(null);
-    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null});
+    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null,state:t.state,socialPost:t.socialPost||null});
   };
 
   // El id viaja en el dataTransfer, no en el estado de React: entre dragstart y drop
@@ -7158,6 +7158,9 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
             <IgPreview file={modal.file} files={modal.files} type={modal.type} caption={modal.caption}
               cuenta={cuenta} color={coColor} fecha={modal.date} hora={modal.time}/>
 
+            {/* Debajo del preview: estadísticas reales + chat de IA (solo con datos si ya se publicó) */}
+            <PostStatsChat co={co} task={modal}/>
+
             <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
               <div style={{display:"flex",flexDirection:"column",gap:7,flex:"1 1 150px",minWidth:0}}>
                 <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Día</label>
@@ -7212,9 +7215,9 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
   </div>);
 }
 
-// Tarjeta de una publicación ya publicada, en el portal del cliente: preview + estadísticas reales
-// de Meta + comparativa con los otros posts + chat de IA (Gemini) aterrizado en esos datos.
-function ResultadoPost({co,task,isMob}){
+// Estadísticas reales de Meta + comparativa + chat de IA, para ir DEBAJO del preview de Instagram
+// en el drawer de la pieza (portal del cliente). Solo tiene sentido publicada; si aún no, avisa.
+function PostStatsChat({co,task}){
   const [st,sSt]=useState(null);
   const [cargando,sCargando]=useState(true);
   const [abierto,sAbierto]=useState(false);
@@ -7223,16 +7226,16 @@ function ResultadoPost({co,task,isMob}){
   const [pensando,sPensando]=useState(false);
   const scroller=useRef(null);
   const igId=co?.igId;
-  const media=task.files&&task.files[0];
   const cap=task.caption||task.title||"";
   const mediaId=task.socialPost?.mediaId;
+  const publicado=task.state==="publicado";
 
   useEffect(()=>{
-    if(!igId){sCargando(false);return;}
+    if(!igId||!publicado){sCargando(false);return;}
     let vivo=true;
     API.postStats({igId,mediaId,caption:cap}).then(d=>{if(vivo){sSt(d);sCargando(false);}});
     return()=>{vivo=false;};
-  },[igId]);
+  },[igId,publicado,mediaId]);
   useEffect(()=>{if(scroller.current)scroller.current.scrollTop=scroller.current.scrollHeight;},[msgs,pensando]);
 
   const enviar=async(texto)=>{
@@ -7250,26 +7253,24 @@ function ResultadoPost({co,task,isMob}){
   const tipoTxt=esReel?"reels":"posts";
   const cMult=m=>m==null?PC.tx4:m>=1.3?"#8FF2C2":m>=0.85?PC.cian:"#FF8B8B";
   const sugerencias=["¿Cómo le fue?","¿Qué puedo mejorar?","¿Por qué esos comentarios?"];
+  const hayDatos=st&&st.ok&&t;
 
-  return(<div style={{background:PC.panel,border:"1px solid "+PC.line2,borderRadius:18,overflow:"hidden",marginBottom:16}}>
-    <div style={{display:"flex",gap:12,padding:14,alignItems:"center"}}>
-      <div style={{width:64,height:64,borderRadius:12,overflow:"hidden",flexShrink:0,background:PC.bg,border:"1px solid "+PC.line2}}>
-        {media?<DeckMedia f={media} h={64} fit="cover"/>:<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
-      </div>
-      <div style={{minWidth:0,flex:1}}>
-        <div style={{fontSize:14,fontWeight:600,color:PC.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title||"Publicación"}</div>
-        <div style={{fontSize:12,color:PC.tx4}}>{esReel?"Reel":"Publicación"}{t&&t.fecha?" · "+String(t.fecha).slice(0,10):""}</div>
-      </div>
-    </div>
+  // Pieza aún no publicada: todavía no hay métricas que mostrar.
+  if(!publicado) return (
+    <div style={{marginTop:16,padding:"14px 16px",borderRadius:14,background:PC.bg,border:"1px dashed "+PC.line2,fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>
+      📊 Cuando esta pieza se publique, aquí vas a ver <b style={{color:PC.tx2}}>cómo le fue</b> (alcance, interacciones y la comparación con tus otros posts) y vas a poder preguntarle a la IA.
+    </div>);
 
+  return(<div style={{marginTop:16,background:PC.panel,border:"1px solid "+PC.line2,borderRadius:16,overflow:"hidden"}}>
+    <div style={{padding:"13px 16px 3px",fontSize:11,color:PC.tx4,textTransform:"uppercase",letterSpacing:".08em"}}>📊 Cómo le fue</div>
     {!igId?(
-      <div style={{padding:"2px 16px 16px",fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>Conecta tu Instagram (arriba, en Planificar) para ver las estadísticas.</div>
+      <div style={{padding:"4px 16px 16px",fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>Conecta tu Instagram (en Planificar) para ver las estadísticas.</div>
     ):cargando?(
-      <div style={{padding:"2px 16px 18px",fontSize:12.5,color:PC.tx4}}>Cargando estadísticas…</div>
-    ):!(st&&st.ok&&t)?(
-      <div style={{padding:"2px 16px 16px",fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>Aún no hay datos de esta publicación{st&&st.error?" ("+st.error+")":""}. Puede tardar unas horas tras publicarse.</div>
+      <div style={{padding:"4px 16px 18px",fontSize:12.5,color:PC.tx4}}>Cargando estadísticas…</div>
+    ):!hayDatos?(
+      <div style={{padding:"4px 16px 16px",fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>Aún no hay datos de esta publicación{st&&st.error?" ("+st.error+")":""}. Puede tardar unas horas tras publicarse.</div>
     ):(<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:PC.line,borderTop:"1px solid "+PC.line,borderBottom:"1px solid "+PC.line}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:PC.line,borderTop:"1px solid "+PC.line,borderBottom:"1px solid "+PC.line,marginTop:8}}>
         {[["Alcance",t.alcance],["Interac.",t.eng],["Likes",t.likes],["Coment.",t.comentarios]].map(([l,v])=>(
           <div key={l} style={{background:PC.panel,padding:"12px 6px",textAlign:"center"}}>
             <div style={{fontSize:18,fontWeight:700,color:PC.tx}}>{nf(v)}</div>
@@ -7311,6 +7312,23 @@ function ResultadoPost({co,task,isMob}){
           </div>
         </div>)}
       </div>)}
+  </div>);
+}
+
+// Para la pestaña "Resultados": preview de la pieza + el bloque de estadísticas/chat reutilizado.
+function ResultadoPost({co,task}){
+  const media=task.files&&task.files[0];
+  return(<div style={{marginBottom:18}}>
+    <div style={{display:"flex",gap:12,alignItems:"center",padding:"2px 2px"}}>
+      <div style={{width:56,height:56,borderRadius:12,overflow:"hidden",flexShrink:0,background:PC.bg,border:"1px solid "+PC.line2}}>
+        {media?<DeckMedia f={media} h={56} fit="cover"/>:<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🎬</div>}
+      </div>
+      <div style={{minWidth:0,flex:1}}>
+        <div style={{fontSize:14.5,fontWeight:600,color:PC.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title||"Publicación"}</div>
+        <div style={{fontSize:12,color:PC.tx4}}>{task.type==="reel"?"Reel":"Publicación"}{task.date?" · "+String(task.date).slice(0,10):""}</div>
+      </div>
+    </div>
+    <PostStatsChat co={co} task={task}/>
   </div>);
 }
 
@@ -7553,7 +7571,7 @@ function ClientView({user:cu,onLogout:ol}){
               (`pub.username`), que es la que de verdad publica. El nombre de la marca es el último
               recurso: para una maqueta cumple, pero puede llevar espacios/acentos que ningún @
               real tiene. */}
-          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={co?.color}
+          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={co?.color} co={co}
             cuenta={ig?.username||pub?.username||co?.name||cu.companyName||""}/>
         </>)}
       </div>
