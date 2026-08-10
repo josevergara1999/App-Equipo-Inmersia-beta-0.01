@@ -915,6 +915,9 @@ async function repasoCorto() {
   // Las esperas de las cadenas de Instagram se retoman aquí. Va aparte del try de arriba para
   // que un fallo en los recordatorios no impida enviar los mensajes pendientes.
   try { await igProcesarPendientes(); } catch (e) { console.error("IG pendientes:", e.message); }
+  // Y aquí se arman las automatizaciones cuya pieza ya se publicó: se detecta la publicación y se
+  // le pega el mediaId real a la cadena, para que empiece a responder comentarios sola.
+  try { await igArmarPendientes(); } catch (e) { console.error("IG armar:", e.message); }
 }
 
 setTimeout(() => { repasoDiario(); repasoCorto(); }, 20000);
@@ -2644,6 +2647,93 @@ async function igProcesarPendientes() {
       // espera. No es un fallo del código y no tiene arreglo por nuestra parte.
       console.error("IG pendiente:", e.message);
     }
+  }
+}
+
+// ── Auto-armado de automatizaciones al publicarse la pieza ────────────────────
+// Una cadena marcada `pendienteMedia` está atada a una pieza (taskId) pero todavía no tiene el
+// mediaId real de Instagram, porque ese id solo existe DESPUÉS de publicar. Este repaso (cada 10
+// min) mira las cadenas en esa espera: si su pieza ya se publicó, busca el post recién salido en
+// la cuenta (me/media, la misma API que usa el webhook), le pega el mediaId a la cadena y la
+// suelta (`pendienteMedia:false`). A partir de ahí el webhook ya la reconoce y responde. Así la
+// cadena se deja lista hoy y se enciende sola cuando el reel salga —aunque sea en 3 días—, sin que
+// nadie tenga que volver a tocar nada. Reusa el motor de 10 minutos porque Render duerme el plan
+// gratuito y no sirve un temporizador.
+async function igArmarPendientes() {
+  const s = await loadIG();
+  const pend = [];
+  for (const [cid, rules] of Object.entries(s.reglas || {})) {
+    for (const r of (rules || [])) if (r.pendienteMedia && r.taskId) pend.push({ cid, reglaId: r.id, taskId: r.taskId });
+  }
+  if (!pend.length) return;
+  const tasks = (await sbGet("tasks", [])) || [];
+  const ahora = Date.now();
+  const armados = [];   // { cid, reglaId, taskId, mediaId, task }
+
+  for (const p of pend) {
+    const task = tasks.find(t => String(t.id) === String(p.taskId));
+    if (!task) continue;
+    // ¿Ya se publicó? Publicada de inmediato → estado "publicado". Programada → cuando su hora ya
+    // pasó (Zernio la publica sola a esa hora; aquí solo se detecta). Si no, todavía no toca.
+    const programada = task.socialPost?.programadaPara ? Date.parse(task.socialPost.programadaPara) : null;
+    const yaPublicada = task.state === "publicado" || (Number.isFinite(programada) && programada <= ahora);
+    if (!yaPublicada) continue;
+    const cuenta = s.cuentas[p.cid];
+    if (!cuenta?.token) continue;
+
+    let media = null;
+    try {
+      const r = await fetch(`${IG_API}/me/media?fields=id,caption,media_type,timestamp&limit=15&access_token=${encodeURIComponent(cuenta.token)}`);
+      const d = await r.json();
+      if (!r.ok) { console.error(`IG armar: /me/media falló para empresa ${p.cid}:`, d?.error?.message || r.status); continue; }
+      // No reusar un media que ya esté armado en otra cadena de esta cuenta.
+      const yaUsados = new Set((s.reglas[p.cid] || []).map(x => x.mediaId).filter(Boolean));
+      // Ventana desde la que buscar: la hora programada (menos 1 h de margen) o, si fue inmediata,
+      // cuando se marcó publicada. Evita casar un post viejo.
+      const desde = Number.isFinite(programada) ? programada - 3600000
+        : (Date.parse(task.socialPost?.at || "") || (ahora - 24 * 3600000));
+      const esReel = task.type === "reel";
+      const cands = (d.data || [])
+        .filter(m => !yaUsados.has(m.id))
+        .filter(m => esReel ? m.media_type === "VIDEO" : true)   // un reel sale como VIDEO
+        .filter(m => { const t = Date.parse(m.timestamp); return Number.isFinite(t) && t >= desde; })
+        .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+      // Si la pieza tiene pie escrito, se prefiere el post cuyo caption coincide; si no, el más
+      // reciente dentro de la ventana.
+      const cap = String(task.caption || "").trim().slice(0, 60);
+      media = (cap && cands.find(m => String(m.caption || "").trim().slice(0, 60) === cap)) || cands[0] || null;
+    } catch (e) { console.error("IG armar (me/media):", e.message); continue; }
+    if (!media) { console.log(`IG armar: la pieza ${p.taskId} figura publicada pero aún no aparece su media en la cuenta; se reintenta.`); continue; }
+
+    await saveIG(s2 => {
+      const rr = (s2.reglas[p.cid] || []).find(x => String(x.id) === String(p.reglaId));
+      if (rr) { rr.mediaId = media.id; rr.pendienteMedia = false; }
+      return s2;
+    });
+    console.log(`IG armar: cadena ${p.reglaId} atada al media ${media.id} (pieza «${task.title || p.taskId}»)`);
+    armados.push({ ...p, mediaId: media.id, task });
+  }
+
+  if (!armados.length) return;
+  // Marcar las piezas como publicadas + "armada" y avisar al equipo y al cliente. Se relee justo
+  // antes de escribir para pisar lo menos posible lo que otros hayan tocado mientras tanto.
+  const fresh = (await sbGet("tasks", [])) || [];
+  const map = new Map(armados.map(a => [String(a.taskId), a]));
+  const next = fresh.map(t => map.has(String(t.id))
+    ? { ...t, state: "publicado", autoEstado: "armada", socialPost: { ...(t.socialPost || {}), at: t.socialPost?.at || new Date().toISOString(), mediaId: map.get(String(t.id)).mediaId } }
+    : t);
+  await sbPut("tasks", next);
+
+  const empresas = (await sbGet("companies", [])) || [];
+  for (const a of armados) {
+    const emp = empresas.find(c => String(c.id) === String(a.task.companyId));
+    const dest = [...new Set([...correosDe(TEAM.filter(u => u.role === "admin")), ...(emp?.email && emp.email.includes("@") ? [emp.email] : [])])];
+    await crearNotif({
+      type: "contenido", title: "🟢 Automatización activa",
+      body: `«${a.task.title || "El contenido"}» ya se publicó y su automatización de comentarios está respondiendo.`,
+      to: dest, url: "/", important: false,
+      dedupKey: "autoarmada_" + a.taskId,
+    }).catch(e => console.error("IG armar aviso:", e.message));
   }
 }
 
