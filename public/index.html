@@ -2107,7 +2107,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         <span style={{fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:".22em",textTransform:"uppercase",color:D.tx4}}>{new Date().getHours()<12?"Buen día":new Date().getHours()<19?"Buenas tardes":"Buenas noches"}, {cu.name}</span>
         <span style={{fontSize:30,fontWeight:600,letterSpacing:"-.02em",lineHeight:1.1,color:D.tx}}>Tienes <span style={{color:D.cian}}>{myTd.length}</span> tareas hoy</span>
-        <span style={{fontSize:13,color:D.tx3}}>{stats.apr} esperan aprobación · {stats.atr} atrasadas · {stats.pen} por agendar</span>
+        <span style={{fontSize:13,color:D.tx3}}>{stats.apr} esperan aprobación · {stats.pen} por agendar</span>
       </div>
     </div>
 

@@ -859,17 +859,17 @@ async function repasoDiario(forzar) {
     for (const u of TEAM) {
       const mias = tasks.filter(t => abierta(t) && responsablesDe(t).some(r => r.id === u.id));
       const hoyMias = mias.filter(t => t.date === hoy);
-      const atrasadas = mias.filter(t => t.date && t.date < hoy);
-      const partes = [];
-      if (hoyMias.length) partes.push(`${hoyMias.length} para hoy`);
-      if (atrasadas.length) partes.push(`${atrasadas.length} atrasada${atrasadas.length === 1 ? "" : "s"}`);
+      // El resumen diario solo avisa de lo de HOY. El conteo de "atrasadas" se quitó: mientras la
+      // app no está en producción real, esas piezas son datos viejos de prueba con fecha pasada y
+      // el aviso solo generaba ruido ("11 atrasadas") cada mañana. Si se quiere recuperar el
+      // seguimiento de atrasadas cuando esté en marcha, se vuelve a sumar aquí.
       await crearNotif({
         type: "mi_dia",
-        title: partes.length ? "☀️ Tu día" : "☀️ Día despejado",
-        body: partes.length
-          ? partes.join(" · ") + ". " + (hoyMias[0] || atrasadas[0]).title
+        title: hoyMias.length ? "☀️ Tu día" : "☀️ Día despejado",
+        body: hoyMias.length
+          ? `${hoyMias.length} para hoy. ${hoyMias[0].title}`
           : "No tienes nada agendado para hoy.",
-        to: correosDe([u]), url: "/", important: !!atrasadas.length,
+        to: correosDe([u]), url: "/", important: false,
         dedupKey: "dia_" + u.id + "_" + hoy,
       });
     }
