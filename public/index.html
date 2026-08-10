@@ -3246,6 +3246,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // una en una y varias abiertas devolverían la parrilla que se quiso quitar.
   const [aprobAbierta,sAprobAbierta]=useState(null);
   const [preset,sPreset]=useState(false);   // selector de plantilla al crear una cadena
+  // Cuando se prepara una cadena PARA una pieza concreta (desde la lista de pendientes), aquí va
+  // su id: la cadena que se cree se ata a esa tarea (taskId) y arranca "pendiente de media" —
+  // sin publicación asignada — para que se arme sola al publicarse el reel/post.
+  const [taskParaCadena,sTaskParaCadena]=useState(null);
   const fileRef=useRef(null);
   useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
   // Instagram de la empresa seleccionada. Se relee al cambiar de empresa porque la conexión
@@ -3304,7 +3308,20 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     try{
       const d=await API.igReglas(selCo,reglas);
       if(d&&d.error)addN("❌ "+d.error);
-      else{sReglas(d.reglas||[]);addN("✅ Automatización guardada");}
+      else{
+        sReglas(d.reglas||[]);addN("✅ Automatización guardada");
+        // Piezas cuya cadena quedó vinculada (taskId) y aún no estaban "lista": se marcan y se
+        // avisa UNA vez al equipo y al cliente. La cadena se activará sola al publicarse la pieza.
+        const conCadena=new Set((d.reglas||reglas).filter(r=>r.taskId).map(r=>String(r.taskId)));
+        const recienListas=(tasks||[]).filter(t=>conCadena.has(String(t.id))&&t.autoEstado!=="lista"&&t.autoEstado!=="armada");
+        if(recienListas.length){
+          sT(prev=>{const next=prev.map(t=>conCadena.has(String(t.id))&&t.autoEstado!=="lista"&&t.autoEstado!=="armada"?{...t,autoEstado:"lista"}:t);DB.save("tasks",next);return next;});
+          recienListas.forEach(t=>{
+            avisarEquipo("🔧 Automatización lista","«"+(t.title||"Pieza")+"» ya tiene su cadena de comentarios. Se activará sola cuando se publique.",false,"autolista_"+t.id);
+            if(co&&co.email&&co.email.includes("@"))API.notify({type:"task_status",to:[co.email],taskTitle:t.title,company:co.name,state:"🔧 Tu contenido lleva una automatización de comentarios y ya quedó lista",date:td()});
+          });
+        }
+      }
     }finally{sGuardando(false);}
   };
   // Borrar una cadena se guarda en el acto, no espera a "Guardar cambios": una automatización
@@ -3335,17 +3352,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // Una plantilla no crea nada especial: deja los mismos pasos que se habrían puesto a mano, y
   // desde ahí se edita como cualquier otra. Lo que NO trae es la palabra ni la publicación —eso
   // se elige en el disparador, que es lo primero que se abre.
+  // Si la cadena se está preparando PARA una pieza (taskParaCadena), se le pega el vínculo:
+  // taskId + pendienteMedia. `pendienteMedia` hace que el webhook la IGNORE hasta que la pieza se
+  // publique y el motor le ponga el mediaId real (Fase 4). Así la cadena se deja lista hoy y no
+  // dispara nada hasta que el reel esté online.
+  const _vinculo=()=>taskParaCadena?{taskId:taskParaCadena,pendienteMedia:true}:{};
   const crearDesdePreset=p=>{
     const d=p.construir();
-    sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",activa:true,...d}]);
+    sReglas(r=>[...r,{id:"n"+Date.now(),mediaId:"",activa:true,...d,..._vinculo()}]);
     sAbierta(reglas.length);
     sPreset(false);
+    sTaskParaCadena(null);
   };
-  const nuevaRegla=()=>sReglas(r=>{
+  const nuevaRegla=()=>{const v=_vinculo();sTaskParaCadena(null);sReglas(r=>{
     const p=pasoVacio();
     p.titulo="Mensaje de bienvenida";p.x=320;p.y=210;
-    return[...r,{id:"n"+Date.now(),nombre:"",mediaId:"",palabra:"",activa:true,inicio:p.id,pasos:[p],tx:320,ty:30}];
-  });
+    return[...r,{id:"n"+Date.now(),nombre:"",mediaId:"",palabra:"",activa:true,inicio:p.id,pasos:[p],tx:320,ty:30,...v}];
+  });};
 
   const equipo=votantes(users);
   // Avisos. Nunca se avisa a quien hizo la acción: ya lo sabe.
@@ -4042,24 +4065,49 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
           {/* Sin cadena abierta: la lista. Con una abierta: el constructor a pantalla completa. */}
           {abierta==null?(<>
+            {/* Automatizaciones PENDIENTES: piezas marcadas con el switch en Org Semanal que
+                todavía no tienen su cadena armada. Desde aquí se prepara (preset o a medida) y
+                queda atada a la pieza para activarse sola al publicarse. */}
+            {(()=>{
+              const pend=(tasks||[]).filter(t=>String(t.companyId)===String(selCo)&&t.autoComentario&&!reglas.some(r=>String(r.taskId)===String(t.id))&&t.state!=="publicado");
+              if(!pend.length)return null;
+              return(<div style={{borderRadius:16,border:"1px solid rgba(155,180,255,.35)",background:"rgba(155,180,255,.05)",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:15}}>💬</span>
+                  <span style={{fontSize:13.5,fontWeight:700,color:D.peri}}>{pend.length} automatización{pend.length===1?"":"es"} pendiente{pend.length===1?"":"s"}</span>
+                </div>
+                <div style={{fontSize:12,color:D.tx3,lineHeight:1.5,marginTop:-4}}>Estas piezas van con automatización (marcadas en Org Semanal). Prepárales la cadena; se activará sola cuando el contenido se publique.</div>
+                {pend.map(t=>(
+                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"9px 11px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2}}>
+                    <span style={{flexShrink:0,padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c||D.tx3,fontSize:10.5,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
+                    <span style={{flex:"1 1 140px",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
+                    <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>
+                  </div>))}
+              </div>);
+            })()}
             {reglas.length===0&&<div style={{padding:"34px 20px",textAlign:"center",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13}}>Todavía no hay ninguna cadena.</div>}
             {reglas.map((r,i)=>{
               const nPasos=(r.pasos||[]).length;
               const pub=(pubs||[]).find(p=>p.id===r.mediaId);
+              // ¿Está atada a una pieza y esperando que se publique para armarse sola?
+              const tareaVinc=r.taskId?(tasks||[]).find(t=>String(t.id)===String(r.taskId)):null;
+              const espera=!!r.pendienteMedia;
+              const puntoColor=espera?"#EFD9A0":(r.activa!==false?"#6FE7F2":D.tx5);
               // La fila deja de ser un solo <button>: la papelera es otro botón y uno no puede
               // ir dentro del otro. El contenedor es un <div> y cada acción tiene el suyo.
               return(<div key={r.id} style={{display:"flex",alignItems:"stretch",gap:8}}>
                 <button onClick={()=>sAbierta(i)}
-                  style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+D.line2,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-                  <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.activa!==false?"#6FE7F2":D.tx5,boxShadow:r.activa!==false?"0 0 8px #6FE7F2":"none"}}/>
+                  style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:D.panel,border:"1px solid "+(espera?"rgba(239,217,160,.35)":D.line2),cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:puntoColor,boxShadow:puntoColor!==D.tx5?"0 0 8px "+puntoColor:"none"}}/>
                   <span style={{display:"flex",flexDirection:"column",gap:3,minWidth:0,flex:1}}>
                     <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{r.nombre||(r.palabra?("Cadena de “"+r.palabra+"”"):"Cadena sin nombre")}</span>
                     <span style={{fontSize:11.5,color:D.tx4}}>
-                      {r.palabra?("Comentan “"+r.palabra+"”"):"Sin palabra"} · {pub?"una publicación":"todas las publicaciones"} · {nPasos} bloque{nPasos===1?"":"s"}
+                      {r.palabra?("Comentan “"+r.palabra+"”"):"Sin palabra"} · {espera?"se atará a la publicación al salir":(pub?"una publicación":"todas las publicaciones")} · {nPasos} bloque{nPasos===1?"":"s"}
+                      {tareaVinc?(" · para «"+(tareaVinc.title||"pieza")+"»"):""}
                     </span>
                   </span>
                   {pub&&pub.img&&<img src={pub.img} alt="" onError={e=>{e.target.style.display="none";}} style={{width:38,height:38,borderRadius:9,objectFit:"cover",flexShrink:0}}/>}
-                  <span style={{flexShrink:0,fontSize:11.5,color:r.activa!==false?"#6FE7F2":D.tx5,fontWeight:600}}>{r.activa!==false?"Activa":"Pausada"}</span>
+                  <span style={{flexShrink:0,fontSize:11.5,color:espera?"#EFD9A0":(r.activa!==false?"#6FE7F2":D.tx5),fontWeight:600}}>{espera?"Esperando publicación":(r.activa!==false?"Activa":"Pausada")}</span>
                   <span style={{flexShrink:0,color:D.tx4,fontSize:15}}>›</span>
                 </button>
                 <button onClick={()=>borrarRegla(i)} disabled={guardando} title="Eliminar esta cadena"
@@ -5718,6 +5766,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         // El switch de automatización viaja del item a la tarea: manda el interruptor de Org
         // Semanal. Contenido → Automatización usa esto para listar las piezas que esperan cadena.
         autoComentario:!!it.autoComentario,
+        // Estado del ciclo de la automatización, que también ve el cliente en su portal:
+        // "pendiente" (marcada, sin cadena) → "lista" (cadena armada) → "armada" (activa tras
+        // publicar). Si ya iba lista/armada no se degrada al reconfirmar; si el switch se apaga,
+        // se limpia.
+        autoEstado:!it.autoComentario?null:(["lista","armada"].includes(vieja?.autoEstado)?vieja.autoEstado:"pendiente"),
         plannerTag,
       };
       const sig=firmaItem(it);

@@ -2523,7 +2523,10 @@ async function igProcesarComentario(entry) {
       // comodín que se traga cada comentario y quema el único mensaje permitido, dejando a la
       // regla real sin poder disparar. Una cadena recién creada o un preset sin la palabra
       // escrita cae aquí, así que se descartan.
-      const enc = activas.filter(r => igNorm(r.palabra) && igNorm(texto).includes(igNorm(r.palabra)));
+      // `pendienteMedia`: cadena preparada para una pieza que TODAVÍA no se publica. Se ignora
+      // hasta que el motor de armado (repasoCorto) le ponga el mediaId real al publicarse; si no,
+      // dispararía como cadena general sobre cualquier post desde que se deja lista.
+      const enc = activas.filter(r => !r.pendienteMedia && igNorm(r.palabra) && igNorm(texto).includes(igNorm(r.palabra)));
       enc.forEach(r => candidatas.push({ cid, c, r }));
       if (!enc.length) rastro.push(`empresa ${cid}: ninguna palabra encaja (activas: ${activas.map(x => JSON.stringify(x.palabra)).join(", ") || "ninguna"})`);
     }
@@ -2602,7 +2605,9 @@ async function igProcesarPostback(entry, m) {
 
   let companyId = null, cuenta = null, flujo = null;
   for (const [cid, c] of pares) {
-    const f = (s.reglas[cid] || []).find(r => String(r.id) === ref.flujoId);
+    // Se ignoran las cadenas pendienteMedia: no han enviado nada, así que ningún botón puede
+    // referenciarlas; y si por lo que fuera llegara, no deben responder hasta estar armadas.
+    const f = (s.reglas[cid] || []).find(r => String(r.id) === ref.flujoId && !r.pendienteMedia);
     if (f) { companyId = cid; cuenta = c; flujo = f; break; }
   }
   if (!flujo) { console.error(`IG postback: la cadena ${ref.flujoId} no está en ninguna empresa con la cuenta ${igId}`); return; }
