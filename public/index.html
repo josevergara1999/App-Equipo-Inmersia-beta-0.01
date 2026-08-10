@@ -7140,7 +7140,11 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
       const nCap=(modal.caption||"").length;
       const pasado=nCap>IG_CAPTION_MAX;
       const anclaje=isMob
-        ? {left:0,right:0,bottom:0,maxHeight:"88vh",borderRadius:"22px 22px 0 0",borderTop:"1px solid "+PC.line2,animation:"drawerInMob .24s ease-out backwards"}
+        // `dvh` (viewport dinámico), NO `vh`: en iOS Safari `88vh` se mide sin la barra de
+        // direcciones, así que el sheet se extendía por debajo del área visible y el final del
+        // contenido + el botón quedaban cortados e inalcanzables (en el PC no pasa porque no hay
+        // barra). `dvh` descuenta la barra → el sheet cabe en pantalla y el scroll llega hasta abajo.
+        ? {left:0,right:0,bottom:0,maxHeight:"85dvh",borderRadius:"22px 22px 0 0",borderTop:"1px solid "+PC.line2,animation:"drawerInMob .24s ease-out backwards"}
         : {top:0,right:0,bottom:0,width:"min(430px,100%)",borderLeft:"1px solid "+PC.line2,animation:"drawerIn .24s ease-out backwards"};
       return(<Portal>
         <div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(2,3,8,.66)",backdropFilter:"blur(6px)"}}/>
