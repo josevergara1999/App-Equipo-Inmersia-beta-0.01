@@ -1,6 +1,6 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = "inmersia-v5";
+const CACHE = "inmersia-v6";
 
 // El esqueleto: lo mínimo para pintar la app en pantalla. React, Babel y las fuentes vienen
 // de CDN, otro origen, y los cachea el navegador por su cuenta con su propio max-age largo.
@@ -41,40 +41,27 @@ async function avisarVersionNueva() {
   for (const c of abiertas) c.postMessage({ tipo: 'version-nueva' });
 }
 
-// Caché primero, con refresco por detrás.
+// Red primero, con timeout — y la caché como respaldo.
 //
-// Antes esto era al revés: se iba siempre a la red y solo se miraba la caché si la petición
-// FALLABA. Con Render durmiendo el plan gratuito la red no falla, se queda colgada un minuto
-// mientras el proceso arranca — así que la copia guardada no entraba nunca justo en el caso
-// para el que se había guardado. Era una caché para cuando no hay internet, no para abrir
-// rápido. Ahora la app abre desde el disco aunque el servidor esté dormido, y la versión
-// nueva se descarga en segundo plano para la próxima apertura.
+// Antes era caché-primero: abría al instante pero servía la versión ANTERIOR tras cada
+// despliegue hasta una segunda apertura (y la gente recargaba a mano sin ver la app nueva).
+// Ahora se intenta la RED con un tope de 3 s: con internet y Render despierto sirve SIEMPRE lo
+// último, sin quedar una versión atrás. Si la red tarda (Render dormido) o falla, cae a la copia
+// guardada, así la app abre igual; la descarga termina por detrás y deja la caché lista.
 async function conCache(req, clave, evento) {
   const cache = await caches.open(CACHE);
   const guardado = await cache.match(clave);
-
-  // Se pide por la clave, no por la petición original: una `Request` en modo navigate no se
-  // puede reutilizar tal cual y el resultado es el mismo archivo.
-  const refresco = fetch(clave, { credentials: 'same-origin' }).then(async r => {
-    if (!r || r.status !== 200) return r;
-    const antes = guardado && guardado.headers.get('etag');
-    const ahora = r.headers.get('etag');
-    await cache.put(clave, r.clone());
-    // Solo se avisa si había algo guardado y cambió: en la primera visita no hay versión
-    // vieja que reemplazar y el aviso no significaría nada.
-    if (guardado && antes && ahora && antes !== ahora) await avisarVersionNueva();
-    return r;
-  }).catch(() => null);
-
-  if (guardado) {
-    // `waitUntil` mantiene vivo el service worker hasta que termine la descarga, aunque la
-    // respuesta ya se haya entregado. Sin eso el navegador puede matarlo a media bajada y la
-    // caché se quedaría en la versión vieja para siempre.
-    evento.waitUntil(refresco);
-    return guardado;
-  }
-  // Primera visita: no hay nada que servir, toca esperar a la red.
-  return (await refresco) || Response.error();
+  // Se pide por la clave, no por la Request original: en modo navigate no se puede reutilizar.
+  const red = fetch(clave, { credentials: 'same-origin' })
+    .then(r => { if (r && r.status === 200) cache.put(clave, r.clone()).catch(() => {}); return r; })
+    .catch(() => null);
+  // Primera visita: no hay copia, hay que esperar a la red sí o sí.
+  if (!guardado) return (await red) || Response.error();
+  // Carrera: gana lo que llegue primero. Red rápida → fresco. Si a los 3 s no llegó → caché.
+  const gana = await Promise.race([red, new Promise(res => setTimeout(() => res(null), 3000))]);
+  if (gana && gana.status === 200) return gana;
+  evento.waitUntil(red.catch(() => {})); // deja que la descarga termine y refresque la caché
+  return guardado;
 }
 
 self.addEventListener('fetch', e => {
