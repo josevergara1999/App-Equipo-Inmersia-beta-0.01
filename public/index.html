@@ -1996,7 +1996,15 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
 
   const toggleHecha=t=>{
     const done=["aprobado","publicado"].includes(t.state);
-    sT(p=>p.map(x=>x.id!==t.id?x:{...x,state:done?"en_proceso":"aprobado"}));
+    sT(p=>p.map(x=>{
+      if(x.id!==t.id)return x;
+      // Marcar como aprobado desde aquí deja la pieza IGUAL que el flujo real: sin fecha (para
+      // que caiga en el banco «Listo para agendar» del cliente) y con el día del equipo guardado
+      // en plannedDay como recomendación. Al des-marcar, se recupera ese día como fecha.
+      return done
+        ? {...x,state:"en_proceso",date:x.date||x.plannedDay||null}
+        : {...x,state:"aprobado",date:null,publishTime:null,plannedDay:x.plannedDay||x.date||null};
+    }));
   };
 
   // ── Eventos ─────────────────────────────────────────────────────
@@ -6385,7 +6393,14 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave
       </div>
     </div>
     {/* Estado */}
-    <Fd label="Estado"><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{sts.map(s=><button key={s} onClick={()=>onUp({state:s})} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:600,background:t.state===s?"color-mix(in oklch,"+SS[s].c+" 20%,var(--bg3))":"var(--bg4)",border:"1px solid "+(t.state===s?SS[s].c:"var(--border)"),color:t.state===s?SS[s].c:"var(--tx2)",fontFamily:"inherit",cursor:"pointer"}}>{SS[s].l}</button>)}</div></Fd>
+    <Fd label="Estado"><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{sts.map(s=><button key={s} onClick={()=>onUp(
+      // "Aprobado" desde aquí = igual que el flujo real: sin fecha (va al banco «Listo para
+      // agendar») y el día del equipo guardado como recomendación en plannedDay. Al salir de un
+      // aprobado-sin-fecha hacia otro estado, se recupera ese día para no dejar la pieza sin fecha.
+      s==="aprobado"
+        ? {state:s,date:null,publishTime:null,plannedDay:t.plannedDay||t.date||null}
+        : (["aprobado","publicado"].includes(t.state)&&!t.date?{state:s,date:t.plannedDay||null}:{state:s})
+    )} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:600,background:t.state===s?"color-mix(in oklch,"+SS[s].c+" 20%,var(--bg3))":"var(--bg4)",border:"1px solid "+(t.state===s?SS[s].c:"var(--border)"),color:t.state===s?SS[s].c:"var(--tx2)",fontFamily:"inherit",cursor:"pointer"}}>{SS[s].l}</button>)}</div></Fd>
     {/* Responsables */}
     <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id;return(<button key={u.id} onClick={()=>{const cur=Array.isArray(t.responsable)?[...t.responsable]:(t.responsable?[t.responsable]:[]);const nw=sel?cur.filter(id=>id!==u.id):[...cur,u.id];onUp({responsable:nw});}} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+u.color+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+u.color+" 35%,transparent)":"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
     {/* Fecha */}
