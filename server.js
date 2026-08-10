@@ -713,6 +713,35 @@ app.post("/api/data/:key", requireAuth, async (req, res) => {
   } catch (e) { console.error("data save:", e.message); res.status(502).json({ error: e.message }); }
 });
 
+// ── Limpieza de contenido de prueba (SOLO ADMINS) ────────────────────────────
+// Para arrancar la app en producción con la casa limpia: borra las piezas y la planificación de
+// prueba y deja que el contenido lo mande el cupo de cada empresa. RESPALDA primero todo lo que va
+// a borrar en `backup_limpieza_<fecha>` (reversible) y solo si el respaldo se guardó, vacía. NO
+// toca `companies` (planes = el cupo), `prospects`, ni las claves de sistema (sesiones, tokens, IG,
+// push). Gate estricto: solo admins de TEAM (un cliente o un editor no puede dispararlo).
+const CLAVES_LIMPIABLES = ["tasks", "planners", "planner_drafts", "extras", "guiones", "grabs", "reuniones", "eventos"];
+function esAdminReq(req) {
+  const email = norm(authInfo(req)?.email);
+  return !!email && TEAM.some(u => u.role === "admin" && (norm(u.email) === email || norm(u.gmail) === email));
+}
+app.post("/api/admin/limpiar-contenido", requireAuth, async (req, res) => {
+  if (!esAdminReq(req)) return res.status(403).json({ error: "solo un admin puede limpiar el contenido" });
+  try {
+    const respaldo = {}, borrado = {};
+    for (const k of CLAVES_LIMPIABLES) {
+      const v = (await sbGet(k, [])) || [];
+      respaldo[k] = v;
+      borrado[k] = Array.isArray(v) ? v.length : 0;
+    }
+    const claveBackup = "backup_limpieza_" + new Date().toISOString().replace(/[:.]/g, "-");
+    // Respaldo PRIMERO. Si no se pudo guardar la copia, no se borra nada.
+    if (!(await sbPut(claveBackup, respaldo))) return res.status(502).json({ error: "no se pudo respaldar; no se borró nada" });
+    for (const k of CLAVES_LIMPIABLES) await sbPut(k, []);
+    console.log("Limpieza de contenido por admin. Respaldo:", claveBackup, "borrado:", JSON.stringify(borrado));
+    res.json({ ok: true, respaldo: claveBackup, borrado });
+  } catch (e) { console.error("limpiar-contenido:", e.message); res.status(502).json({ error: e.message }); }
+});
+
 // Toda escritura pasa por esta cola. Sin ella dos avisos simultáneos leen la misma lista y
 // el segundo pisa al primero — el clásico lost update sobre una fila única.
 let notifChain = Promise.resolve();
