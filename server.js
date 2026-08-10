@@ -1551,6 +1551,106 @@ app.get("/api/meta/posts-analysis",requireAuth,async(req,res)=>{
   }catch(err){res.status(500).json({error:err.message});}
 });
 
+// ── Métricas por publicación + chat de IA (portal del cliente) ────────────────
+// Trae las publicaciones recientes con sus métricas. Cacheado 5 min por cuenta: el portal
+// carga la tarjeta y cada mensaje del chat lo reusa sin volver a golpear la API de Meta.
+const _postsCache = new Map(); // igId -> { at, posts }
+async function postsConMetricas(igId, token, limite = 15) {
+  const B = "https://graph.facebook.com/v19.0", T = `access_token=${token}`;
+  const r = await fetch(`${B}/${igId}/media?fields=id,caption,media_type,timestamp,permalink,like_count,comments_count&limit=${limite}&${T}`).then(r => r.json());
+  const posts = (r.data || []).slice(0, limite);
+  return Promise.all(posts.map(async p => {
+    const base = { id: p.id, tipo: p.media_type, fecha: p.timestamp, permalink: p.permalink || "", caption: String(p.caption || ""), likes: p.like_count || 0, comentarios: p.comments_count || 0 };
+    try {
+      const m = p.media_type === "VIDEO" ? "reach,plays,likes,comments,shares,saved" : "reach,likes,comments,shares,saved";
+      const ins = await fetch(`${B}/${p.id}/insights?metric=${m}&${T}`).then(r => r.json());
+      const map = {}; (ins.data || []).forEach(i => { map[i.name] = i.values?.[0]?.value || 0; });
+      const eng = base.likes + base.comentarios + (map.saved || 0) + (map.shares || 0);
+      return { ...base, alcance: map.reach || 0, guardados: map.saved || 0, compartidos: map.shares || 0, plays: map.plays || 0, eng };
+    } catch { return { ...base, alcance: 0, guardados: 0, compartidos: 0, plays: 0, eng: base.likes + base.comentarios }; }
+  }));
+}
+async function postsCacheados(igId, token) {
+  const c = _postsCache.get(igId);
+  if (c && Date.now() - c.at < 5 * 60000) return c.posts;
+  const posts = await postsConMetricas(igId, token, 15);
+  _postsCache.set(igId, { at: Date.now(), posts });
+  return posts;
+}
+const _mediana = arr => { if (!arr.length) return 0; const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); };
+// Elige la publicación objetivo (por mediaId, o por caption, o la más reciente) y la compara con
+// la mediana de las últimas del MISMO tipo (reel vs feed), excluyéndola.
+function analizarObjetivo(posts, { mediaId, caption } = {}) {
+  if (!posts.length) return null;
+  const porFecha = [...posts].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  let target = null;
+  if (mediaId) target = porFecha.find(p => String(p.id) === String(mediaId));
+  if (!target && caption) { const c = String(caption).trim().slice(0, 40).toLowerCase(); if (c) target = porFecha.find(p => p.caption.trim().slice(0, 40).toLowerCase() === c); }
+  if (!target) target = porFecha[0];
+  const mismoTipo = porFecha.filter(p => p.id !== target.id && (p.tipo === "VIDEO") === (target.tipo === "VIDEO"));
+  const base = mismoTipo.slice(0, 10);
+  const mAlc = _mediana(base.map(p => p.alcance)), mEng = _mediana(base.map(p => p.eng));
+  const mult = (a, b) => b > 0 ? Math.round((a / b) * 10) / 10 : null;
+  const mejorEnAlc = base.length ? base.filter(p => target.alcance >= p.alcance).length / base.length : null;
+  return {
+    target, esReel: target.tipo === "VIDEO",
+    base: { n: base.length, alcanceMediano: mAlc, engMediano: mEng },
+    alcanceMult: mult(target.alcance, mAlc), engMult: mult(target.eng, mEng),
+    percentil: mejorEnAlc == null ? null : Math.round(mejorEnAlc * 100),
+  };
+}
+// Verifica que el llamador puede consultar esta cuenta (un cliente, solo la suya).
+async function puedeVerIg(req, igId) {
+  const co = clienteDe(authInfo(req));
+  if (!co) return true; // equipo
+  const empresas = (await sbGet("companies", [])) || [];
+  const cid = await idEmpresaCliente(co, empresas);
+  const mi = empresas.find(c => String(c.id) === cid);
+  return !!mi && String(mi.igId) === String(igId);
+}
+
+app.get("/api/meta/post-stats", requireAuth, async (req, res) => {
+  try {
+    const { igId, mediaId, caption } = req.query;
+    if (!igId) return res.status(400).json({ error: "igId requerido" });
+    if (!await isValidIgId(igId)) return res.status(403).json({ error: "cuenta no autorizada" });
+    if (!await puedeVerIg(req, igId)) return res.status(403).json({ error: "no es tu cuenta" });
+    const token = await getMetaToken();
+    if (!token) return res.json({ ok: false, error: "sin token de Meta" });
+    const posts = await postsCacheados(igId, token);
+    const a = analizarObjetivo(posts, { mediaId, caption });
+    if (!a) return res.json({ ok: true, sinDatos: true });
+    res.json({ ok: true, ...a });
+  } catch (e) { console.error("post-stats:", e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/ai/post-chat", requireAuth, rateLimit(25), async (req, res) => {
+  try {
+    const { igId, mediaId, caption, mensajes } = req.body || {};
+    if (!igId) return res.status(400).json({ error: "igId requerido" });
+    if (!await isValidIgId(igId)) return res.status(403).json({ error: "cuenta no autorizada" });
+    if (!await puedeVerIg(req, igId)) return res.status(403).json({ error: "no es tu cuenta" });
+    const token = await getMetaToken();
+    if (!token) return res.status(502).json({ error: "sin token de Meta" });
+    const posts = await postsCacheados(igId, token);
+    if (!posts.length) return res.json({ respuesta: "Todavía no hay publicaciones con métricas en esta cuenta para analizar." });
+    const a = analizarObjetivo(posts, { mediaId, caption });
+    const t = a?.target;
+    // Contexto con datos REALES para que Gemini no invente.
+    const listaPosts = posts.slice(0, 12).map(p => `- [${p.tipo === "VIDEO" ? "reel" : "post"}] ${String(p.fecha).slice(0, 10)} "${p.caption.replace(/\s+/g, " ").slice(0, 55)}" → alcance ${p.alcance}, likes ${p.likes}, comentarios ${p.comentarios}, guardados ${p.guardados}, compartidos ${p.compartidos}${p.plays ? `, reproducciones ${p.plays}` : ""}, interacción total ${p.eng}`).join("\n");
+    const foco = t ? `\nLA PUBLICACIÓN SOBRE LA QUE PREGUNTAN es la del ${String(t.fecha).slice(0, 10)} ("${t.caption.replace(/\s+/g, " ").slice(0, 55)}"): alcance ${t.alcance}, likes ${t.likes}, comentarios ${t.comentarios}, guardados ${t.guardados}, compartidos ${t.compartidos}. Comparada con la mediana de sus últimos ${a.base.n} ${a.esReel ? "reels" : "posts"}: alcance ${a.alcanceMult ? a.alcanceMult + "×" : "s/d"}, interacción ${a.engMult ? a.engMult + "×" : "s/d"}.` : "";
+    const sistema = `Eres el analista de redes sociales de la agencia INMERSIA, conversando con el cliente dentro de su portal. Respondes SOLO con los datos reales de abajo. Si te preguntan algo que los datos no cubren (por ejemplo, edad de la audiencia o datos de anuncios pagados), dilo con honestidad y NO inventes cifras. Español de Chile, cercano, claro y sin jerga innecesaria. Respuestas breves (2-5 frases), concretas y accionables; usa los números y múltiplos reales.
+
+DATOS REALES (últimas ${posts.length} publicaciones de la cuenta):
+${listaPosts}
+${foco}`;
+    const historia = (Array.isArray(mensajes) ? mensajes : []).slice(-8).map(m => `${m.rol === "user" ? "Cliente" : "Analista"}: ${String(m.texto || "").slice(0, 600)}`).join("\n");
+    const prompt = `${sistema}\n\nConversación:\n${historia}\nAnalista:`;
+    const respuesta = await callGemini([{ parts: [{ text: prompt }] }]);
+    res.json({ respuesta: respuesta || "No pude generar una respuesta ahora, inténtalo de nuevo." });
+  } catch (e) { console.error("post-chat:", e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/meta/insights",requireAuth,async(req,res)=>{
   try{
     const{igId}=req.query;
