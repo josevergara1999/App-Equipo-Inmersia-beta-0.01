@@ -17,7 +17,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 // El webhook de Instagram firma el cuerpo CRUDO en `X-Hub-Signature-256`. Validar sobre el
 // JSON re-serializado no funciona nunca: basta una coma o un orden de claves distinto para que
 // el HMAC no calce. Por eso se guarda el buffer original al vuelo.
-app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
+// Límite generoso: los arrays de tareas/planners/prospectos pasan de los 100 KB por defecto de
+// Express, y ahora se guardan a través del servidor (antes iban directos a Supabase sin tope).
+// Los binarios NO van por aquí: se suben a Storage por /api/upload. Todo detrás de requireAuth.
+app.use(express.json({ limit: "15mb", verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 // ===============================
 // 🔐 AUTH TOKENS
@@ -111,7 +114,7 @@ async function isValidIgId(igId) {
   if (_igCache && now - _igCacheAt < 300000) return _igCache.has(igId);
   try {
     const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
-    const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    const sbKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
     const r = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.companies&select=value`, {
       headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` }
     });
@@ -397,7 +400,7 @@ if (pushReady) {
 
 const SB = () => ({
   url: process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co",
-  key: process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT",
+  key: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT",
 });
 async function loadSubs() {
   const { url, key } = SB();
@@ -585,12 +588,54 @@ async function sbGet(key, fallback) {
 }
 async function sbPut(key, value) {
   const { url, key: k } = SB();
-  await fetch(`${url}/rest/v1/app_data`, {
+  const r = await fetch(`${url}/rest/v1/app_data`, {
     method: "POST",
     headers: { apikey: k, Authorization: `Bearer ${k}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
     body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
   });
+  return r.ok;
 }
+// Claves que NUNCA salen del servidor: son tokens y secretos que solo maneja el backend (OAuth,
+// webhooks, push). El frontend no los lee ni los escribe. Excluirlos del proxy hace que, aunque
+// alguien con sesión válida —incluido un cliente— llame a /api/data, jamás reciba un token.
+const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social"]);
+
+// Lee TODA la tabla de una vez (menos las privadas), con la forma { clave: valor } que espera el
+// frontend.
+async function sbGetAll() {
+  const { url, key } = SB();
+  const r = await fetch(`${url}/rest/v1/app_data?select=key,value`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  if (!r.ok) throw new Error("Supabase respondió " + r.status);
+  const d = await r.json();
+  const m = {}; (Array.isArray(d) ? d : []).forEach(x => { if (!CLAVES_PRIVADAS.has(x.key)) m[x.key] = x.value; }); return m;
+}
+
+// ── Proxy de datos (app_data) ────────────────────────────────────────────────
+// El navegador YA NO habla con Supabase directamente. Antes la clave publishable vivía en el HTML
+// y la tabla no tenía RLS, así que cualquiera con ver-código-fuente leía los tokens de los
+// clientes y podía borrar la base entera. Ahora todo pasa por aquí, con sesión (requireAuth) y la
+// service_role del servidor. Cuando se active RLS en Supabase, este es el único camino que sigue
+// funcionando; el acceso anónimo directo queda cerrado.
+app.get("/api/data", requireAuth, async (req, res) => {
+  try { res.json(await sbGetAll()); }
+  catch (e) { console.error("data all:", e.message); res.status(502).json({ error: e.message }); }
+});
+app.get("/api/data/:key", requireAuth, async (req, res) => {
+  // Los tokens no se sirven por aquí ni aunque se pidan por su nombre exacto.
+  if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no accesible" });
+  try { res.json({ value: await sbGet(req.params.key, null) }); }
+  catch (e) { console.error("data get:", e.message); res.status(502).json({ error: e.message }); }
+});
+app.post("/api/data/:key", requireAuth, async (req, res) => {
+  // Y tampoco se pueden sobrescribir: los maneja solo el backend (callbacks de OAuth, etc.).
+  if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no escribible" });
+  try {
+    if (!req.body || !("value" in req.body)) return res.status(400).json({ error: "falta value" });
+    const ok = await sbPut(req.params.key, req.body.value);
+    if (!ok) return res.status(502).json({ error: "Supabase rechazó la escritura" });
+    res.json({ ok: true });
+  } catch (e) { console.error("data save:", e.message); res.status(502).json({ error: e.message }); }
+});
 
 // Toda escritura pasa por esta cola. Sin ella dos avisos simultáneos leen la misma lista y
 // el segundo pisa al primero — el clásico lost update sobre una fila única.
@@ -1092,7 +1137,7 @@ app.post("/api/auth/logout", (req, res) => {
 // ===============================
 async function getGCalAccessToken(email) {
   const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey = process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
 
   const loadRes = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.gcal_tokens&select=value`, {
     headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` }
@@ -1191,7 +1236,7 @@ app.get("/api/auth/callback/meta",async(req,res)=>{
     const llData=await llRes.json();
     const token=llData.access_token||shortData.access_token;
     const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-    const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
     await fetch(`${sbUrl}/rest/v1/app_data`,{
       method:"POST",
       headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
@@ -1208,7 +1253,7 @@ async function getMetaToken(){
   if(process.env.META_ACCESS_TOKEN)return process.env.META_ACCESS_TOKEN;
   try{
     const sbUrl=process.env.SUPABASE_URL;
-    const sbKey=process.env.SUPABASE_KEY;
+    const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY;
     if(!sbUrl||!sbKey)return null;
     const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.meta_token&select=value`,{headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`}});
     const d=await r.json();
@@ -1568,7 +1613,7 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
 // row (key="prospects") like everything else in this app, deduped by place_id.
 async function loadProspects(){
   const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
   const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.prospects&select=value`,{
     headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`}
   });
@@ -1577,7 +1622,7 @@ async function loadProspects(){
 }
 async function saveProspects(list){
   const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey=process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
   await fetch(`${sbUrl}/rest/v1/app_data`,{
     method:"POST",
     headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},

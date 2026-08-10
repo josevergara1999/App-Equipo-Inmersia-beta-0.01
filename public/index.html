@@ -155,25 +155,25 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
 <script type="text/babel">
 const{useState,useEffect,useCallback,useMemo,useRef}=React;
 
-// ═══ SUPABASE CONFIG ════════════════════════════════════════════
-const SUPABASE_URL="https://cvytwyvaxccbcpfqezlr.supabase.co";
-const SUPABASE_KEY="sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
-const SB_HEADERS={"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Content-Type":"application/json"};
-
+// ═══ DATOS ═══════════════════════════════════════════════════════
+// El navegador YA NO habla con Supabase directamente. Antes la clave de Supabase estaba en este
+// mismo HTML y la tabla no tenía RLS, así que cualquiera con ver-código-fuente podía leer los
+// tokens de los clientes y borrar la base. Ahora todo pasa por el servidor (/api/data), que exige
+// sesión (la cookie HttpOnly del login) y usa la service_role, que nunca llega al cliente.
 const DB={
   async load(key){
     try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${key}&select=value`,{headers:SB_HEADERS});
+      const r=await fetch("/api/data/"+encodeURIComponent(key),{credentials:"same-origin"});
+      if(!r.ok)return[];
       const d=await r.json();
-      return d?.[0]?.value||[];
+      return d?.value??[];
     }catch(e){console.error("DB load error:",key,e);return[];}
   },
   async save(key,value){
     try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data`,{
-        method:"POST",
-        headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
-        body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
+      const r=await fetch("/api/data/"+encodeURIComponent(key),{
+        method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+        body:JSON.stringify({value})
       });
       // Devuelve si de verdad se guardó. Antes se tragaba el fallo en silencio, así que quien
       // llamaba cantaba "guardado" aunque la escritura muriera.
@@ -182,23 +182,24 @@ const DB={
   },
   async loadAll(){
     try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data?select=key,value`,{headers:SB_HEADERS});
+      const r=await fetch("/api/data",{credentials:"same-origin"});
+      if(!r.ok)return{};
       const d=await r.json();
-      const m={};(Array.isArray(d)?d:[]).forEach(x=>m[x.key]=x.value);return m;
+      return(d&&typeof d==="object"&&!Array.isArray(d))?d:{};
     }catch(e){console.error("DB loadAll error:",e);return{};}
   },
   // Igual que loadAll pero LANZA si la lectura falla, en vez de devolver {}. Lo usan los sitios
   // que releen-antes-de-escribir (safeSaveTask, confirmarItem, limpiar/quitar semana): con la
-  // versión tolerante, un fallo de red devolvía {}, el `fresh.tasks||[]` daba [] y se escribía
-  // un array vacío ENCIMA de las tareas de todas las empresas, borrándolas sin recuperación.
-  // Lanzando, el try/catch de cada sitio aborta la escritura y no se pisa nada. Los lectores
-  // de arranque siguen usando el loadAll tolerante (degradan a su respaldo local).
+  // versión tolerante, un fallo devolvía {}, el `fresh.tasks||[]` daba [] y se escribía un array
+  // vacío ENCIMA de las tareas de todas las empresas, borrándolas sin recuperación. Lanzando, el
+  // try/catch de cada sitio aborta la escritura y no se pisa nada. Los lectores de arranque siguen
+  // usando el loadAll tolerante (degradan a su respaldo local).
   async loadAllStrict(){
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/app_data?select=key,value`,{headers:SB_HEADERS});
-    if(!r.ok)throw new Error("Supabase respondió "+r.status);
+    const r=await fetch("/api/data",{credentials:"same-origin"});
+    if(!r.ok)throw new Error("El servidor respondió "+r.status);
     const d=await r.json();
-    if(!Array.isArray(d))throw new Error("respuesta inesperada de Supabase");
-    const m={};d.forEach(x=>m[x.key]=x.value);return m;
+    if(!d||typeof d!=="object"||Array.isArray(d))throw new Error("respuesta inesperada del servidor");
+    return d;
   }
 };
 // Id único que NO se trunca. `Date.now()+Math.random()*N|0` metía el timestamp de 13 dígitos por
