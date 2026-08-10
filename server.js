@@ -1540,7 +1540,7 @@ app.get("/api/meta/posts-analysis",requireAuth,async(req,res)=>{
     // Fetch insights for each post in parallel
     const withInsights=await Promise.all(allPosts.map(async p=>{
       try{
-        const m=p.media_type==="VIDEO"?"reach,plays,likes,comments,shares,saved":"reach,likes,comments,shares,saved";
+        const m="reach,likes,comments,shares,saved"; // sin `plays` (deprecado por Meta; rompia los reels)
         const ins=await fetch(`${B}/${p.id}/insights?metric=${m}&${T}`).then(r=>r.json());
         const map={};(ins.data||[]).forEach(i=>{map[i.name]=i.values?.[0]?.value||0;});
         return{...p,ins:map,eng:(p.like_count||0)+(p.comments_count||0)+(map.saved||0)+(map.shares||0)};
@@ -1562,7 +1562,10 @@ async function postsConMetricas(igId, token, limite = 15) {
   return Promise.all(posts.map(async p => {
     const base = { id: p.id, tipo: p.media_type, fecha: p.timestamp, permalink: p.permalink || "", caption: String(p.caption || ""), likes: p.like_count || 0, comentarios: p.comments_count || 0 };
     try {
-      const m = p.media_type === "VIDEO" ? "reach,plays,likes,comments,shares,saved" : "reach,likes,comments,shares,saved";
+      // Mismo set para reels y posts. NO se pide `plays`: Meta lo deprecó (2024) y, al ser un
+      // métrico inválido, la llamada ENTERA fallaba para los reels y devolvía todo en 0 (alcance,
+      // guardados…), dejando solo likes/comentarios. `reach` sí es válido para reels.
+      const m = "reach,likes,comments,shares,saved";
       const ins = await fetch(`${B}/${p.id}/insights?metric=${m}&${T}`).then(r => r.json());
       const map = {}; (ins.data || []).forEach(i => { map[i.name] = i.values?.[0]?.value || 0; });
       const eng = base.likes + base.comentarios + (map.saved || 0) + (map.shares || 0);
