@@ -2669,6 +2669,10 @@ async function igArmarPendientes() {
   const tasks = (await sbGet("tasks", [])) || [];
   const ahora = Date.now();
   const armados = [];   // { cid, reglaId, taskId, mediaId, task }
+  // Medias ya asignados EN ESTA corrida, por cuenta: si dos piezas de la misma cuenta se
+  // publican a la vez, sin esto ambas cadenas podrían casar el mismo post (el estado de reglas
+  // se leyó una vez al inicio y no refleja lo recién armado aquí).
+  const usadosRun = {};
 
   for (const p of pend) {
     const task = tasks.find(t => String(t.id) === String(p.taskId));
@@ -2686,8 +2690,9 @@ async function igArmarPendientes() {
       const r = await fetch(`${IG_API}/me/media?fields=id,caption,media_type,timestamp&limit=15&access_token=${encodeURIComponent(cuenta.token)}`);
       const d = await r.json();
       if (!r.ok) { console.error(`IG armar: /me/media falló para empresa ${p.cid}:`, d?.error?.message || r.status); continue; }
-      // No reusar un media que ya esté armado en otra cadena de esta cuenta.
-      const yaUsados = new Set((s.reglas[p.cid] || []).map(x => x.mediaId).filter(Boolean));
+      // No reusar un media que ya esté armado en otra cadena de esta cuenta —ni uno recién
+      // asignado en esta misma corrida (usadosRun).
+      const yaUsados = new Set([...(s.reglas[p.cid] || []).map(x => x.mediaId).filter(Boolean), ...(usadosRun[p.cid] || [])]);
       // Ventana desde la que buscar: la hora programada (menos 1 h de margen) o, si fue inmediata,
       // cuando se marcó publicada. Evita casar un post viejo.
       const desde = Number.isFinite(programada) ? programada - 3600000
@@ -2704,6 +2709,7 @@ async function igArmarPendientes() {
       media = (cap && cands.find(m => String(m.caption || "").trim().slice(0, 60) === cap)) || cands[0] || null;
     } catch (e) { console.error("IG armar (me/media):", e.message); continue; }
     if (!media) { console.log(`IG armar: la pieza ${p.taskId} figura publicada pero aún no aparece su media en la cuenta; se reintenta.`); continue; }
+    (usadosRun[p.cid] = usadosRun[p.cid] || []).push(media.id);
 
     await saveIG(s2 => {
       const rr = (s2.reglas[p.cid] || []).find(x => String(x.id) === String(p.reglaId));
