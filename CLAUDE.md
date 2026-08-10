@@ -421,23 +421,33 @@ dominio, hay que sumarlo ahí y en Google Cloud.
 La web pública (`inmersiaperformance.cl`) es otro repo: `~/GitHub/inmersia-web`, HTML estático
 en GitHub Pages. Tiene el botón "Portal" en la barra superior.
 
-### El ping de las 8 a la 1 — no es tráfico raro
+### El ping que mantiene despierto Render — no es tráfico raro
 
 Render duerme el plan gratuito tras **15 minutos** sin tráfico y tarda **~1 minuto** en volver.
 Dormido no es solo lento: **el proceso se detiene**, así que los `setInterval` de `repasoDiario`
-y `repasoCorto` no corren y **los recordatorios por horario no salen**. El aviso de "reunión en
+y `repasoCorto` no corren y **los recordatorios por horario no salen** (ni se arma la
+automatización al publicar — `igArmarPendientes` vive en `repasoCorto`). El aviso de "reunión en
 una hora" no se manda si nadie abrió la app en los 15 minutos previos.
 
-Por eso hay un cron externo (cron-job.org) que pega a `/api/health` cada 10 min, **de 08:00 a
-00:50 hora de Chile**. Ese endpoint es el correcto para esto: es público, solo devuelve
-booleanos de configuración y no toca Supabase.
+Por eso hay un cron externo (cron-job.org, job "INMERSIA — mantener despierto") que pega a
+`/api/health` cada 10 min. **Ventana: 07:00–03:00 hora de Chile (apagado 03:00–07:00);** crontab
+`*/10 0-2,7-23 * * *` en zona America/Santiago. Ese endpoint es el correcto: es público, solo
+devuelve booleanos de configuración y no toca Supabase.
+
+**Apunta al dominio directo de Render** (`app-equipo-inmersia-beta-0-01.onrender.com/api/health`),
+NO al custom `portal.inmersiaperformance.cl`: el custom va por Cloudflare y cuando Render está
+dormido/desplegando devuelve un 5xx rápido, que cron-job.org cuenta como fallo. El 10-ago-2026 el
+job se había **auto-deshabilitado** por acumular fallos de ese tipo (Render llevaba días
+durmiéndose); se reactivó, se cambió la URL al dominio directo y se movió la ventana. Si vuelve a
+caerse, cron-job.org avisa por email ("cuando el cronjob se deshabilite por demasiados fallos"
+está activo) — revisar spam.
 
 La ventana no es capricho, es presupuesto: el tier gratuito da **750 h/mes por workspace** y al
 agotarlas Render **suspende** el servicio hasta el mes siguiente.
 
 ```
 24/7            744 h/mes (mes de 31 días)  → 6 h de margen: demasiado al filo
-08:00 – 01:00   527 h/mes                   → 223 h de margen
+07:00 – 03:00   600 h/mes (20 h/día)        → 150 h de margen
 ```
 
 De madrugada duerme, que no le molesta a nadie. Si algún día se agrega otro servicio al mismo
