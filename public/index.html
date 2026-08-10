@@ -5654,7 +5654,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
   // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
-  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||"")]);
+  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||""),!!it.autoComentario]);
   const confirmada=it=>{
     if(it.confirmadaSig)return it.confirmadaSig===firmaItem(it);
     // Piezas de semanas anteriores a este cambio: no tienen firma, pero si ya tienen su
@@ -5715,6 +5715,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         // reescribe: si tomara `it.day`, mover la pieza de semana en Org Semanal y reconfirmar
         // movería el cupo ya gastado a otro mes.
         plannedDay:clienteAprobo?(vieja.plannedDay||vieja.date||it.day):(it.day||vieja?.plannedDay||null),
+        // El switch de automatización viaja del item a la tarea: manda el interruptor de Org
+        // Semanal. Contenido → Automatización usa esto para listar las piezas que esperan cadena.
+        autoComentario:!!it.autoComentario,
         plannerTag,
       };
       const sig=firmaItem(it);
@@ -6070,6 +6073,8 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
                     <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
+                    {/* Distintivo: este contenido lleva automatización de comentario→DM */}
+                    {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{position:"relative",fontSize:12,flexShrink:0}}>💬</span>}
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
                       <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:"#EFD9A0",flexShrink:0}}/>}
@@ -6128,6 +6133,21 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                             </button>);})}
                         </div>}
                       </div>
+
+                      {/* Switch de automatización de comentario→DM. Solo en reel/post (los tipos a
+                          los que se les puede atar una cadena). Marca que este contenido va con una
+                          automatización, para que todos lo sepan desde la planificación. La cadena
+                          se prepara después en Contenido → Automatización. */}
+                      {["reel","post"].includes(it.type)&&(
+                        <button onClick={()=>updateItem(it.id,{autoComentario:!it.autoComentario})}
+                          title={it.autoComentario?"Lleva automatización de comentario→DM. La cadena se arma en Contenido → Automatización.":"Marca que este contenido lleva una automatización de comentario→DM"}
+                          style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:it.autoComentario?"rgba(155,180,255,.14)":D.panel,border:"1px solid "+(it.autoComentario?"rgba(155,180,255,.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                          💬 Automatización
+                          <span style={{width:26,height:15,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
+                            <span style={{position:"absolute",top:2,left:it.autoComentario?13:2,width:11,height:11,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
+                          </span>
+                        </button>
+                      )}
 
                       <button onClick={()=>sAbierto(o=>({...o,[it.id]:false}))} title="Achicar" style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>▴</button>
                       <button onClick={()=>removeItem(it.id)} title="Eliminar" style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.3)",color:D.rojo,cursor:"pointer"}}><Ic n="trash" s={13} c={D.rojo}/></button>
