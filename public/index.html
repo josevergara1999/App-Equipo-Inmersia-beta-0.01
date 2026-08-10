@@ -7163,7 +7163,12 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
             <button onClick={()=>sModal(null)} style={{width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
           </div>
 
-          <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
+          {/* Contenedor de SCROLL (bloque) por fuera, y el flex-column por dentro. Si el flex fuera
+              también el que scrollea, sus hijos (preview, stats, chat) se ENCOGEN para caber en vez
+              de desbordar → todo comprimido y sin scroll (el bug de móvil). Separados, el contenido
+              toma su alto real y el de afuera desliza. */}
+          <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+          <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
             <IgPreview file={modal.file} files={modal.files} type={modal.type} caption={modal.caption}
               cuenta={cuenta} color={coColor} fecha={modal.date} hora={modal.time}/>
 
@@ -7214,6 +7219,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
                 : <span style={{fontSize:11.5,color:PC.tx4}}>Es el texto que saldrá publicado, tal cual lo escribas.</span>}
             </div>
             </>)}
+          </div>
           </div>
 
           <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"14px 20px",borderTop:"1px solid "+PC.line,flexShrink:0}}>
