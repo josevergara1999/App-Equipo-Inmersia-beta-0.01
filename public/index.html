@@ -6914,8 +6914,13 @@ function IgPreview({file,files,type,caption,cuenta,color,fecha,hora}){
         ▶ o 🔇 dentro del preview no dispare también el visor (sus botones solo frenan el
         pointerdown, no el click, que llegaba hasta aquí). */}
     <div onClick={file&&isImg(file)?()=>openZoom(files&&files.length?files:[file],0):undefined}
-      style={{aspectRatio:vertical?"9 / 16":"1 / 1",background:"#07090c",cursor:file&&isImg(file)?"zoom-in":"default"}}>
-      <DeckMedia f={file} h={"100%"} fit="contain"/>
+      style={{aspectRatio:vertical?"9 / 16":"1 / 1",background:"#07090c",cursor:file&&isImg(file)?"zoom-in":"default",position:"relative"}}>
+      {/* Envoltorio absoluto: da altura DEFINIDA al media. Sin esto, DeckMedia usa height:100%
+          contra un padre con aspect-ratio (altura "indefinida" para %), el 100% no resolvía y el
+          marco colapsaba al alto natural de la imagen — un reel horizontal en vez de 9:16. */}
+      <div style={{position:"absolute",inset:0}}>
+        <DeckMedia f={file} h={"100%"} fit="contain"/>
+      </div>
     </div>
     <div style={{display:"flex",alignItems:"center",gap:14,padding:"11px 12px 7px"}}>
       <IgIco d={IG_ICO.like} c={PC.tx2}/>
@@ -7148,13 +7153,13 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
               ? <img src={fSrc(modal.file)} alt="" onClick={()=>openZoom(modal.file)} style={{width:44,height:44,borderRadius:11,objectFit:"cover",flexShrink:0,cursor:"zoom-in"}}/>
               : <div style={{width:44,height:44,borderRadius:11,background:PC.panel,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{TT[modal.type]?.i}</div>}
             <div style={{minWidth:0,flex:1}}>
-              <div style={{fontSize:11,fontFamily:"var(--font-mono)",letterSpacing:".14em",textTransform:"uppercase",color:PC.cian}}>Armar publicación</div>
+              <div style={{fontSize:11,fontFamily:"var(--font-mono)",letterSpacing:".14em",textTransform:"uppercase",color:PC.cian}}>{modal.state==="publicado"?"Publicación":"Armar publicación"}</div>
               <div style={{fontSize:14.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{modal.title}</div>
             </div>
             <button onClick={()=>sModal(null)} style={{width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
           </div>
 
-          <div style={{flex:1,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
+          <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
             <IgPreview file={modal.file} files={modal.files} type={modal.type} caption={modal.caption}
               cuenta={cuenta} color={coColor} fecha={modal.date} hora={modal.time}/>
 
