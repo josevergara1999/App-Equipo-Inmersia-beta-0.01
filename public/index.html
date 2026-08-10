@@ -4118,14 +4118,14 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 </button>
               </div>);})}
             <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-              <Bt v="s" onClick={()=>sPreset(true)} icon="plus">Nueva cadena</Bt>
+              <Bt v="s" onClick={()=>{sTaskParaCadena(null);sPreset(true);}} icon="plus">Nueva cadena</Bt>
               <Bt v="p" onClick={guardarReglas} disabled={guardando}>{guardando?"Guardando…":"Guardar cambios"}</Bt>
             </div>
 
             {/* Elegir plantilla antes de abrir el lienzo. Empezar de cero está bien cuando ya
                 sabes lo que quieres montar; la primera vez, con el lienzo vacío delante, no hay
                 por dónde agarrarlo. */}
-            <Md open={preset} onClose={()=>sPreset(false)} title="¿Cómo empezamos?" width={520}>
+            <Md open={preset} onClose={()=>{sPreset(false);sTaskParaCadena(null);}} title="¿Cómo empezamos?" width={520}>
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {CC_PRESETS.map(p=>(
                   <button key={p.id} onClick={()=>crearDesdePreset(p)}
@@ -5702,7 +5702,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
   // Firma de los campos que se vuelcan a la tarea. Si cambia alguno, la pieza vuelve a
   // quedar por confirmar: lo que hay en Contenido dejó de reflejar lo que dice el planner.
-  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||""),!!it.autoComentario]);
+  // El campo de automatización se AÑADE solo cuando está activo, en vez de ser siempre el 9º
+  // elemento: así las piezas ya confirmadas (que no lo tienen) conservan su firma de 8 campos y
+  // no se marcan de golpe como "sin confirmar" al desplegar. Solo cambia la firma de las piezas
+  // que de verdad llevan automatización.
+  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||"")].concat(it.autoComentario?["auto"]:[]));
   const confirmada=it=>{
     if(it.confirmadaSig)return it.confirmadaSig===firmaItem(it);
     // Piezas de semanas anteriores a este cambio: no tienen firma, pero si ya tienen su

@@ -39,6 +39,19 @@ Standalone vienen de CDN.
 - Los datos se cargan al montar con `DB.loadAll()` y se guardan con `dbSave(key, value)`
   (debounce de 800 ms).
 - Hay guardas para no pisar Supabase con arrays vacíos (`initTrack*` y `hadData`).
+- **El navegador NO habla con Supabase directamente.** `DB` pega a `/api/data` del servidor
+  (GET todo, GET una clave, POST guardar), con sesión (`requireAuth`) y la `service_role` que
+  vive solo en el servidor. Antes la clave publishable estaba en el HTML y la tabla `app_data`
+  tenía una policy `"Allow all access"` para el rol `public`: cualquiera leía los tokens de los
+  clientes y podía borrar la base. Ahora la policy está quitada (RLS deniega al anónimo) y el
+  único camino es el servidor. Los tokens (`gcal_tokens`, `meta_token`, `user_creds`, `ig`,
+  `push_subs`, `social`) están en `CLAVES_PRIVADAS` y **nunca salen del proxy** (403).
+- **`DB.loadAllStrict()` LANZA si la lectura falla** (en vez de devolver `{}`). Lo usan los
+  sitios que releen-antes-de-escribir (safeSaveTask, confirmarItem, limpiar/quitar semana): con
+  el tolerante, un fallo daba `{}`, `fresh.tasks||[]` daba `[]` y se escribía un array vacío
+  ENCIMA de las tareas de todas las empresas. `DB.save` devuelve si de verdad guardó.
+- **`uid()` para ids nuevos**, nunca `Date.now()+Math.random()*N|0` (ese OR truncaba a 32 bits →
+  ids negativos y con choques; el id casa tareas e items en todo el flujo).
 - El objeto `API` enruta **todas** las llamadas externas por el servidor. Nunca llames a una
   API externa desde el frontend.
 
@@ -84,6 +97,14 @@ Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`,
 `notif_daily`, `user_creds`, `social`, `ig`. Los binarios van al **Storage** (bucket
 `contenido`), nunca a esta tabla.
 
+**RLS activo desde 10-ago-2026.** La tabla tiene Row Level Security y NO tiene policies para el
+rol anónimo, así que la clave publishable no puede leer ni escribir. Todo acceso pasa por el
+servidor con la `service_role` (que bypassa RLS). Por eso el servidor lee/escribe `app_data`
+prefiriendo `SUPABASE_SERVICE_KEY` (ver `SB()` y los helpers inline). Si algún día se reactiva
+el acceso directo desde el cliente, hay que volver a crear una policy — pero eso REABRE el
+agujero. El frontend usa `/api/data/*` (GET todo/una clave, POST guardar), nunca la REST de
+Supabase directo.
+
 ### Variables de entorno
 
 Ver `.env.example`, que está al día. Las que suelen faltar: `SUPABASE_SERVICE_KEY` (sin ella no
@@ -113,9 +134,13 @@ post; ese descuento es provisional y se ve aparte (`aprobadas` vs `enCurso`).
 - `incluidoDe(co)`: lo que contrata el cliente, por tipo. `co.incluido` pisa a la plantilla de
   `PLANS`, porque los planes se negocian caso a caso y tienen que editarse sin tocar el código.
   Se ajusta con los ± de la tarjeta de la empresa.
-- `usadasEnMes()`: cuenta las piezas reales. Se imputan al mes de su fecha; **las que no tienen
-  fecha cuentan solo en el mes en curso** — si contaran en cualquier mes que se mirara, una
-  pieza sin agendar aparecería consumida en todos a la vez.
+- `usadasEnMes()`: cuenta las piezas reales, imputadas a un mes. La regla exacta:
+  - Una pieza en `no_realizado` **sin material** NO cuenta (es un cupo reseteado/liberado; la
+    papelera de una pieza promete "el cupo queda libre").
+  - Una pieza **aprobada/publicada** se ancla a su **mes de producción (`plannedDay`)**, no a la
+    fecha de publicación: el cupo se gasta al aprobar y no se mueve aunque el cliente publique
+    otro mes (si no, agendar cruzando mes movería un cupo ya gastado).
+  - El resto va por su `date`; y **sin fecha, al mes en curso** (trabajo pendiente de agendar).
 - `co.ajuste[mes]`: lo que ya venía consumido de fuera de la app, que es como se lleva el
   registro real. Se mete a mano al empezar el mes y de ahí en adelante baja solo.
 - `<Cupos>` muestra el saldo en Contenido y Org Semanal, con el tipo agotado en rojo.
@@ -134,6 +159,15 @@ portal). Aparte del rol, `vota: true` marca a quienes deciden si una pieza sale 
 El equipo produce, **el cliente decide cuándo se publica**. Una sola tarea lleva todo el ciclo:
 `state` y `date` son independientes, y eso es lo que permite representar "aprobada pero sin
 agendar".
+
+**Invariante `aprobado ⇒ sin fecha`.** Al aprobar (portal del cliente, atajo del equipo
+`cliAprueba`, checkbox del Dashboard `toggleHecha`, o el selector de estado del detalle), se
+limpia `date` y el día que había planificado el equipo se guarda en **`plannedDay`**. El banco
+«Listo para agendar» del cliente es literalmente `!t.date`, así que la pieza aprobada cae ahí y
+el cliente elige el día. `plannedDay` es además el ancla de facturación (ver `usadasEnMes`) y se
+muestra como recomendación. TODOS los caminos que ponen `aprobado` deben respetar esto. El día
+en **Org Semanal** es otra cosa (`item.day`, solo lo mueve el equipo arrastrando); limpiar
+`date` no mueve el item del planner.
 
 La página **Contenido** muestra cinco etapas apiladas, no un tablero de columnas:
 
@@ -350,6 +384,32 @@ qué punto va cada conversación obligaría a limpiar sesiones colgadas para sie
 - Las reglas viejas de un solo `mensaje` se leen como una cadena de un paso; no hace falta
   migrar nada.
 
+### Automatización atada a una pieza (reel/post) — se arma sola al publicar
+
+Una cadena puede prepararse para una pieza concreta ANTES de que exista, y encenderse sola
+cuando la pieza se publique. El problema que resuelve: la cadena necesita el `mediaId` real de
+Instagram, y ese id solo existe DESPUÉS de publicar (y la publicación puede ser en 3 días). El
+ciclo:
+
+1. **Switch en Org Semanal** (`item.autoComentario`, solo en reel/post) marca que la pieza va con
+   automatización. Viaja a la tarea (`task.autoComentario`) al confirmar.
+2. **Contenido → Automatización** lista las piezas marcadas sin cadena como pendientes. Al
+   preparar una (preset o a medida) la regla nace atada: `r.taskId` + **`r.pendienteMedia:true`**.
+   El webhook **ignora** las reglas `pendienteMedia` (si no, dispararían como comodín sobre
+   cualquier post desde que se dejan listas). La tarea pasa a `autoEstado:"lista"` y se avisa al
+   equipo y al cliente.
+3. **Portal del cliente**: el drawer muestra el estado (`en preparación` → `lista` → `activa`)
+   leído de `task.autoEstado`.
+4. **`igArmarPendientes()`** (en `repasoCorto`, cada 10 min): mira las reglas `pendienteMedia`
+   cuya pieza ya se publicó (estado `publicado`, o su hora programada ya pasó). Busca el post
+   recién salido en `me/media` (misma API que el webhook), le pega el `mediaId` a la regla y la
+   suelta (`pendienteMedia:false`). Marca la tarea `publicado` + `autoEstado:"armada"` y avisa.
+   Matching robusto: reel exige `VIDEO`, prefiere coincidencia de caption, excluye media ya
+   armado (incl. dentro de la misma corrida, `usadosRun`), ignora posts fuera de la ventana. Si
+   Zernio aún no publicó, no aparece media → no arma → reintenta. **Requiere que la cuenta esté
+   conectada por Meta directo (comentario→DM), o sea Advanced Access para clientes; funciona hoy
+   en cuentas propias.**
+
 ## Dominios y despliegue
 
 Render, con despliegue automático al hacer push a `main`. La app responde en **dos dominios a
@@ -406,9 +466,10 @@ servicio.
   reproductor en negro, y una respuesta 206 no se puede guardar en Cache Storage.
 - **Nunca guardar video en base64 en una tarea.** Todas las tareas viven en una fila que
   `DB.loadAll()` trae entera en cada carga, para todos los usuarios.
-- **`DB.loadAll()` trae las tareas de todas las empresas** y filtra en el cliente: el navegador
-  de un cliente recibe contenido de otros. Arreglarlo requiere filtrado por fila, no un cambio
-  de UI.
+- **`/api/data` (y `DB.loadAll()`) trae las claves de contenido de TODAS las empresas** y filtra
+  en el cliente: un cliente logueado recibe el contenido de otros clientes (los tokens ya NO, van
+  en `CLAVES_PRIVADAS`). Desde el refactor exige sesión (ya no es anónimo), pero falta el
+  filtrado por empresa por fila para cerrarlo del todo.
 - **Los iconos se generan midiendo, no a ojo.** El recorte escrito a mano cortaba el arco
   inferior del logo.
 

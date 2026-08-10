@@ -2682,6 +2682,20 @@ async function igArmarPendientes() {
     const programada = task.socialPost?.programadaPara ? Date.parse(task.socialPost.programadaPara) : null;
     const yaPublicada = task.state === "publicado" || (Number.isFinite(programada) && programada <= ahora);
     if (!yaPublicada) continue;
+    // Se rinde tras 3 días desde la publicación prevista: si el media nunca apareció (Zernio no
+    // publicó, o se canceló), no tiene sentido golpear la API cada 10 min para siempre. Se avisa
+    // una vez a los admins (crearNotif deduplica) y se deja de reintentar; la cadena queda visible
+    // como pendiente para que el equipo la revise o la rearme.
+    const refPub = Number.isFinite(programada) ? programada : (Date.parse(task.socialPost?.at || "") || 0);
+    if (refPub && ahora - refPub > 3 * 24 * 3600000) {
+      await crearNotif({
+        type: "contenido", title: "⚠️ Automatización sin publicación",
+        body: `«${task.title || "Una pieza"}» tenía una automatización lista pero su publicación no apareció en 3 días. Revisa si de verdad se publicó, o vuelve a prepararla.`,
+        to: correosDe(TEAM.filter(u => u.role === "admin")), url: "/", important: true,
+        dedupKey: "autostuck_" + p.taskId,
+      }).catch(e => console.error("IG armar stuck:", e.message));
+      continue;
+    }
     const cuenta = s.cuentas[p.cid];
     if (!cuenta?.token) continue;
 
@@ -2700,7 +2714,9 @@ async function igArmarPendientes() {
       const esReel = task.type === "reel";
       const cands = (d.data || [])
         .filter(m => !yaUsados.has(m.id))
-        .filter(m => esReel ? m.media_type === "VIDEO" : true)   // un reel sale como VIDEO
+        // Un reel sale como VIDEO; un post es IMAGE o CAROUSEL_ALBUM. Se excluye el tipo contrario
+        // para que una cadena de post no se arme al reel que salió a la misma hora (ni al revés).
+        .filter(m => esReel ? m.media_type === "VIDEO" : m.media_type !== "VIDEO")
         .filter(m => { const t = Date.parse(m.timestamp); return Number.isFinite(t) && t >= desde; })
         .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
       // Si la pieza tiene pie escrito, se prefiere el post cuyo caption coincide; si no, el más
