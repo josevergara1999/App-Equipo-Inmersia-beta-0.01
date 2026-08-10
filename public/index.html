@@ -6919,7 +6919,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
     const t=items.find(x=>String(x.id)===String(id));
     if(!t||t.state==="publicado")return;
     sSel(null);
-    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null});
+    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null});
   };
 
   // El id viaja en el dataTransfer, no en el estado de React: entre dragstart y drop
@@ -7113,6 +7113,22 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
               {modal.plannedDay&&<span style={{fontSize:11.5,color:PC.cian}}>📌 El equipo la planificó para el {fechaDia(modal.plannedDay)}. Puedes dejarla ese día o mover la publicación.</span>}
               <span style={{fontSize:11.5,color:PC.tx4}}>Si dejas la hora vacía, la elige el equipo.</span>
             </div>
+
+            {/* Estado de la automatización de comentarios, para que el cliente sepa que este
+                contenido lleva una y en qué punto va. Se activa sola al publicarse. */}
+            {modal.autoComentario&&(()=>{
+              const arm=modal.autoEstado==="armada", lista=modal.autoEstado==="lista";
+              const col=arm?"#8FF2C2":lista?PC.cian:"#EFD9A0";
+              const txt=arm
+                ? "🟢 Automatización de comentarios activa — quien comente recibe tu mensaje por privado."
+                : lista
+                  ? "✅ Automatización de comentarios lista. Se activará sola en cuanto se publique."
+                  : "🔧 Automatización de comentarios en preparación por el equipo.";
+              return(<div style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:12,background:col+"12",border:"1px solid "+col+"3a"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:col,flexShrink:0,marginTop:5,boxShadow:arm?"0 0 8px "+col:"none"}}/>
+                <span style={{fontSize:12,color:PC.tx2,lineHeight:1.5}}>{txt}{lista&&<span style={{color:PC.tx4}}> Recuerda: Instagram necesita que el contenido esté publicado para que empiece a responder.</span>}</span>
+              </div>);
+            })()}
 
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
               <div style={{display:"flex",alignItems:"baseline",gap:8}}>
