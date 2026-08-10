@@ -600,6 +600,51 @@ async function sbPut(key, value) {
 // alguien con sesión válida —incluido un cliente— llame a /api/data, jamás reciba un token.
 const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social"]);
 
+// ── Aislamiento por empresa (multi-cliente) ──────────────────────────────────
+// `app_data` guarda una fila ÚNICA por clave: `tasks` es un solo array con las tareas de TODAS
+// las empresas. Sin esto, cualquier cliente logueado (todos entran con la de fábrica 1234) podía
+// pedir /api/data y recibir tareas, contratos, precios, pagos internos y prospectos de las demás
+// empresas —y sobrescribirlos—. Las claves-token ya estaban tapadas por CLAVES_PRIVADAS; esto
+// cierra la fuga de datos ENTRE clientes.
+//
+// Espejo backend de las cuentas role:"cliente" de INIT_USERS (frontend): email de acceso → nombre
+// de empresa (debe calzar con companies[].name ignorando espacios/mayúsculas). Si agregas un
+// cliente en el frontend, agrégalo aquí también. Aun si se te olvida, todo email SIN "@" se trata
+// como cliente y, si no se resuelve su empresa, NO ve nada (fail-closed), nunca todo.
+const CLIENTES = { huemul: "Huemul", fauna: "Fauna", antue: "Antue", valleaventura: "valle aventura" };
+
+// Decodifica la sesión del request (cookie o Bearer).
+function authInfo(req) {
+  const cookies = parseCookies(req);
+  return verifyToken(cookies._iauth || (req.headers.authorization || "").replace("Bearer ", "").trim());
+}
+// Si el que pide es un cliente devuelve el nombre de su empresa; si es equipo, null. Se calcula
+// desde el email en cada request (no se confía en el token), así una sesión abierta antes de este
+// cambio también queda scopeada.
+function clienteDe(tok) {
+  const email = tok && tok.email;
+  if (!email) return null;
+  const esCliente = (email in CLIENTES) || !String(email).includes("@");
+  return esCliente ? (CLIENTES[email] || email) : null;
+}
+const _slug = s => String(s || "").toLowerCase().replace(/\s+/g, "");
+// companyId (string) de la empresa del cliente, o null si no se resuelve (→ no ve nada).
+async function idEmpresaCliente(coName, companiesArr) {
+  const arr = Array.isArray(companiesArr) ? companiesArr : ((await sbGet("companies", [])) || []);
+  const objetivo = _slug(coName);
+  const found = arr.find(c => _slug(c.name) === objetivo);
+  return found ? String(found.id) : null;
+}
+// Recorta el mapa completo a lo único que un cliente puede ver: SU empresa y SUS tareas.
+async function scopeCliente(mapa, coName) {
+  const companies = Array.isArray(mapa.companies) ? mapa.companies : [];
+  const cid = await idEmpresaCliente(coName, companies);
+  if (!cid) return { companies: [], tasks: [] }; // fail-closed
+  const miCo = companies.find(c => String(c.id) === cid);
+  const tasks = (Array.isArray(mapa.tasks) ? mapa.tasks : []).filter(t => String(t.companyId) === cid);
+  return { companies: miCo ? [miCo] : [], tasks };
+}
+
 // Lee TODA la tabla de una vez (menos las privadas), con la forma { clave: valor } que espera el
 // frontend.
 async function sbGetAll() {
@@ -617,20 +662,51 @@ async function sbGetAll() {
 // service_role del servidor. Cuando se active RLS en Supabase, este es el único camino que sigue
 // funcionando; el acceso anónimo directo queda cerrado.
 app.get("/api/data", requireAuth, async (req, res) => {
-  try { res.json(await sbGetAll()); }
-  catch (e) { console.error("data all:", e.message); res.status(502).json({ error: e.message }); }
+  try {
+    const todo = await sbGetAll();
+    const co = clienteDe(authInfo(req));
+    // Un cliente solo se lleva SU empresa y SUS tareas; el resto ni lo ve.
+    res.json(co ? await scopeCliente(todo, co) : todo);
+  } catch (e) { console.error("data all:", e.message); res.status(502).json({ error: e.message }); }
 });
 app.get("/api/data/:key", requireAuth, async (req, res) => {
   // Los tokens no se sirven por aquí ni aunque se pidan por su nombre exacto.
   if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no accesible" });
-  try { res.json({ value: await sbGet(req.params.key, null) }); }
-  catch (e) { console.error("data get:", e.message); res.status(502).json({ error: e.message }); }
+  try {
+    const co = clienteDe(authInfo(req));
+    if (co) {
+      // A un cliente, por clave suelta, solo se le entregan tasks/companies y ya scopeadas.
+      if (req.params.key !== "tasks" && req.params.key !== "companies") return res.status(403).json({ error: "clave no accesible" });
+      const scoped = await scopeCliente({ tasks: await sbGet("tasks", []), companies: await sbGet("companies", []) }, co);
+      return res.json({ value: scoped[req.params.key] || [] });
+    }
+    res.json({ value: await sbGet(req.params.key, null) });
+  } catch (e) { console.error("data get:", e.message); res.status(502).json({ error: e.message }); }
 });
 app.post("/api/data/:key", requireAuth, async (req, res) => {
   // Y tampoco se pueden sobrescribir: los maneja solo el backend (callbacks de OAuth, etc.).
   if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no escribible" });
   try {
     if (!req.body || !("value" in req.body)) return res.status(400).json({ error: "falta value" });
+    const co = clienteDe(authInfo(req));
+    if (co) {
+      // Un cliente SOLO puede escribir `tasks`, y por merge: se conservan intactas las tareas de
+      // las demás empresas y solo se aceptan MODIFICACIONES a las suyas ya existentes. No puede
+      // crear, borrar ni reasignar de empresa una tarea, ni tocar ninguna otra clave.
+      if (req.params.key !== "tasks") return res.status(403).json({ error: "clave no escribible" });
+      const cid = await idEmpresaCliente(co);
+      if (!cid) return res.status(403).json({ error: "empresa no resuelta" });
+      const actuales = (await sbGet("tasks", [])) || [];
+      const propuestas = new Map((Array.isArray(req.body.value) ? req.body.value : []).map(t => [t.id, t]));
+      const nuevas = actuales.map(t =>
+        (String(t.companyId) === cid && propuestas.has(t.id))
+          ? { ...propuestas.get(t.id), companyId: t.companyId }  // fija la empresa: no se reasigna
+          : t
+      );
+      const ok = await sbPut("tasks", nuevas);
+      if (!ok) return res.status(502).json({ error: "Supabase rechazó la escritura" });
+      return res.json({ ok: true });
+    }
     const ok = await sbPut(req.params.key, req.body.value);
     if (!ok) return res.status(502).json({ error: "Supabase rechazó la escritura" });
     res.json({ ok: true });
@@ -2287,6 +2363,14 @@ app.put("/api/ig/reglas", requireAuth, async (req, res) => {
       inicio: ids.has(String(r.inicio || "")) ? String(r.inicio) : (pasos[0]?.id || ""),
       pasos,
       activa: r.activa !== false,
+      // El vínculo con la pieza y la marca de "esperando publicación" TIENEN que sobrevivir al
+      // guardado. Sin esto, cada vez que se abría y guardaba la lista de reglas se perdían: la
+      // cadena preparada dejaba de estar `pendienteMedia` (→ el webhook la disparaba como comodín
+      // sobre cualquier post, antes de publicar) y `igArmarPendientes` —que exige taskId+pendiente—
+      // nunca la armaba. Solo se añaden si la regla está ligada a una pieza; una regla normal
+      // (permanente, sin taskId) no los lleva. `pendienteMedia` se conserva como false solo si ya
+      // se armó explícitamente; ante la duda queda en espera, nunca comodín.
+      ...(r.taskId ? { taskId: String(r.taskId), pendienteMedia: r.pendienteMedia !== false, ...(r.expirada ? { expirada: true } : {}) } : {}),
     };
   }).filter(r => r.palabra && r.pasos.length);
   const s = await saveIG(s2 => { s2.reglas[String(companyId)] = limpias; return s2; });
@@ -2663,7 +2747,7 @@ async function igArmarPendientes() {
   const s = await loadIG();
   const pend = [];
   for (const [cid, rules] of Object.entries(s.reglas || {})) {
-    for (const r of (rules || [])) if (r.pendienteMedia && r.taskId) pend.push({ cid, reglaId: r.id, taskId: r.taskId });
+    for (const r of (rules || [])) if (r.pendienteMedia && r.taskId && !r.expirada) pend.push({ cid, reglaId: r.id, taskId: r.taskId });
   }
   if (!pend.length) return;
   const tasks = (await sbGet("tasks", [])) || [];
@@ -2694,6 +2778,15 @@ async function igArmarPendientes() {
         to: correosDe(TEAM.filter(u => u.role === "admin")), url: "/", important: true,
         dedupKey: "autostuck_" + p.taskId,
       }).catch(e => console.error("IG armar stuck:", e.message));
+      // Se marca `expirada` para que deje de re-entrar a la cola en cada repaso: sin esto seguía en
+      // `pend` y, al vencer el dedup de 12 h, el mismo aviso se reenviaba a los admins para siempre.
+      // Se conserva `pendienteMedia:true` a propósito —así el webhook la sigue ignorando (nunca tuvo
+      // mediaId)— y queda visible como pendiente por si el equipo quiere rearmarla.
+      await saveIG(s2 => {
+        const rr = (s2.reglas[p.cid] || []).find(x => String(x.id) === String(p.reglaId));
+        if (rr) rr.expirada = true;
+        return s2;
+      }).catch(e => console.error("IG armar marcar expirada:", e.message));
       continue;
     }
     const cuenta = s.cuentas[p.cid];

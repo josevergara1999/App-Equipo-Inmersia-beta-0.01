@@ -467,7 +467,12 @@ const fechaDia=ds=>{
   if(p.length!==3||p.some(x=>x===""||isNaN(+x)))return String(ds||"");
   return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString("es-CL",{weekday:"short",day:"numeric",month:"long"});
 };
-let _i=200;const ni=()=>++_i;const fP=n=>"$"+n.toLocaleString("es-CL");
+// ids de piezas/extras/pagos: uid() en vez de un contador. El contador (let _i=200;++_i) se
+// reiniciaba a 200 en cada carga y no se sembraba de las tareas ya guardadas, así que dos personas
+// —o la misma tras un F5— generaban ids repetidos (201,202…) sobre el MISMO array `tasks`. Como
+// cada mutación casa por t.id, aprobar/limpiar-fecha/borrar una pieza reescribía en silencio la
+// otra con el mismo id (incluida la pieza que nadie tocó). uid() es único entre sesiones.
+const ni=()=>uid();const fP=n=>"$"+n.toLocaleString("es-CL");
 const GC_ID="963118662211-v89qggrk0em0l15eqa0omfek9rbgqbcb.apps.googleusercontent.com";
 const td=()=>new Date().toISOString().split("T")[0];
 // Quiénes votan el contenido antes de que salga al portal del cliente.
@@ -1979,7 +1984,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
   const colorCo=id=>cos.find(c=>String(c.id)===String(id))?.color||D.tx4;
   const nombreCo=id=>cos.find(c=>String(c.id)===String(id))?.name||"General";
   const hoyDs=td();
-  const fmtDia=ds=>{const [y,m,d]=ds.split("-").map(Number);return new Date(y,m-1,d);};
+  const fmtDia=ds=>{const [y,m,d]=String(ds||"").split("-").map(Number);return new Date(y||1970,(m||1)-1,d||1);};
 
   // ── Panel Hoy / Semana ──────────────────────────────────────────
   const hoyItems=useMemo(()=>tasks.filter(t=>t.date===hoyDs).sort((a,b)=>(a.publishTime||"99").localeCompare(b.publishTime||"99")),[tasks,hoyDs]);
@@ -3424,7 +3429,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     if(!co)return;
     const dia=nf.date||td();
     const wk=lunesDe(dia)+"_"+String(selCo);
-    const itemId=String(Date.now())+Math.floor(Math.random()*1000);
+    const itemId=uid();
     const titulo=nf.title.trim()||((TT[nf.type]?.l||"Contenido")+" "+co.name);
     const item={id:itemId,day:dia,type:nf.type,title:titulo,description:"",strategy:"",production:[],state:"borrador",order:0};
     sPlanners(prev=>{
@@ -5740,6 +5745,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       // su banco esperando que la agende). Sin distinguirlo, reconfirmar le devolvía el día del
       // planner y le reagendaba la pieza por su cuenta.
       const clienteAprobo=vieja?.clientApproval?.status==="aprobado";
+      // Traducción de estados planner→tarea, calculada antes del objeto para poder aplicarle la
+      // invariante de fecha. Confirmar significa que la pieza sale, así que el peor caso es "en
+      // producción", nunca "no_realizado" (que Contenido no dibuja).
+      const estadoFinal=enElPortal?vieja.state:({
+        publicado:"publicado",
+        aprobado:"aprobado",
+        en_aprobacion:"en_aprobacion",
+      }[it.state]||"en_proceso");
       const tarea={
         ...(vieja||{}),
         id:vieja?vieja.id:uid(),
@@ -5750,14 +5763,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         type:it.type,
         description:(it.description||"")+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
         responsable:it.production||[],
-        date:clienteAprobo?(vieja.date||null):(enElPortal&&vieja.date?vieja.date:it.day),
-        // Traducción de estados planner→tarea. Confirmar significa que la pieza sale, así que el
-        // peor caso es "en producción", nunca "no_realizado" (que Contenido no dibuja).
-        state:enElPortal?vieja.state:({
-          publicado:"publicado",
-          aprobado:"aprobado",
-          en_aprobacion:"en_aprobacion",
-        }[it.state]||"en_proceso"),
+        // Invariante "aprobado ⇒ sin fecha": si el equipo marca la pieza como Aprobada desde Org
+        // Semanal (sin pasar por el portal), va al banco "Listo para agendar" —date:null— con el
+        // día del equipo guardado en plannedDay como recomendación, igual que cuando aprueba el
+        // cliente. Antes quedaba fijada a it.day, agendada a un día que nadie eligió.
+        date:clienteAprobo?(vieja.date||null):(estadoFinal==="aprobado"?null:(enElPortal&&vieja.date?vieja.date:it.day)),
+        state:estadoFinal,
         comments:vieja?vieja.comments||[]:[],
         votes:{...(it.votes||{}),...(vieja?.votes||{})},
         clientApproval:vieja?vieja.clientApproval||null:null,
@@ -7451,7 +7462,29 @@ useEffect(() => {
   return <Main user={u} users={us} onLogout={()=>API.logout()} setUsers={sUs}/>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+// Red de seguridad: sin esto, cualquier excepción no capturada en un render (una fila con un
+// dato viejo/malo, un campo que se esperaba y no está) hace que React 18 desmonte TODO el árbol y
+// deje la pantalla en blanco —lo peor posible en una demo delante de un cliente—. Con esto, el
+// fallo queda acotado a un aviso con botón de recarga y el error se ve en consola para depurar.
+class ErrorBoundary extends React.Component{
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(err){return{err};}
+  componentDidCatch(err,info){console.error("ErrorBoundary atrapó:",err,info);}
+  render(){
+    if(this.state.err){
+      return React.createElement("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",fontFamily:"system-ui,sans-serif",background:"#0f1115",color:"#e8e8ea",textAlign:"center"}},
+        React.createElement("div",{style:{maxWidth:"420px"}},
+          React.createElement("div",{style:{fontSize:"40px",marginBottom:"12px"}},"⚠️"),
+          React.createElement("h2",{style:{margin:"0 0 8px"}},"Algo se cargó mal"),
+          React.createElement("p",{style:{opacity:.7,margin:"0 0 20px",lineHeight:1.5}},"Recarga la página para volver. Si insiste, avísale al equipo."),
+          React.createElement("button",{onClick:()=>window.location.reload(),style:{background:"#4ecdc4",color:"#08252a",border:"none",borderRadius:"10px",padding:"12px 22px",fontSize:"15px",fontWeight:700,cursor:"pointer"}},"Recargar")
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(ErrorBoundary,null,React.createElement(App,null)));
 </script>
 <script>
 if('serviceWorker' in navigator){

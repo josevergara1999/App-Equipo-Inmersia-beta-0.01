@@ -476,10 +476,18 @@ servicio.
   reproductor en negro, y una respuesta 206 no se puede guardar en Cache Storage.
 - **Nunca guardar video en base64 en una tarea.** Todas las tareas viven en una fila que
   `DB.loadAll()` trae entera en cada carga, para todos los usuarios.
-- **`/api/data` (y `DB.loadAll()`) trae las claves de contenido de TODAS las empresas** y filtra
-  en el cliente: un cliente logueado recibe el contenido de otros clientes (los tokens ya NO, van
-  en `CLAVES_PRIVADAS`). Desde el refactor exige sesión (ya no es anónimo), pero falta el
-  filtrado por empresa por fila para cerrarlo del todo.
+- **Aislamiento por empresa en `/api/data` — YA CERRADO (server.js).** Antes `/api/data` traía las
+  claves de TODAS las empresas y filtraba en el navegador: un cliente logueado recibía tareas,
+  contratos, precios, pagos y prospectos de los demás, y podía sobrescribirlos. Ahora el servidor
+  identifica al cliente por su email (equipo lleva `@`, cliente no; + mapa espejo `CLIENTES`) y:
+  (a) en lectura solo le entrega SU empresa y SUS tareas (`scopeCliente`, resto de claves ni las
+  ve); (b) en escritura solo le acepta `tasks`, y por **merge** —solo modifica campos de sus tareas
+  ya existentes; no crea, borra ni reasigna de empresa, ni toca otra clave—. Si agregas un cliente
+  en `INIT_USERS` (frontend), agrégalo también en `CLIENTES` (server.js); aun si lo olvidas, todo
+  email sin `@` se trata como cliente y sin empresa resuelta NO ve nada (fail-closed). **Pendiente
+  menor:** los endpoints `/api/ig/*` y `/api/social/*` toman `companyId` del request; un cliente
+  podría consultar/editar la conexión o reglas IG de otra empresa (no sus datos de negocio). Cerrar
+  forzando `companyId` = su empresa en esos handlers.
 - **Los iconos se generan midiendo, no a ojo.** El recorte escrito a mano cortaba el arco
   inferior del logo.
 
