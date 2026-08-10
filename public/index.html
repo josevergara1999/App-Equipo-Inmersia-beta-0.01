@@ -373,7 +373,12 @@ const usadasEnMes=(tasks,coId,y,m)=>{
   (tasks||[]).forEach(t=>{
     if(String(t.companyId)!==String(coId))return;
     if(t.extraSlot)return;                       // los adicionales se cobran aparte
-    if(t.date){const p=String(t.date).split("-");if(+p[0]!==y||+p[1]!==m+1)return;}
+    // Sin fecha de publicación vale el día que planificó el equipo. Hace falta porque al
+    // aprobar se limpia `date` —la pieza vuelve al banco para que el cliente elija cuándo
+    // sale— y sin este respaldo la pieza saltaría al mes en curso, descuadrando el cupo del
+    // mes en que realmente se produjo.
+    const ref=t.date||t.plannedDay;
+    if(ref){const p=String(ref).split("-");if(+p[0]!==y||+p[1]!==m+1)return;}
     else if(!esMesActual)return;
     const c=o[t.type]||(o[t.type]={aprobadas:0,enCurso:0});
     if(["aprobado","publicado"].includes(t.state))c.aprobadas++;else c.enCurso++;
@@ -423,6 +428,13 @@ const saldoDe=(co,tasks,y,m)=>{
 };
 const MO=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const WD=["L","M","X","J","V","S","D"];
+// "2026-08-07" → "jue, 7 de agosto". Se parte a mano en vez de `new Date(ds)`: esa forma se
+// interpreta como UTC y en Chile pinta el día anterior.
+const fechaDia=ds=>{
+  const p=String(ds||"").split("-");
+  if(p.length!==3)return String(ds||"");
+  return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString("es-CL",{weekday:"short",day:"numeric",month:"long"});
+};
 let _i=200;const ni=()=>++_i;const fP=n=>"$"+n.toLocaleString("es-CL");
 const GC_ID="963118662211-v89qggrk0em0l15eqa0omfek9rbgqbcb.apps.googleusercontent.com";
 const td=()=>new Date().toISOString().split("T")[0];
@@ -2356,6 +2368,11 @@ const CONT_GLOW={
 const MES_AB=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const diaLbl=ds=>{if(!ds)return "sin fecha";const p=ds.split("-").map(Number);const dt=new Date(p[0],p[1]-1,p[2]);
   return ["DOM","LUN","MAR","MIÉ","JUE","VIE","SÁB"][dt.getDay()]+" "+p[2]+" "+MES_AB[p[1]-1];};
+// Con fecha de publicación manda esa; sin ella, el día que planificó el equipo, con 📌 delante
+// para que no se lea como si ya estuviera agendada. Hace falta porque una pieza aprobada por el
+// cliente pierde la fecha a propósito —es él quien decide cuándo sale— y sin esto en Contenido
+// se quedaba en un "sin fecha" pelado que borraba de vista para cuándo estaba pensada.
+const diaLblPlan=t=>t&&t.date?diaLbl(t.date):(t&&t.plannedDay?"📌 "+diaLbl(t.plannedDay):"sin fecha");
 
 // ═══ CONSTRUCTOR DE CADENAS ══════════════════════════════════════
 // Lienzo de nodos: los bloques se arrastran, las aristas son curvas bézier y las ramas Sí/No
@@ -3632,7 +3649,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           <span style={{padding:"2px 9px",borderRadius:999,background:"rgba(200,210,228,.05)",border:"1px solid "+tc+"55",color:tc,fontSize:10,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
           {t.extraSlot&&<span style={{fontSize:10,fontWeight:600,color:D.lav}}>Adicional</span>}
           {rev&&m.k!=="aprobado"&&<span style={{fontSize:10,fontWeight:600,color:D.peri}}>✎ Corregido</span>}
-          <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:10,color:D.tx4}}>{diaLbl(t.date)}</span>
+          <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:10,color:D.tx4}}>{diaLblPlan(t)}</span>
           <button onClick={()=>eliminarPieza(t)} title="Eliminar esta pieza" style={{width:24,height:24,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>
             <Ic n="trash" s={12} c={D.tx4}/>
           </button>
@@ -3851,7 +3868,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                       style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                       <span style={{flexShrink:0,padding:"3px 10px",borderRadius:999,border:"1px solid "+((tt?.c)||D.tx3)+"55",color:(tt?.c)||D.tx3,fontSize:10.5,fontWeight:700}}>{tt?.l||t.type}</span>
                       <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
-                      <span style={{flexShrink:0,fontFamily:"var(--font-mono)",fontSize:11,color:D.tx4}}>{t.date?diaLbl(t.date):"sin fecha"}</span>
+                      <span style={{flexShrink:0,fontFamily:"var(--font-mono)",fontSize:11,color:D.tx4}}>{diaLblPlan(t)}</span>
                       {t.socialPost?.at&&<span style={{flexShrink:0,fontSize:11,color:D.lav}} title="Ya publicada en Instagram">📸</span>}
                       <span style={{flexShrink:0,color:D.tx4,fontSize:14,lineHeight:1,transform:ab?"rotate(90deg)":"none",transition:"transform .18s"}}>›</span>
                     </button>
@@ -5604,6 +5621,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     // pieza rechazada no se elimina, se arregla hasta que se apruebe, y el planner no puede
     // deshacer ese trabajo.
     const enElPortal=salioAlPortal(vieja);
+    // Aprobada por el cliente, la fecha de publicación es suya — y "sin fecha" es una decisión
+    // válida: significa que está en su banco esperando que la agende. Sin distinguir este caso,
+    // reconfirmar desde aquí le devolvería el día del planner y le volvería a agendar la pieza
+    // por su cuenta, que es justo lo que se acaba de arreglar.
+    const clienteAprobo=vieja?.clientApproval?.status==="aprobado";
     const tarea={
       ...(vieja||{}),
       id:vieja?vieja.id:(Date.now()+Math.random()*10000|0),
@@ -5614,7 +5636,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       type:it.type,
       description:(it.description||"")+(it.strategy?"\n\n📌 Estrategia: "+it.strategy:""),
       responsable:it.production||[],
-      date:enElPortal&&vieja.date?vieja.date:it.day,
+      date:clienteAprobo?(vieja.date||null):(enElPortal&&vieja.date?vieja.date:it.day),
       // Los estados del planner y los de las tareas no son la misma lista, así que hay que
       // traducirlos. Antes solo se contemplaban "aprobado" y "publicado" y todo lo demás caía
       // en "no_realizado", que es justo el estado que Contenido no dibuja: la pieza se creaba
@@ -5637,6 +5659,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       // Sin esto la pieza llegaba sin preview: solo la caja con su tipo. Una vez que salió al
       // portal mandan los de la tarea, que pueden ser correcciones posteriores al planner.
       files:enElPortal?(vieja.files||[]):((it.files||[]).length?it.files:(vieja?vieja.files||[]:[])),
+      // El día que el equipo planificó aquí, guardado aparte de `date`. Hace falta porque
+      // `date` es la fecha de publicación y el cliente la decide él: al aprobar se limpia para
+      // que la pieza caiga en su banco de «Listo para agendar». Sin este campo, ese día se
+      // perdería y nadie podría ver ya para cuándo estaba pensada.
+      plannedDay:it.day||vieja?.plannedDay||null,
       plannerTag,
     };
     const sig=firmaItem(it);
@@ -5674,6 +5701,22 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         body:tarea.title+" · "+(co?.name||"")+(it.day?" · "+it.day:""),
         to:correosDe(dest),url:"/",
         dedupKey:"item_"+it.id+"_"+hash(sig),
+      });
+
+      // Una pieza que se confirma con material entra directa en la etapa Listo, o sea que la
+      // votación queda abierta. El aviso de votación vivía SOLO en las subidas hechas desde
+      // Contenido, así que por este camino —que es el normal cuando el material se sube en Org
+      // Semanal— la votación se abría en silencio: en todo el historial de la app no había ni
+      // un aviso de tipo `votacion`. A quien confirma no se le avisa, como en el resto.
+      const aVotar=otrosQueYo(votantes(users),cu);
+      const abiertaAVoto=!["en_aprobacion","aprobado","publicado"].includes(tarea.state)&&!tarea.clientApproval;
+      if(avisar&&(tarea.files||[]).length&&abiertaAVoto&&aVotar.length)avisar({
+        type:"votacion",
+        title:"🗳 Contenido esperando tu voto",
+        body:"«"+tarea.title+"» de "+(co?.name||"")+" quedó lista. Falta que votes para poder enviarla.",
+        to:correosDe(aVotar),url:"/",
+        // Misma firma que el aviso de arriba: reconfirmar sin tocar nada no vuelve a sonar.
+        dedupKey:"voto_item_"+it.id+"_"+hash(sig),
       });
     }catch(e){console.error("Confirmar item error:",e);addN("❌ No se pudo confirmar: "+e.message);}
     sConfirmando(null);
@@ -6291,6 +6334,9 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave
       <Bg color={TT[t.type]?.c}>{TT[t.type]?.i} {TT[t.type]?.l||t.type}</Bg>
       <Bg color={SS[t.state]?.c}>{SS[t.state]?.l}</Bg>
       <Bg>{tCo}</Bg>
+      {/* Cuando el cliente aprueba, la fecha se limpia para que la pieza caiga en su banco de
+          «Listo para agendar». Sin esto el equipo perdía de vista para cuándo estaba pensada. */}
+      {!t.date&&t.plannedDay&&<Bg>📌 Planificada {fechaDia(t.plannedDay)}</Bg>}
       <div style={{marginLeft:"auto",display:"flex",gap:4}}>
         {t.date&&<Bt v="g" onClick={onUns} style={{fontSize:11,color:"var(--warn)"}} icon="calendar">Desagendar</Bt>}
         {t.date&&hasGcal&&<Bt v="g" onClick={onSync} style={{fontSize:11,color:"var(--info)"}} icon="calendar">GCal</Bt>}
@@ -6639,9 +6685,62 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
   </div>);
 }
 
+// Vista previa de la publicación como se verá en Instagram. No copia el blanco de Instagram:
+// va en nuestra paleta, porque es una maqueta dentro de nuestro producto y no un clon. Lo que
+// sí respeta es lo que hace falta para juzgar una pieza antes de darle el sí: el encuadre real
+// (1:1 en feed, vertical en reel e historia), el @ de la cuenta y el pie tal cual saldrá,
+// cortado donde Instagram lo corta.
+const IG_ICO={
+  like:"M12 21s-7.5-4.7-9.5-9A5.2 5.2 0 0 1 12 6.3 5.2 5.2 0 0 1 21.5 12c-2 4.3-9.5 9-9.5 9z",
+  comment:"M21 11.5a8.4 8.4 0 0 1-9 8.3 9 9 0 0 1-3.9-.9L3 20.5l1.6-4.9A8.3 8.3 0 0 1 3.6 11.5a8.4 8.4 0 0 1 9-8.3 8.4 8.4 0 0 1 8.4 8.3z",
+  send:"M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z",
+  save:"M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z",
+};
+const IgIco=({d,c})=>(<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>);
+// Instagram corta el pie a un par de líneas y deja un "más". Se corta a 125 caracteres, que es
+// donde lo parte en la práctica: así el cliente ve lo que de verdad se va a leer sin desplegar.
+const IG_CORTE=125;
+function IgPreview({file,files,type,caption,cuenta,color,fecha,hora}){
+  const[abierto,sAbierto]=useState(false);
+  const vertical=["reel","historia","video_pro"].includes(type);
+  const handle=String(cuenta||"").replace(/^@/,"")||"tu_cuenta";
+  const txt=String(caption||"");
+  const corta=txt.length>IG_CORTE&&!abierto;
+  return(<div style={{borderRadius:16,overflow:"hidden",background:PC.panel,border:"1px solid "+PC.line2}}>
+    <div style={{display:"flex",alignItems:"center",gap:9,padding:"10px 12px"}}>
+      <span style={{width:28,height:28,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#05060B",background:color||PC.cian}}>{handle.slice(0,2).toUpperCase()}</span>
+      <div style={{minWidth:0,flex:1}}>
+        <div style={{fontSize:12.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>@{handle}</div>
+        <div style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".14em",textTransform:"uppercase",color:PC.tx4}}>{type==="historia"?"Historia":vertical?"Reel":"Publicación"}</div>
+      </div>
+      <span style={{color:PC.tx4,fontSize:15,letterSpacing:1,flexShrink:0}}>···</span>
+    </div>
+    <div onClick={()=>file&&openZoom(files&&files.length?files:[file],0)} style={{cursor:file?"zoom-in":"default"}}>
+      {/* `contain` en vertical y no `cover`: el cliente está juzgando el encuadre, así que
+          recortarle la pieza para que llene la caja sería enseñarle algo que no es. */}
+      <DeckMedia f={file} h={vertical?430:275} fit={vertical?"contain":"cover"}/>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:14,padding:"11px 12px 7px"}}>
+      <IgIco d={IG_ICO.like} c={PC.tx2}/>
+      <IgIco d={IG_ICO.comment} c={PC.tx2}/>
+      <IgIco d={IG_ICO.send} c={PC.tx2}/>
+      <span style={{marginLeft:"auto",display:"flex"}}><IgIco d={IG_ICO.save} c={PC.tx2}/></span>
+    </div>
+    <div style={{padding:"0 12px 6px",fontSize:12.5,lineHeight:1.5,color:PC.tx2,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+      <span style={{fontWeight:700,color:PC.tx}}>{handle}</span>{" "}
+      {txt
+        ? <React.Fragment>{corta?txt.slice(0,IG_CORTE):txt}{corta&&<span onClick={()=>sAbierto(true)} style={{color:PC.tx4,cursor:"pointer"}}>… más</span>}</React.Fragment>
+        : <span style={{color:PC.tx5}}>El texto que escribas abajo aparecerá aquí.</span>}
+    </div>
+    <div style={{padding:"0 12px 12px",fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".1em",textTransform:"uppercase",color:PC.tx5}}>
+      {fecha?fechaDia(fecha)+(hora?" · "+hora:""):"Sin fecha"}
+    </div>
+  </div>);
+}
+
 // Banco de aprobados + calendario. En PC se arrastra; en móvil el drag&drop HTML5 no
 // dispara con el dedo, así que el mismo flujo funciona tocando la pieza y luego el día.
-function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
+function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta}){
   const[view,sView]=useState("semana");
   const[wkOff,sWkOff]=useState(0);
   const[cM,sCM]=useState(new Date().getMonth());
@@ -6682,7 +6781,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
     const t=items.find(x=>String(x.id)===String(id));
     if(!t||t.state==="publicado")return;
     sSel(null);
-    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date});
+    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null});
   };
 
   // El id viaja en el dataTransfer, no en el estado de React: entre dragstart y drop
@@ -6760,6 +6859,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
                   <div style={{display:"flex",flexDirection:"column",gap:3,padding:"9px 11px 11px"}}>
                     <span style={{fontSize:10.5,fontWeight:600,color:TT[t.type]?.c}}>{TT[t.type]?.l}</span>
                     <span style={{fontSize:11.5,color:PC.tx2,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                    {t.plannedDay&&<span title={"El equipo la planificó para el "+fechaDia(t.plannedDay)} style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".04em",color:PC.tx4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Plan · {fechaDia(t.plannedDay)}</span>}
                   </div>
                 </button>);})}
             </div>}
@@ -6858,8 +6958,8 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
           </div>
 
           <div style={{flex:1,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:18}}>
-            {modal.file&&isImg(modal.file)&&<img src={fSrc(modal.file)} alt="" onClick={()=>openZoom(modal.file)}
-              style={{width:"100%",maxHeight:200,objectFit:"cover",borderRadius:14,cursor:"zoom-in",border:"1px solid "+PC.line2}}/>}
+            <IgPreview file={modal.file} files={modal.files} type={modal.type} caption={modal.caption}
+              cuenta={cuenta} color={coColor} fecha={modal.date} hora={modal.time}/>
 
             <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
               <div style={{display:"flex",flexDirection:"column",gap:7,flex:"1 1 150px",minWidth:0}}>
@@ -6871,7 +6971,10 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor}){
                 <input type="time" value={modal.time} onChange={e=>sModal(m=>({...m,time:e.target.value}))} style={{...pcInput,width:"100%",boxSizing:"border-box"}}/>
               </div>
             </div>
-            <span style={{fontSize:11.5,color:PC.tx4,marginTop:-10}}>Si dejas la hora vacía, la elige el equipo.</span>
+            <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:-10}}>
+              {modal.plannedDay&&<span style={{fontSize:11.5,color:PC.cian}}>📌 El equipo la planificó para el {fechaDia(modal.plannedDay)}. Puedes dejarla ese día o mover la publicación.</span>}
+              <span style={{fontSize:11.5,color:PC.tx4}}>Si dejas la hora vacía, la elige el equipo.</span>
+            </div>
 
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
               <div style={{display:"flex",alignItems:"baseline",gap:8}}>
@@ -6949,10 +7052,16 @@ function ClientView({user:cu,onLogout:ol}){
     return saveChain.current;
   };
 
+  // Aprobar NO agenda. La pieza llega desde Org Semanal arrastrando el día que puso el equipo,
+  // y el banco de «Listo para agendar» es justamente `!t.date`: dejándolo, la publicación
+  // aparecía ya colocada en un día que el cliente no eligió y nunca pasaba por el banco —
+  // contradiciendo lo que promete la propia pantalla ("queda lista para agendar en Planificar").
+  // El día del equipo no se tira: queda en `plannedDay` y se muestra como referencia al agendar.
   const approve=async t=>{
-    await safeSaveTask(t.id,{state:"aprobado",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
+    const planificado=t.plannedDay||t.date||null;
+    await safeSaveTask(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
     sToast("✅ Aprobado — ya puedes agendarlo");
-    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:t.date});
+    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:planificado});
     avisarEquipo("✓ "+cu.companyName+" aprobó","\""+t.title+"\" quedó aprobada. Falta que la agenden en su calendario.");
   };
   const reject=async(t,motivo)=>{
@@ -7100,7 +7209,10 @@ function ClientView({user:cu,onLogout:ol}){
               <span style={{width:7,height:7,borderRadius:"50%",background:"#8FF2C2",flexShrink:0}}/>
               Instagram conectado como <b style={{color:PC.tx2}}>@{ig.username}</b>
             </div>)}
-          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={co?.color}/>
+          {/* El @ real si la cuenta está conectada (`/api/ig/status` ya lo trae); si no, el
+              nombre de la marca, que para una maqueta cumple igual. */}
+          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={co?.color}
+            cuenta={ig?.username||co?.name||cu.companyName||""}/>
         </>)}
       </div>
     </div>
