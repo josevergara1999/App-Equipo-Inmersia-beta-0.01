@@ -8425,6 +8425,38 @@ function ResultadoPost({co,task}){
 // nombre. Publicar es una decisión, no un efecto de haber subido el archivo.
 const fFechaCorta=s=>{const p=String(s||"").split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:(s||"");};
 
+// ── Miniaturas ───────────────────────────────────────────────────────────────
+// La rejilla NO puede cargar los originales. En la primera sesión real —33 fotos de Huemul— eran
+// **562 MB**, con archivos de 15,8 MB cada uno; y una JPG de 15 MB ocupa unos 60 MB ya
+// descomprimida en memoria. Con las primeras de la rejilla el teléfono se quedaba sin memoria y
+// **recargaba la pestaña**: la app volvía a su pestaña por defecto y al cliente le parecía que lo
+// echaba. Se veía como un fallo de sesión y era peso de imágenes.
+//
+// La miniatura la hace QUIEN SUBE, en su navegador: Supabase tiene la generación de miniaturas
+// deshabilitada en este plan (`FeatureNotEnabled`, comprobado contra Storage) y el servidor no
+// lleva librería de imágenes. En la foto queda `thumb` para la rejilla y `url` para el visor y la
+// descarga — lo que se mira en pequeño nunca es lo que se descarga.
+const MINI_LADO=640;
+async function miniaturaDe(file){
+  if(!String(file?.type||"").startsWith("image"))return null;
+  let bmp=null;
+  try{bmp=await createImageBitmap(file);}catch(e){return null;}
+  const esc=Math.min(1,MINI_LADO/Math.max(bmp.width,bmp.height));
+  // Ya es chica: duplicarla no ahorra nada y ocupa el doble en Storage.
+  if(esc>=1){if(bmp.close)bmp.close();return null;}
+  const c=document.createElement("canvas");
+  c.width=Math.round(bmp.width*esc);c.height=Math.round(bmp.height*esc);
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+  if(bmp.close)bmp.close();
+  const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",0.78));
+  c.width=c.height=0;   // libera el lienzo, que en el teléfono también pesa
+  if(!blob)return null;
+  return new File([blob],"mini_"+String(file.name||"foto").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"});
+}
+// Lo que se pinta en la rejilla: la miniatura si existe, y si no la original (sesiones anteriores
+// a este cambio, hasta que se les generen).
+const fMini=f=>f?.thumb||fSrc(f);
+
 // Rejilla vertical. Las fotos de sesión son retratos: en una celda cuadrada el recorte se come
 // cabezas y pies. La celda es 3:4 y el recorte lo hace el CSS sobre la foto completa, que es la
 // que se abre al tocar — lo que se ve recortado nunca es lo que se descarga.
@@ -8434,16 +8466,21 @@ const fFechaCorta=s=>{const p=String(s||"").split("-");return p.length===3?`${p[
 // `onFav` la pasa solo el portal: la favorita la elige el cliente, no el equipo. Sin ella el
 // corazón sigue viéndose —marcado, y sin poder pulsarse— porque para el equipo esa marca es el
 // dato: es la foto que el cliente quiere usar.
-function FotoGrid({fotos,cols,min,onBorrar,onFav}){
+function FotoGrid({fotos,cols,min,onBorrar,onFav,tanda=12}){
   const list=Array.isArray(fotos)?fotos:[];
+  // Se pinta de a tandas. Es la red de seguridad para las sesiones que todavía no tienen
+  // miniatura: aunque cada archivo pese 15 MB, el navegador nunca abre 33 a la vez.
+  const[cuantas,sCuantas]=useState(tanda);
+  useEffect(()=>{sCuantas(tanda);},[list.length,tanda]);
   if(!list.length)return null;
   const ROSA="#FF8BB0";
-  return(<div style={{display:"grid",gridTemplateColumns:min?"repeat(auto-fill,minmax("+min+"px,1fr))":"repeat("+(cols||2)+",minmax(0,1fr))",gap:8}}>
-    {list.map((f,i)=>(
+  const faltan=list.length-cuantas;
+  return(<><div style={{display:"grid",gridTemplateColumns:min?"repeat(auto-fill,minmax("+min+"px,1fr))":"repeat("+(cols||2)+",minmax(0,1fr))",gap:8}}>
+    {list.slice(0,cuantas).map((f,i)=>(
       <div key={f.id||i} style={{position:"relative",borderRadius:12,overflow:"hidden",background:PC.panel,border:"1px solid "+(f.fav?ROSA+"73":PC.line3),aspectRatio:"3 / 4"}}>
         {isVid(f)
           ?<video src={fSrc(f)} muted playsInline preload="metadata" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>
-          :<img src={fSrc(f)} alt={f.name||""} loading="lazy" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>}
+          :<img src={fMini(f)} alt={f.name||""} loading="lazy" decoding="async" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>}
         {isVid(f)&&<span style={{position:"absolute",left:8,bottom:8,padding:"3px 8px",borderRadius:999,background:"rgba(5,6,11,.7)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",fontSize:10,fontWeight:700,pointerEvents:"none"}}>VIDEO</span>}
         {/* El corazón va abajo a la izquierda y la papelera arriba a la derecha: separados, para
             que en el teléfono no se pulse uno queriendo el otro. */}
@@ -8456,7 +8493,12 @@ function FotoGrid({fotos,cols,min,onBorrar,onFav}){
         {onBorrar&&<button onClick={e=>{e.stopPropagation();onBorrar(f);}} title="Quitar de la sesión"
           style={{position:"absolute",top:6,right:6,width:26,height:26,borderRadius:"50%",background:"rgba(8,10,14,.72)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(6px)",zIndex:3}}><Ic n="x" s={13} c="#fff"/></button>}
       </div>))}
-  </div>);
+  </div>
+  {faltan>0&&<button onClick={()=>sCuantas(c=>c+tanda)}
+    style={{display:"block",width:"100%",marginTop:10,padding:"11px 16px",borderRadius:12,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+    Ver {Math.min(faltan,tanda)} más · quedan {faltan}
+  </button>}
+  </>);
 }
 
 // ─── Vista del equipo: Contenido → Fotos ───
@@ -8496,13 +8538,46 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
     for(let i=0;i<files.length;i++){
       try{
         const meta=await API.upload(files[i],g.companyId);
-        upG(g.id,x=>({fotos:[...(x.fotos||[]),{id:uid(),...meta,at:new Date().toISOString()}]}));
+        // La miniatura viaja con la foto. Si falla —un formato raro, un archivo enorme— se sube
+        // igual sin ella: mejor una rejilla pesada que una foto que no llega.
+        let thumb=null;
+        try{const mini=await miniaturaDe(files[i]);if(mini)thumb=(await API.upload(mini,g.companyId)).url;}
+        catch(e){console.error("miniatura:",e);}
+        upG(g.id,x=>({fotos:[...(x.fotos||[]),{id:uid(),...meta,thumb,at:new Date().toISOString()}]}));
         ok++;
       }catch(e){addN("❌ "+files[i].name+": "+e.message);}
       sSubiendo({gid:g.id,hechas:i+1,total:files.length});
     }
     sSubiendo(null);
     if(ok)addN("✅ "+ok+(ok===1?" foto subida":" fotos subidas"));
+  };
+
+  // Las sesiones subidas antes de que existieran las miniaturas se arreglan desde aquí: se baja
+  // cada original, se reduce en este navegador y se sube la copia chica. Es de una sola vez por
+  // sesión y hay que hacerlo desde un computador: son cientos de MB de bajada.
+  const[mini,sMini]=useState(null);   // {gid,hechas,total}
+  const generarMiniaturas=async g=>{
+    const faltan=(g.fotos||[]).filter(f=>!f.thumb&&isImg(f));
+    if(!faltan.length)return;
+    sMini({gid:g.id,hechas:0,total:faltan.length});
+    let ok=0;
+    for(let i=0;i<faltan.length;i++){
+      const f=faltan[i];
+      try{
+        const r=await fetch(fSrc(f),{mode:"cors"});
+        if(!r.ok)throw new Error("no se pudo bajar ("+r.status+")");
+        const blob=await r.blob();
+        const chica=await miniaturaDe(new File([blob],f.name||"foto.jpg",{type:blob.type||"image/jpeg"}));
+        if(chica){
+          const m=await API.upload(chica,g.companyId);
+          upG(g.id,x=>({fotos:(x.fotos||[]).map(y=>y.id===f.id?{...y,thumb:m.url}:y)}));
+          ok++;
+        }
+      }catch(e){console.error("miniatura de",f.name,e);}
+      sMini({gid:g.id,hechas:i+1,total:faltan.length});
+    }
+    sMini(null);
+    addN(ok?"✅ "+ok+" miniaturas generadas — la galería ya carga liviana":"⚠️ No se pudo generar ninguna miniatura");
   };
 
   // Quita la referencia de la sesión. El objeto sigue en Storage —igual que con el material de
@@ -8607,6 +8682,25 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
           <input type="file" accept="image/*,video/*" multiple disabled={!stReady||!!sub} onChange={e=>{const fs=Array.from(e.target.files||[]);e.target.value="";subirA(g,fs);}} style={{display:"none"}}/>
           {sub?<>Subiendo {sub.hechas} de {sub.total}…</>:<><Ic n="camera" s={16} c={D.tx3}/>Arrastra las fotos aquí o toca para elegirlas</>}
         </label>
+
+        {/* Sin miniatura la rejilla carga los originales, y en el teléfono del cliente eso no es
+            lentitud: es que el navegador se queda sin memoria y RECARGA la pestaña. Por eso el
+            aviso es rojo y dice qué pasa, no «optimiza tus imágenes». */}
+        {(()=>{
+          const sin=fotos.filter(f=>!f.thumb&&isImg(f));
+          if(!sin.length)return null;
+          const enCurso=mini&&mini.gid===g.id?mini:null;
+          const pesoMB=Math.round(sin.reduce((n,f)=>n+(f.size||0),0)/1048576);
+          return(<div style={{marginTop:12,padding:"12px 15px",borderRadius:14,background:"rgba(255,139,139,.07)",border:"1px solid rgba(255,139,139,.35)",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 260px",minWidth:0,fontSize:12.5,color:D.tx2,lineHeight:1.55}}>
+              <b>{sin.length} foto{sin.length===1?"":"s"} sin miniatura{pesoMB?" ("+pesoMB+" MB)":""}.</b> En el teléfono del cliente la galería carga los originales y el navegador puede quedarse sin memoria y recargarle la página. Genera las miniaturas desde un computador.
+            </div>
+            <button onClick={()=>generarMiniaturas(g)} disabled={!!mini}
+              style={{flexShrink:0,padding:"9px 18px",borderRadius:999,background:enCurso?"transparent":D.cian,border:"1px solid "+(enCurso?D.line2:D.cian),color:enCurso?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:mini?"default":"pointer",opacity:mini&&!enCurso?.4:1,whiteSpace:"nowrap"}}>
+              {enCurso?"Generando "+enCurso.hechas+" de "+enCurso.total+"…":"Generar miniaturas"}
+            </button>
+          </div>);
+        })()}
 
         <FotoGrid fotos={fotos} min={140} onBorrar={f=>quitarFoto(g,f)}/>
       </div>);

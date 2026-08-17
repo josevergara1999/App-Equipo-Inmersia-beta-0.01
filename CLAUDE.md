@@ -303,6 +303,27 @@ fila que `DB.loadAll()` trae entera en cada carga.
 - `galerias` **no** está en `CLAVES_LIMPIABLES`: son fotos reales de clientes, no contenido de
   prueba.
 
+### La rejilla NUNCA carga los originales
+
+La primera sesión real —33 fotos de Huemul— eran **562 MB**, con archivos de **15,8 MB cada uno**.
+Al abrir la pestaña, el teléfono de los dueños se quedaba sin memoria y **recargaba la pestaña**:
+la app volvía a su pestaña por defecto («Por aprobar») y al cliente le parecía que la aplicación
+lo echaba. Se reportó como un fallo de sesión y era peso de imágenes. No es el peso de bajada lo
+que mata, es el de **descompresión**: una JPG de 15 MB ocupa ~60 MB de píxeles en RAM, y con seis
+en pantalla ya son ~360 MB.
+
+- Cada foto lleva **`thumb`** (640 px de lado mayor, JPEG 0.78, ~70 KB) además de `url`. La
+  rejilla pinta `fMini(f)` = `thumb || url`; el visor y la descarga siguen usando la original.
+- **La miniatura la hace el navegador de quien sube** (`miniaturaDe`, canvas). No hay alternativa:
+  Supabase tiene la generación de miniaturas **deshabilitada en este plan** —comprobado contra
+  Storage: `FeatureNotEnabled`— y el servidor no lleva librería de imágenes.
+- Las sesiones anteriores se arreglan con **«Generar miniaturas»** en la tarjeta de la sesión: baja
+  cada original, la reduce aquí y sube la copia. Es de una vez por sesión y **desde un computador**
+  (son cientos de MB de bajada). Mientras falten, la tarjeta lo avisa en rojo diciendo qué le pasa
+  al cliente, no «optimiza tus imágenes».
+- `FotoGrid` pinta **de a 12** con «Ver más». Es la red de seguridad para lo que todavía no tenga
+  miniatura: aunque cada archivo pese 15 MB, el navegador nunca abre 33 a la vez.
+
 ### Favoritas — el único campo que escribe el cliente
 
 El cliente marca con ♥ las fotos que quiere usar, y el equipo las ve marcadas en Contenido →
