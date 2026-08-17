@@ -737,6 +737,47 @@ app.post("/api/data/:key", requireAuth, async (req, res) => {
   } catch (e) { console.error("data save:", e.message); res.status(502).json({ error: e.message }); }
 });
 
+// ── Favoritas del cliente en una sesión de fotos ─────────────────────────────
+// Ruta propia y no `POST /api/data/galerias`: al cliente no se le puede dar esa clave para
+// escribir —podría reescribir títulos, ocultar sesiones o borrarle las fotos a otro— y aquí lo
+// único que se acepta es marcar/desmarcar UNA foto de UNA sesión suya. El servidor busca la
+// sesión por id y comprueba que sea de su empresa y esté publicada: nada de eso viaja en el
+// cuerpo, así que no hay nada que falsear desde el navegador.
+//
+// Va por `enCola`: `galerias` es una fila única y marcar favoritas es justo lo que se hace a
+// ráfagas —cinco corazones seguidos—, que es el caso exacto del lost update.
+app.post("/api/galerias/favorito", requireAuth, async (req, res) => {
+  try {
+    const { galeriaId, fotoId, fav } = req.body || {};
+    if (!galeriaId || !fotoId) return res.status(400).json({ error: "faltan galeriaId y fotoId" });
+    const co = clienteDe(authInfo(req));
+    const cid = co ? await idEmpresaCliente(co) : null;
+    if (co && !cid) return res.status(403).json({ error: "empresa no resuelta" });
+
+    const guardado = await enCola(async () => {
+      const galerias = (await sbGet("galerias", [])) || [];
+      const g = galerias.find(x => x && String(x.id) === String(galeriaId));
+      if (!g) return { estado: 404, error: "sesión no encontrada" };
+      // Un cliente solo toca las suyas, y solo las que de verdad puede ver.
+      if (co && (String(g.companyId) !== cid || g.visible === false))
+        return { estado: 403, error: "sesión no accesible" };
+      if (!(g.fotos || []).some(f => String(f.id) === String(fotoId)))
+        return { estado: 404, error: "foto no encontrada" };
+      const nuevas = galerias.map(x => x !== g ? x : {
+        ...x,
+        fotos: (x.fotos || []).map(f => String(f.id) === String(fotoId)
+          ? { ...f, fav: !!fav, favAt: fav ? new Date().toISOString() : null }
+          : f),
+      });
+      if (!(await sbPut("galerias", nuevas))) return { estado: 502, error: "Supabase rechazó la escritura" };
+      return { estado: 200 };
+    });
+
+    if (guardado.estado !== 200) return res.status(guardado.estado).json({ error: guardado.error });
+    res.json({ ok: true, fav: !!fav });
+  } catch (e) { console.error("favorito:", e.message); res.status(502).json({ error: e.message }); }
+});
+
 // ── Limpieza de contenido de prueba (SOLO ADMINS) ────────────────────────────
 // Para arrancar la app en producción con la casa limpia: borra las piezas y la planificación de
 // prueba y deja que el contenido lo mande el cupo de cada empresa. RESPALDA primero todo lo que va

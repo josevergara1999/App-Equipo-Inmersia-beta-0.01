@@ -322,6 +322,12 @@ const API={
   async postChat(d){try{const r=await fetch("/api/ai/post-chat",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(d)});return await r.json();}catch(e){return{error:e.message};}},
   async gcalMeeting(d){try{const r=await fetch("/api/gcal/meeting",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});return await r.json();}catch(e){return{ok:false,msg:e.message};}},
   async uploadStatus(){try{const r=await fetch("/api/upload/status");return await r.json();}catch(e){return{ready:false};}},
+  // Marcar una foto como favorita. Ruta propia porque el cliente NO puede escribir `galerias`:
+  // el servidor comprueba que la sesión sea de su empresa y solo cambia esa foto.
+  async favFoto(galeriaId,fotoId,fav){try{
+    const r=await fetch("/api/galerias/favorito",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({galeriaId,fotoId,fav})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo guardar");return d;
+  }catch(e){throw new Error(e.message);}},
   // ── Publicación en redes (Zernio) ──
   // Un profile de Zernio por empresa: la cuenta de cada marca vive en el suyo. Todo pasa por
   // el servidor porque la llave de Zernio no puede bajar al navegador.
@@ -1086,7 +1092,26 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // no lo pulsaba, al recargar no quedaba nada. Ahora confirmar una pieza es decidir que
   // sale al calendario, no la única forma de no perder lo escrito.
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackP.current){initTrackP.current=true;return;}if(planners.length===0&&hadData.current.planners){console.warn("Skipping save: would erase planners");return;}dbSave("planners",planners);},[planners,dbLoaded]);
-  useEffect(()=>{if(!dbLoaded)return;if(!initTrackG.current){initTrackG.current=true;return;}if(galerias.length===0&&hadData.current.galerias){console.warn("Skipping save: would erase galerias");return;}dbSave("galerias",galerias);},[galerias,dbLoaded]);
+  // `galerias` la escriben DOS lados: el equipo desde aquí (la fila entera) y el cliente desde su
+  // portal, que solo puede tocar `fav` y va por su propia ruta del servidor. Si alguien del equipo
+  // edita una sesión mientras el cliente marca favoritas, esta copia en memoria —que no las
+  // tiene— se las borraría sin que nadie se entere. Antes de escribir se releen del servidor y se
+  // respetan: es el único campo que el cliente cambia, así que basta con conservar ese.
+  const galTimer=useRef(null);
+  const guardarGalerias=async arr=>{
+    try{
+      const fresco=await DB.load("galerias");
+      const favs={};
+      (Array.isArray(fresco)?fresco:[]).forEach(g=>(g.fotos||[]).forEach(f=>{favs[String(g.id)+"|"+String(f.id)]={fav:!!f.fav,favAt:f.favAt||null};}));
+      const conFavs=arr.map(g=>({...g,fotos:(g.fotos||[]).map(f=>{
+        const v=favs[String(g.id)+"|"+String(f.id)];
+        return v?{...f,fav:v.fav,favAt:v.favAt}:f;   // las recién subidas todavía no están allá
+      })}));
+      await DB.save("galerias",conFavs);
+    }catch(e){console.error("guardar galerias:",e);}
+  };
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackG.current){initTrackG.current=true;return;}if(galerias.length===0&&hadData.current.galerias){console.warn("Skipping save: would erase galerias");return;}
+    clearTimeout(galTimer.current);galTimer.current=setTimeout(()=>guardarGalerias(galerias),800);},[galerias,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
 
@@ -8406,16 +8431,28 @@ const fFechaCorta=s=>{const p=String(s||"").split("-");return p.length===3?`${p[
 // `cols` fija el número de columnas (el portal, que tiene un ancho conocido); `min` las deja
 // caber solas según el espacio disponible (dentro de Contenido, donde el ancho depende de la
 // barra lateral y de la ventana).
-function FotoGrid({fotos,cols,min,onBorrar}){
+// `onFav` la pasa solo el portal: la favorita la elige el cliente, no el equipo. Sin ella el
+// corazón sigue viéndose —marcado, y sin poder pulsarse— porque para el equipo esa marca es el
+// dato: es la foto que el cliente quiere usar.
+function FotoGrid({fotos,cols,min,onBorrar,onFav}){
   const list=Array.isArray(fotos)?fotos:[];
   if(!list.length)return null;
+  const ROSA="#FF8BB0";
   return(<div style={{display:"grid",gridTemplateColumns:min?"repeat(auto-fill,minmax("+min+"px,1fr))":"repeat("+(cols||2)+",minmax(0,1fr))",gap:8}}>
     {list.map((f,i)=>(
-      <div key={f.id||i} style={{position:"relative",borderRadius:12,overflow:"hidden",background:PC.panel,border:"1px solid "+PC.line3,aspectRatio:"3 / 4"}}>
+      <div key={f.id||i} style={{position:"relative",borderRadius:12,overflow:"hidden",background:PC.panel,border:"1px solid "+(f.fav?ROSA+"73":PC.line3),aspectRatio:"3 / 4"}}>
         {isVid(f)
           ?<video src={fSrc(f)} muted playsInline preload="metadata" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>
           :<img src={fSrc(f)} alt={f.name||""} loading="lazy" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>}
         {isVid(f)&&<span style={{position:"absolute",left:8,bottom:8,padding:"3px 8px",borderRadius:999,background:"rgba(5,6,11,.7)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",fontSize:10,fontWeight:700,pointerEvents:"none"}}>VIDEO</span>}
+        {/* El corazón va abajo a la izquierda y la papelera arriba a la derecha: separados, para
+            que en el teléfono no se pulse uno queriendo el otro. */}
+        {(onFav||f.fav)&&(
+          <button onClick={onFav?(e=>{e.stopPropagation();onFav(f,!f.fav);}):undefined}
+            title={onFav?(f.fav?"Quitar de favoritas":"Marcar como favorita"):"El cliente la marcó como favorita"}
+            style={{position:"absolute",left:6,top:6,width:30,height:30,borderRadius:"50%",background:f.fav?"rgba(255,139,176,.22)":"rgba(8,10,14,.6)",border:"1px solid "+(f.fav?ROSA+"a6":"rgba(255,255,255,.2)"),color:f.fav?ROSA:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:onFav?"pointer":"default",backdropFilter:"blur(6px)",zIndex:3,padding:0,fontSize:14,lineHeight:1}}>
+            {f.fav?"♥":"♡"}
+          </button>)}
         {onBorrar&&<button onClick={e=>{e.stopPropagation();onBorrar(f);}} title="Quitar de la sesión"
           style={{position:"absolute",top:6,right:6,width:26,height:26,borderRadius:"50%",background:"rgba(8,10,14,.72)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(6px)",zIndex:3}}><Ic n="x" s={13} c="#fff"/></button>}
       </div>))}
@@ -8540,6 +8577,9 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
               <input type="date" value={g.fecha||""} onChange={e=>upG(g.id,{fecha:e.target.value})}
                 style={{background:"transparent",border:"1px solid "+D.line3,borderRadius:8,color:D.tx3,fontFamily:"inherit",fontSize:11.5,padding:"4px 8px",width:"auto"}}/>
               <span>·</span><span>{fotos.length}{fotos.length===1?" foto":" fotos"}</span>
+              {/* Lo que el cliente eligió. Es el dato por el que el equipo entra aquí después de
+                  entregar: cuáles quiere usar. Las marcadas llevan su corazón en la miniatura. */}
+              {fotos.some(f=>f.fav)&&<><span>·</span><span style={{color:"#FF8BB0",fontWeight:700}}>♥ {fotos.filter(f=>f.fav).length} favorita{fotos.filter(f=>f.fav).length===1?"":"s"} del cliente</span></>}
               {g.createdBy&&<><span>·</span><span>subió {g.createdBy}</span></>}
             </div>
           </div>
@@ -8578,24 +8618,40 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
 // Solo llega aquí lo que el servidor dejó pasar: su empresa y sus sesiones publicadas. No hay
 // filtro por empresa en este componente a propósito — filtrar en el navegador es lo que dejaba
 // los datos de un cliente al alcance de otro.
-function GaleriasCliente({galerias,isMob}){
+function GaleriasCliente({galerias,isMob,onFav}){
   const gs=useMemo(()=>(galerias||[]).slice()
     .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||""))),[galerias]);
+  // El filtro no borra nada: solo deja ver de un tirón lo que el cliente eligió, que es lo que
+  // después le pasa al equipo («usemos estas»). Una sesión sin favoritas desaparece del filtro
+  // en vez de quedar como un título vacío.
+  const[soloFav,sSoloFav]=useState(false);
+  const nFav=gs.reduce((n,g)=>n+(g.fotos||[]).filter(f=>f.fav).length,0);
   if(!gs.length)return(<div style={{textAlign:"center",padding:44,color:PC.tx4,fontSize:13,lineHeight:1.6}}>
     <div style={{fontSize:32,marginBottom:10}}>📷</div>
     Todavía no hay sesiones de fotos.<br/>Cuando hagamos una, aquí la tendrás completa para verla y descargarla.
   </div>);
+  const ROSA="#FF8BB0";
+  const visibles=gs.map(g=>({...g,fotos:(g.fotos||[]).filter(f=>!soloFav||f.fav)})).filter(g=>g.fotos.length||!soloFav);
   return(<div>
-    <div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.5,marginBottom:16}}>Las fotos de tus sesiones, completas. Toca una para verla en grande y descargarla.</div>
-    {gs.map(g=>(
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:16}}>
+      <div style={{flex:"1 1 240px",minWidth:0,fontSize:12.5,color:PC.tx3,lineHeight:1.5}}>
+        Las fotos de tus sesiones, completas. Toca una para verla en grande y descargarla, y el <span style={{color:ROSA}}>♥</span> para marcar las que más te gustan.
+      </div>
+      {nFav>0&&<button onClick={()=>sSoloFav(v=>!v)}
+        style={{flexShrink:0,display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:999,background:soloFav?"rgba(255,139,176,.16)":"transparent",border:"1px solid "+(soloFav?ROSA+"a6":PC.line2),color:soloFav?ROSA:PC.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        ♥ {soloFav?"Viendo tus favoritas":"Ver solo favoritas"} · {nFav}
+      </button>}
+    </div>
+    {soloFav&&!visibles.length&&<div style={{textAlign:"center",padding:32,color:PC.tx4,fontSize:13}}>Todavía no marcaste ninguna favorita.</div>}
+    {visibles.map(g=>(
       <div key={g.id} style={{marginBottom:26}}>
         <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:4}}>
           <div style={{fontSize:16.5,fontWeight:700,color:PC.tx}}>{g.titulo||"Sesión de fotos"}</div>
-          <div style={{fontSize:11.5,color:PC.tx4}}>{fFechaCorta(g.fecha)} · {(g.fotos||[]).length}{(g.fotos||[]).length===1?" foto":" fotos"}</div>
+          <div style={{fontSize:11.5,color:PC.tx4}}>{fFechaCorta(g.fecha)} · {g.fotos.length}{g.fotos.length===1?" foto":" fotos"}</div>
         </div>
-        {g.nota&&<div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.55,marginBottom:10}}>{g.nota}</div>}
+        {g.nota&&!soloFav&&<div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.55,marginBottom:10}}>{g.nota}</div>}
         <div style={{height:10}}/>
-        <FotoGrid fotos={g.fotos||[]} cols={isMob?2:3}/>
+        <FotoGrid fotos={g.fotos} cols={isMob?2:3} onFav={(f,fav)=>onFav(g,f,fav)}/>
       </div>))}
   </div>);
 }
@@ -8619,6 +8675,17 @@ function ClientView({user:cu,onLogout:ol}){
   },[]);
   useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);if(d.galerias)sGal(d.galerias);sLoaded(true);}).catch(()=>sLoaded(true));},[]);
   useEffect(()=>{if(!toast)return;const id=setTimeout(()=>sToast(""),2600);return()=>clearTimeout(id);},[toast]);
+
+  // Marcar favorita pinta al instante y guarda después: en el teléfono se marcan varias
+  // seguidas y esperar al servidor en cada toque haría que el corazón fuera medio segundo por
+  // detrás del dedo. Si la escritura falla se deshace y se dice, en vez de dejar marcada una
+  // foto que el equipo nunca va a ver marcada.
+  const favFoto=async(g,f,fav)=>{
+    const pinta=v=>sGal(prev=>prev.map(x=>x.id!==g.id?x:{...x,fotos:(x.fotos||[]).map(y=>y.id===f.id?{...y,fav:v}:y)}));
+    pinta(fav);
+    try{await API.favFoto(g.id,f.id,fav);}
+    catch(e){pinta(!fav);sToast("⚠️ No se pudo guardar, revisa tu conexión");}
+  };
 
   const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
   const myTasks=useMemo(()=>tasks.filter(t=>co&&String(t.companyId)===String(co.id)),[tasks,co]);
@@ -8798,7 +8865,7 @@ function ClientView({user:cu,onLogout:ol}){
         ):tab==="aprobar"?(
           <SwipeDeck items={approval} onApprove={approve} onReject={reject} isMob={isMob} busy={busy} onGoPlan={()=>sTab("planificar")}/>
         ):tab==="fotos"?(
-          <GaleriasCliente galerias={galerias} isMob={isMob}/>
+          <GaleriasCliente galerias={galerias} isMob={isMob} onFav={favFoto}/>
         ):tab==="resultados"?(
           <div>
             <div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.5,marginBottom:14}}>Cómo le fue a cada publicación y qué dicen los números. Toca "Pregúntale a la IA" para conversar sobre cualquiera.</div>

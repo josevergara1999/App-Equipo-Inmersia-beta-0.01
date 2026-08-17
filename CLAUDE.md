@@ -303,6 +303,30 @@ fila que `DB.loadAll()` trae entera en cada carga.
 - `galerias` **no** está en `CLAVES_LIMPIABLES`: son fotos reales de clientes, no contenido de
   prueba.
 
+### Favoritas — el único campo que escribe el cliente
+
+El cliente marca con ♥ las fotos que quiere usar, y el equipo las ve marcadas en Contenido →
+Fotos con su contador. Es el dato por el que el equipo vuelve a entrar después de entregar.
+
+- **Ruta propia, `POST /api/galerias/favorito`**, no `POST /api/data/galerias`: darle esa clave al
+  cliente le dejaría reescribir títulos, ocultar sesiones o borrar fotos. Aquí solo se acepta
+  marcar/desmarcar **una** foto de **una** sesión, y el servidor comprueba por su cuenta —buscando
+  la sesión por id— que sea de su empresa y esté publicada. Nada de eso viaja en el cuerpo, así
+  que no hay nada que falsear desde el navegador. Comprobado: cliente de otra empresa → 403, sin
+  sesión → 401, foto inventada → 404.
+- Va por `enCola`, la cola de los avisos: `galerias` es una fila única y marcar favoritas se hace
+  a ráfagas, que es el caso exacto del *lost update*.
+- **El equipo escribe la fila ENTERA y el cliente solo `fav`.** Si alguien del equipo editaba una
+  sesión mientras el cliente marcaba, su copia en memoria —que no tenía las marcas— las borraba
+  sin que nadie se enterara. Por eso el guardado del equipo (`guardarGalerias` en `Main`) relee
+  del servidor y **conserva `fav`/`favAt` de allá** antes de escribir; las fotos recién subidas,
+  que aún no existen en el servidor, se quedan con lo suyo.
+- En el portal el corazón se pinta al instante y se guarda después, con vuelta atrás y aviso si
+  la escritura falla: en el teléfono se marcan varias seguidas y esperar al servidor en cada
+  toque dejaba el corazón medio segundo por detrás del dedo.
+- `FotoGrid` recibe `onFav` **solo desde el portal**. Sin ella el corazón se sigue viendo en las
+  marcadas —y no se puede pulsar—: para el equipo esa marca es información, no un control.
+
 ## Notificaciones
 
 El push es el aviso del momento; `app_data.notifs` es el historial, que **se guarda siempre**
