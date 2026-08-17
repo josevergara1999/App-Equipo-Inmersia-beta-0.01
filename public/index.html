@@ -802,6 +802,24 @@ const openZoom=(files,index)=>{
   window.dispatchEvent(new CustomEvent("inm:zoom",{detail:{files:list,index:index||0}}));
 };
 
+// Guardar el archivo en el equipo del que mira. El atributo `download` de un <a> lo ignora el
+// navegador cuando el archivo vive en otro origen —y Storage es otro origen—, así que un enlace
+// a secas solo NAVEGA a la foto en vez de bajarla. Se baja el binario y se guarda desde un blob
+// del mismo origen, que sí respeta el nombre. Si el fetch falla (CORS, sin red), se abre en una
+// pestaña: al menos desde ahí se puede guardar a mano.
+async function descargarArchivo(f){
+  const src=fSrc(f);if(!src)return;
+  const nombre=f?.name||"foto.jpg";
+  try{
+    const r=await fetch(src,{mode:"cors"});
+    if(!r.ok)throw new Error(r.status);
+    const b=await r.blob();
+    const u=URL.createObjectURL(b);
+    const a=document.createElement("a");a.href=u;a.download=nombre;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),4000);
+  }catch(e){window.open(src,"_blank","noopener");}
+}
+
 function ZoomLayer(){
   const[z,sZ]=useState(null);
   useEffect(()=>{
@@ -832,8 +850,11 @@ function ZoomLayer(){
        :isImg(f)?<img src={src} alt={f.name||""} style={{maxWidth:"92vw",maxHeight:"84vh",borderRadius:12,display:"block",objectFit:"contain",boxShadow:"0 30px 90px rgba(0,0,0,.7)"}}/>
        :<a href={src} download={f.name} style={{color:"#fff",fontSize:15,padding:"14px 22px",background:"rgba(255,255,255,.1)",borderRadius:10}}>Descargar {f.name||"archivo"}</a>}
     </div>
-    <div onClick={e=>e.stopPropagation()} style={{fontSize:12.5,color:"rgba(255,255,255,.62)",textAlign:"center"}}>
-      {f.name||""}{many?` · ${z.i+1} de ${z.files.length}`:""}
+    <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",justifyContent:"center",fontSize:12.5,color:"rgba(255,255,255,.62)",textAlign:"center"}}>
+      <span>{f.name||""}{many?` · ${z.i+1} de ${z.files.length}`:""}</span>
+      {(isImg(f)||isVid(f))&&<button onClick={()=>descargarArchivo(f)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:999,background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.20)",color:"#fff",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
+        <Ic n="save" s={13} c="#fff"/>Descargar
+      </button>}
     </div>
   </div></Portal>);
 }
@@ -956,7 +977,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const canProspectos=isA||cu.role==="Sales";
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
-  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
+  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],fotos:["Fotos","📷","camera"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
@@ -991,6 +1012,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   useEffect(()=>{const h=()=>sIsMob(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const[shBill,sShBill]=useState(false);const[newTk,sNTk]=useState(false);
   const[planners,sPlanners]=useState([]);const[pDrafts,sPDrafts]=useState([]);
+  // Sesiones de fotos (app_data.galerias). Las fotos NO viven aquí: en la fila solo va la URL
+  // pública de Storage, igual que el material de las piezas. Meter los binarios reventaría la
+  // fila y la carga inicial de todos los usuarios.
+  const[galerias,sGal]=useState([]);
   // GCal
   const[gcalTokens,sGCT]=useState(JSON.parse(localStorage.getItem("inm_gcal_tokens")||"{}"));
   const myGcal=gcalTokens[cu.id]||"";const[shGcal,sShGcal]=useState(false);
@@ -1030,6 +1055,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.planners?.length)sPlanners(d.planners);
       if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
       if(d.prospects?.length)sPros(d.prospects);
+      if(d.galerias?.length)sGal(d.galerias);
       if(d.teamPay)sTP(d.teamPay);
       if(d.billRcpts)sBR(d.billRcpts);
       sDbLoaded(true);
@@ -1037,11 +1063,12 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   },[]);
 
   // Save to Supabase on changes — skip initial empty state save, never save empty if we had data
-  const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);const initTrackP=useRef(false);
-  const hadData=useRef({cos:false,tasks:false,planners:false});
+  const initTrackCos=useRef(false);const initTrackT=useRef(false);const initTrackEx=useRef(false);const initTrackM=useRef(false);const initTrackP=useRef(false);const initTrackG=useRef(false);
+  const hadData=useRef({cos:false,tasks:false,planners:false,galerias:false});
   useEffect(()=>{if(cos.length>0)hadData.current.cos=true;},[cos]);
   useEffect(()=>{if(tasks.length>0)hadData.current.tasks=true;},[tasks]);
   useEffect(()=>{if(planners.length>0)hadData.current.planners=true;},[planners]);
+  useEffect(()=>{if(galerias.length>0)hadData.current.galerias=true;},[galerias]);
   // Recovery: force reload all data from Supabase
   const forceReload=async()=>{if(!confirm("¿Recargar TODOS los datos desde Supabase?"))return;
     try{const d=await DB.loadAll();
@@ -1059,6 +1086,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // no lo pulsaba, al recargar no quedaba nada. Ahora confirmar una pieza es decidir que
   // sale al calendario, no la única forma de no perder lo escrito.
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackP.current){initTrackP.current=true;return;}if(planners.length===0&&hadData.current.planners){console.warn("Skipping save: would erase planners");return;}dbSave("planners",planners);},[planners,dbLoaded]);
+  useEffect(()=>{if(!dbLoaded)return;if(!initTrackG.current){initTrackG.current=true;return;}if(galerias.length===0&&hadData.current.galerias){console.warn("Skipping save: would erase galerias");return;}dbSave("galerias",galerias);},[galerias,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
 
@@ -1446,6 +1474,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="informe"&&<InformePg cos={cos}/>}
         {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
         {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners}/>}
+        {pg==="fotos"&&<FotosPg cos={cos} galerias={galerias} sGal={sGal} cu={cu} users={users} addN={addN} avisar={avisar} correosDe={correosDe} isMob={isMob}/>}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
@@ -1533,7 +1562,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(56px + env(safe-area-inset-bottom, 0px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["contenido","🎨","Contenido"],["payments","💰","Pagos"],["team","👥","Equipo"],["metricas","📈","Métricas"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
+              {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["contenido","🎨","Contenido"],["fotos","📷","Fotos"],["payments","💰","Pagos"],["team","👥","Equipo"],["metricas","📈","Métricas"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
                 <span style={{fontSize:22}}>{ic}</span>{l}
               </button>))}
               {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
@@ -8189,8 +8218,230 @@ function ResultadoPost({co,task}){
   </div>);
 }
 
+// ═══ SESIONES DE FOTOS ══════════════════════════════════════════
+// Las fotos de una sesión se entregan por la app, no por Drive: el cliente las ve donde ya entra
+// a aprobar su contenido y deja de haber una carpeta más que compartir, ordenar, y perder cuando
+// alguien cambia el permiso del enlace.
+//
+// El binario va a Supabase Storage por /api/upload (el mismo bucket `contenido` de las piezas) y
+// en `app_data.galerias` queda SOLO la URL pública. Meter las fotos ahí dentro reventaría la fila
+// —igual que un reel en `tasks`— y esa fila se la trae entera cada usuario en cada carga.
+//
+// Una sesión con `visible:false` es material en preparación: el servidor la recorta en
+// `scopeCliente` antes de que salga del proxy, así que el cliente no la ve ni pidiéndola por su
+// nombre. Publicar es una decisión, no un efecto de haber subido el archivo.
+const fFechaCorta=s=>{const p=String(s||"").split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:(s||"");};
+
+// Rejilla vertical. Las fotos de sesión son retratos: en una celda cuadrada el recorte se come
+// cabezas y pies. La celda es 3:4 y el recorte lo hace el CSS sobre la foto completa, que es la
+// que se abre al tocar — lo que se ve recortado nunca es lo que se descarga.
+function FotoGrid({fotos,cols,onBorrar}){
+  const list=Array.isArray(fotos)?fotos:[];
+  if(!list.length)return null;
+  return(<div style={{display:"grid",gridTemplateColumns:"repeat("+(cols||2)+",minmax(0,1fr))",gap:8}}>
+    {list.map((f,i)=>(
+      <div key={f.id||i} style={{position:"relative",borderRadius:12,overflow:"hidden",background:PC.panel,border:"1px solid "+PC.line3,aspectRatio:"3 / 4"}}>
+        {isVid(f)
+          ?<video src={fSrc(f)} muted playsInline preload="metadata" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>
+          :<img src={fSrc(f)} alt={f.name||""} loading="lazy" onClick={()=>openZoom(list,i)} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",cursor:"zoom-in"}}/>}
+        {isVid(f)&&<span style={{position:"absolute",left:8,bottom:8,padding:"3px 8px",borderRadius:999,background:"rgba(5,6,11,.7)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",fontSize:10,fontWeight:700,pointerEvents:"none"}}>VIDEO</span>}
+        {onBorrar&&<button onClick={e=>{e.stopPropagation();onBorrar(f);}} title="Quitar de la sesión"
+          style={{position:"absolute",top:6,right:6,width:26,height:26,borderRadius:"50%",background:"rgba(8,10,14,.72)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",backdropFilter:"blur(6px)",zIndex:3}}><Ic n="x" s={13} c="#fff"/></button>}
+      </div>))}
+  </div>);
+}
+
+// ─── Vista del equipo: crear la sesión, subir el material y soltarlo al portal ───
+function FotosPg({cos,galerias,sGal,cu,addN,avisar,correosDe,users,isMob}){
+  const[selCo,sSelCo]=useState("");
+  const[nueva,sNueva]=useState(false);
+  const[form,sForm]=useState({titulo:"",fecha:td(),nota:""});
+  const[subiendo,sSubiendo]=useState(null);   // {gid,hechas,total}
+  // Sin Storage no hay entrega posible: se dice arriba y no en el primer error de subida.
+  const[stReady,sStReady]=useState(true);const[stMotivo,sStMotivo]=useState("");
+  useEffect(()=>{API.uploadStatus().then(d=>{sStReady(!!d.ready);sStMotivo(d.motivo||"");});},[]);
+  useEffect(()=>{if(!selCo&&cos.length)sSelCo(String(cos[0].id));},[cos,selCo]);
+
+  const co=cos.find(c=>String(c.id)===String(selCo));
+  const mias=useMemo(()=>(galerias||[]).filter(g=>String(g.companyId)===String(selCo))
+    .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||""))),[galerias,selCo]);
+
+  const upG=(gid,updates)=>sGal(p=>p.map(g=>g.id===gid?{...g,...(typeof updates==="function"?updates(g):updates)}:g));
+
+  const crear=()=>{
+    if(!co){addN("⚠️ Elige una empresa primero");return;}
+    const g={id:uid(),companyId:String(co.id),companyName:co.name,titulo:form.titulo.trim()||("Sesión "+fFechaCorta(form.fecha||td())),
+      fecha:form.fecha||td(),nota:form.nota.trim(),visible:false,fotos:[],
+      createdBy:cu?.name||"",createdAt:new Date().toISOString()};
+    sGal(p=>[g,...p]);
+    sNueva(false);sForm({titulo:"",fecha:td(),nota:""});
+    addN("📷 Sesión creada — súbele las fotos y publícala cuando esté lista");
+  };
+
+  // Se sube foto por foto y cada una se guarda en cuanto llega. Si la número 40 falla —o se
+  // corta la red a mitad de una sesión entera— las 39 anteriores ya están puestas: reintentar
+  // es soltar las que faltan, no volver a subir todo.
+  const subirA=async(g,fileList)=>{
+    const files=Array.from(fileList||[]).filter(f=>f&&(String(f.type).startsWith("image")||String(f.type).startsWith("video")));
+    if(!files.length){addN("⚠️ Solo se pueden subir fotos o videos");return;}
+    sSubiendo({gid:g.id,hechas:0,total:files.length});
+    let ok=0;
+    for(let i=0;i<files.length;i++){
+      try{
+        const meta=await API.upload(files[i],g.companyId);
+        upG(g.id,x=>({fotos:[...(x.fotos||[]),{id:uid(),...meta,at:new Date().toISOString()}]}));
+        ok++;
+      }catch(e){addN("❌ "+files[i].name+": "+e.message);}
+      sSubiendo({gid:g.id,hechas:i+1,total:files.length});
+    }
+    sSubiendo(null);
+    if(ok)addN("✅ "+ok+(ok===1?" foto subida":" fotos subidas"));
+  };
+
+  // Quita la referencia de la sesión. El objeto sigue en Storage —igual que con el material de
+  // las piezas—: la app no borra binarios, así un descuido no destruye la foto original.
+  const quitarFoto=(g,f)=>{
+    if(!confirm("¿Quitar esta foto de la sesión?"))return;
+    upG(g.id,x=>({fotos:(x.fotos||[]).filter(y=>y.id!==f.id)}));
+  };
+
+  const publicar=(g,valor)=>{
+    upG(g.id,{visible:valor,publicadaAt:valor?new Date().toISOString():null});
+    if(!valor){addN("Sesión oculta — el cliente ya no la ve");return;}
+    addN("📸 Publicada en el portal de "+(co?.name||""));
+    const n=(g.fotos||[]).length;
+    if(co?.email&&co.email.includes("@"))
+      API.notify({type:"task_status",to:[co.email],taskTitle:g.titulo,company:co.name,
+        state:"📸 Ya están las fotos de tu sesión ("+n+") — entra al portal para verlas y descargarlas",date:td()});
+    // Al equipo, para que quede rastro de quién entregó qué. Nunca a quien pulsó el botón.
+    if(avisar&&correosDe){
+      const dest=(users||[]).filter(u=>u.role!=="cliente"&&u.id!==cu?.id);
+      if(dest.length)avisar({type:"contenido",title:"📸 Fotos entregadas a "+(co?.name||""),
+        body:"\""+g.titulo+"\" · "+n+(n===1?" foto":" fotos")+" ya están en su portal.",to:correosDe(dest),url:"/"});
+    }
+  };
+
+  const borrarSesion=g=>{
+    if(!confirm("¿Borrar la sesión «"+g.titulo+"» y sus "+((g.fotos||[]).length)+" fotos del portal?\n\nLos archivos originales NO se borran del almacenamiento."))return;
+    sGal(p=>p.filter(x=>x.id!==g.id));
+    addN("Sesión borrada");
+  };
+
+  const cols=isMob?3:5;
+  const inputBase={padding:"11px 13px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box",width:"100%"};
+
+  return(<div className="fi" style={{maxWidth:1120,margin:"0 auto"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:20}}>
+      <div>
+        <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Fotos</h1>
+        <div style={{fontSize:13,color:D.tx3,marginTop:2}}>Sesiones de fotos entregadas por el portal. Sin Drive, sin enlaces que caducan.</div>
+      </div>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <select value={selCo} onChange={e=>sSelCo(e.target.value)} style={{fontSize:13,padding:"10px 14px",width:"auto",borderRadius:999,background:D.panel,border:"1px solid "+D.line3,color:D.tx2}}>
+          {cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <button onClick={()=>sNueva(v=>!v)} style={{padding:"11px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{nueva?"Cancelar":"+ Nueva sesión"}</button>
+      </div>
+    </div>
+
+    {!stReady&&<div style={{marginBottom:16,padding:"13px 16px",borderRadius:14,background:"rgba(255,139,139,.07)",border:"1px solid rgba(255,139,139,.35)",color:D.tx2,fontSize:12.5,lineHeight:1.55}}>
+      <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Hasta arreglarlo no hay forma de entregar una sesión por aquí.
+    </div>}
+
+    {nueva&&<div style={{...D_CARD,marginBottom:18}}>
+      <div style={{fontSize:14.5,fontWeight:700,color:D.tx,marginBottom:14}}>Nueva sesión para {co?.name||"—"}</div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:12,marginBottom:12}}>
+        <input value={form.titulo} onChange={e=>sForm(f=>({...f,titulo:e.target.value}))} placeholder="Nombre de la sesión (ej. Sesión otoño en el fundo)" style={inputBase}/>
+        <input type="date" value={form.fecha} onChange={e=>sForm(f=>({...f,fecha:e.target.value}))} style={inputBase}/>
+      </div>
+      <textarea value={form.nota} onChange={e=>sForm(f=>({...f,nota:e.target.value}))} rows={2} placeholder="Nota para el cliente (opcional)" style={{...inputBase,resize:"vertical",lineHeight:1.5}}/>
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+        <button onClick={crear} style={{padding:"10px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Crear sesión</button>
+      </div>
+    </div>}
+
+    {mias.length===0&&!nueva&&<div style={{...D_CARD,textAlign:"center",padding:"46px 22px",color:D.tx4,fontSize:13.5,lineHeight:1.6}}>
+      <div style={{fontSize:34,marginBottom:10}}>📷</div>
+      {co?.name||"Esta empresa"} todavía no tiene sesiones de fotos.<br/>Crea una y súbele el material: al publicarla le llega el aviso y la ve en su portal.
+    </div>}
+
+    {mias.map(g=>{
+      const fotos=g.fotos||[];
+      const sub=subiendo&&subiendo.gid===g.id?subiendo:null;
+      return(<div key={g.id} style={{...D_CARD,marginBottom:16}}>
+        <div style={{display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap",marginBottom:12}}>
+          <div style={{flex:"1 1 240px",minWidth:0}}>
+            <input value={g.titulo} onChange={e=>upG(g.id,{titulo:e.target.value})}
+              style={{...inputBase,background:"transparent",border:"1px solid transparent",padding:"4px 6px",margin:"-4px -6px 2px",fontSize:16.5,fontWeight:700}}/>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:11.5,color:D.tx4}}>
+              <input type="date" value={g.fecha||""} onChange={e=>upG(g.id,{fecha:e.target.value})}
+                style={{background:"transparent",border:"1px solid "+D.line3,borderRadius:8,color:D.tx3,fontFamily:"inherit",fontSize:11.5,padding:"4px 8px",width:"auto"}}/>
+              <span>·</span><span>{fotos.length}{fotos.length===1?" foto":" fotos"}</span>
+              {g.createdBy&&<><span>·</span><span>subió {g.createdBy}</span></>}
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            <Bg color={g.visible?"#8FF2C2":D.tx4}>{g.visible?"● Visible para el cliente":"○ Solo el equipo"}</Bg>
+            <button onClick={()=>publicar(g,!g.visible)} disabled={!g.visible&&!fotos.length}
+              title={!g.visible&&!fotos.length?"Súbele fotos antes de publicarla":""}
+              style={{padding:"9px 16px",borderRadius:999,background:g.visible?"transparent":D.cian,border:"1px solid "+(g.visible?D.line2:D.cian),color:g.visible?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(!g.visible&&!fotos.length)?"default":"pointer",opacity:(!g.visible&&!fotos.length)?.4:1,whiteSpace:"nowrap"}}>
+              {g.visible?"Ocultar":"Publicar al portal"}</button>
+            <button onClick={()=>borrarSesion(g)} title="Borrar sesión" style={{width:34,height:34,borderRadius:"50%",background:"transparent",border:"1px solid "+D.line2,color:D.tx4,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Ic n="trash" s={15} c={D.tx4}/></button>
+          </div>
+        </div>
+
+        <textarea value={g.nota||""} onChange={e=>upG(g.id,{nota:e.target.value})} rows={1} placeholder="Nota para el cliente (opcional)"
+          style={{...inputBase,fontSize:12.5,color:D.tx3,resize:"vertical",lineHeight:1.5,marginBottom:12}}/>
+
+        {/* Soltar la carpeta entera encima es como llega el material de una sesión: 80 fotos de
+            una vez, no de a una por el selector. */}
+        <label onDragOver={e=>{e.preventDefault();}} onDrop={e=>{e.preventDefault();if(stReady&&!sub)subirA(g,e.dataTransfer.files);}}
+          style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"16px 18px",borderRadius:14,border:"1px dashed "+(sub?D.cian:D.line2),background:sub?"rgba(111,231,242,.05)":"transparent",color:sub?D.cian:D.tx3,fontSize:12.5,fontWeight:600,cursor:stReady&&!sub?"pointer":"default",marginBottom:fotos.length?14:0,textAlign:"center"}}>
+          {/* La lista se copia a un array ANTES de limpiar el input: `e.target.files` es una
+              lista viva y al poner value="" se queda en cero, así que subir dos veces la misma
+              carpeta no habría subido nada la segunda. El value se limpia para que volver a
+              elegir el mismo archivo dispare el change. */}
+          <input type="file" accept="image/*,video/*" multiple disabled={!stReady||!!sub} onChange={e=>{const fs=Array.from(e.target.files||[]);e.target.value="";subirA(g,fs);}} style={{display:"none"}}/>
+          {sub?<>Subiendo {sub.hechas} de {sub.total}…</>:<><Ic n="camera" s={16} c={D.tx3}/>Arrastra las fotos aquí o toca para elegirlas</>}
+        </label>
+
+        <FotoGrid fotos={fotos} cols={cols} onBorrar={f=>quitarFoto(g,f)}/>
+      </div>);
+    })}
+  </div>);
+}
+
+// ─── Lo que ve el cliente ───
+// Solo llega aquí lo que el servidor dejó pasar: su empresa y sus sesiones publicadas. No hay
+// filtro por empresa en este componente a propósito — filtrar en el navegador es lo que dejaba
+// los datos de un cliente al alcance de otro.
+function GaleriasCliente({galerias,isMob}){
+  const gs=useMemo(()=>(galerias||[]).slice()
+    .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||""))),[galerias]);
+  if(!gs.length)return(<div style={{textAlign:"center",padding:44,color:PC.tx4,fontSize:13,lineHeight:1.6}}>
+    <div style={{fontSize:32,marginBottom:10}}>📷</div>
+    Todavía no hay sesiones de fotos.<br/>Cuando hagamos una, aquí la tendrás completa para verla y descargarla.
+  </div>);
+  return(<div>
+    <div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.5,marginBottom:16}}>Las fotos de tus sesiones, completas. Toca una para verla en grande y descargarla.</div>
+    {gs.map(g=>(
+      <div key={g.id} style={{marginBottom:26}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:4}}>
+          <div style={{fontSize:16.5,fontWeight:700,color:PC.tx}}>{g.titulo||"Sesión de fotos"}</div>
+          <div style={{fontSize:11.5,color:PC.tx4}}>{fFechaCorta(g.fecha)} · {(g.fotos||[]).length}{(g.fotos||[]).length===1?" foto":" fotos"}</div>
+        </div>
+        {g.nota&&<div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.55,marginBottom:10}}>{g.nota}</div>}
+        <div style={{height:10}}/>
+        <FotoGrid fotos={g.fotos||[]} cols={isMob?2:3}/>
+      </div>))}
+  </div>);
+}
+
 function ClientView({user:cu,onLogout:ol}){
   const[tasks,sT]=useState([]);const[cos,sCos]=useState([]);const[loaded,sLoaded]=useState(false);
+  // Sesiones de fotos. Vienen ya recortadas por el servidor: solo las de su empresa y solo las
+  // publicadas (ver scopeCliente). Aquí no hace falta —ni se debe— volver a filtrar por empresa.
+  const[galerias,sGal]=useState([]);
   const[tab,sTab]=useState("aprobar");
   const[isMob,sIsMob]=useState(window.innerWidth<768);
   const[vw,sVw]=useState(window.innerWidth);
@@ -8203,7 +8454,7 @@ function ClientView({user:cu,onLogout:ol}){
     document.body.style.overflow="auto";document.body.style.height="auto";
     return()=>{document.body.style.overflow="";document.body.style.height="";};
   },[]);
-  useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);sLoaded(true);}).catch(()=>sLoaded(true));},[]);
+  useEffect(()=>{DB.loadAll().then(d=>{if(d.companies)sCos(d.companies);if(d.tasks)sT(d.tasks);if(d.galerias)sGal(d.galerias);sLoaded(true);}).catch(()=>sLoaded(true));},[]);
   useEffect(()=>{if(!toast)return;const id=setTimeout(()=>sToast(""),2600);return()=>clearTimeout(id);},[toast]);
 
   const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
@@ -8335,7 +8586,9 @@ function ClientView({user:cu,onLogout:ol}){
   // aparece en ese portal. En cuanto haya informe de otra empresa, esto pasa a mirar un dato
   // de la empresa en vez del nombre.
   const tieneInforme=/huemul/i.test(co?.name||"");
-  const tabs=[["aprobar","Por aprobar",approval.length],["planificar","Planificar",0],...(publicadas.length?[["resultados","Resultados",0]]:[]),...(tieneInforme?[["informe","Informe del mes",0]]:[])];
+  // Las fotos solo asoman cuando hay algo que mirar: una pestaña vacía en un portal que ya
+  // tiene cuatro es ruido, y en el teléfono empuja al resto fuera de la pantalla.
+  const tabs=[["aprobar","Por aprobar",approval.length],["planificar","Planificar",0],...(galerias.length?[["fotos","Fotos",0]]:[]),...(publicadas.length?[["resultados","Resultados",0]]:[]),...(tieneInforme?[["informe","Informe del mes",0]]:[])];
   const iniciales=(cu.companyName||cu.name||"?").slice(0,2).toUpperCase();
 
   return(
@@ -8364,10 +8617,12 @@ function ClientView({user:cu,onLogout:ol}){
       {toast&&<div style={{position:"fixed",top:"calc(70px + env(safe-area-inset-top, 0px))",left:"50%",transform:"translateX(-50%)",zIndex:300,background:PC.panel,border:"1px solid "+PC.line2,borderRadius:999,padding:"10px 20px",fontSize:13,fontWeight:600,color:PC.tx,boxShadow:"0 8px 28px rgba(0,0,0,.5)",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
 
       <div style={{maxWidth:780,margin:"0 auto",padding:pad,paddingBottom:90,boxSizing:"border-box"}}>
-        <div style={{display:"flex",gap:isMob?18:26,marginBottom:26,borderBottom:"1px solid "+PC.line}}>
+        {/* Con cinco pestañas ya no caben en un teléfono: se desplazan en horizontal en vez de
+            comprimirse hasta ser ilegibles. La barra de scroll se esconde, el gesto no. */}
+        <div style={{display:"flex",gap:isMob?18:26,marginBottom:26,borderBottom:"1px solid "+PC.line,overflowX:"auto",scrollbarWidth:"none",WebkitOverflowScrolling:"touch"}}>
           {tabs.map(([k,l,n])=>{const on=tab===k;return(
-            <button key={k} onClick={()=>sTab(k)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 2px 14px",background:"none",border:"none",borderBottom:"2px solid "+(on?PC.cian:"transparent"),marginBottom:-1,color:on?PC.tx:PC.tx4,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-              <Ic n={k==="aprobar"?"ai":(k==="informe"||k==="resultados")?"trend_up":"calendar"} s={15} c={on?PC.cian:PC.tx4}/>
+            <button key={k} onClick={()=>sTab(k)} style={{display:"flex",alignItems:"center",gap:8,padding:"12px 2px 14px",background:"none",border:"none",borderBottom:"2px solid "+(on?PC.cian:"transparent"),marginBottom:-1,color:on?PC.tx:PC.tx4,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              <Ic n={k==="aprobar"?"ai":k==="fotos"?"camera":(k==="informe"||k==="resultados")?"trend_up":"calendar"} s={15} c={on?PC.cian:PC.tx4}/>
               {l}
               {n>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(111,231,242,.14)",border:"1px solid rgba(111,231,242,.4)",color:PC.cian,fontSize:11,fontWeight:700}}>{n}</span>}
             </button>);})}
@@ -8379,6 +8634,8 @@ function ClientView({user:cu,onLogout:ol}){
           <InformePg/>
         ):tab==="aprobar"?(
           <SwipeDeck items={approval} onApprove={approve} onReject={reject} isMob={isMob} busy={busy} onGoPlan={()=>sTab("planificar")}/>
+        ):tab==="fotos"?(
+          <GaleriasCliente galerias={galerias} isMob={isMob}/>
         ):tab==="resultados"?(
           <div>
             <div style={{fontSize:12.5,color:PC.tx3,lineHeight:1.5,marginBottom:14}}>Cómo le fue a cada publicación y qué dicen los números. Toca "Pregúntale a la IA" para conversar sobre cualquiera.</div>

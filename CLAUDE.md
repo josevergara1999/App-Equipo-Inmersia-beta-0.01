@@ -94,7 +94,7 @@ equipo, hay que tocar los dos lados.
 Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
 Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
 `gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
-`notif_daily`, `user_creds`, `social`, `ig`. Los binarios van al **Storage** (bucket
+`notif_daily`, `user_creds`, `social`, `ig`, `galerias`. Los binarios van al **Storage** (bucket
 `contenido`), nunca a esta tabla.
 
 **RLS activo desde 10-ago-2026.** La tabla tiene Row Level Security y NO tiene policies para el
@@ -221,6 +221,44 @@ limpiarlas, pero solo con `planners` cargado: con la lista vacía, todo parecer�
 
 Al crear una pieza desde Contenido se escribe en los dos lados a la vez (item + tarea con el
 mismo `itemId`).
+
+## Sesiones de fotos
+
+Las fotos de una sesión se entregan **por la app**, no por Drive: el cliente las ve donde ya entra
+a aprobar su contenido y deja de haber una carpeta más que compartir, ordenar y perder cuando
+alguien cambia el permiso del enlace.
+
+Viven en `app_data.galerias`, aparte de `tasks`: una sesión no es una pieza del plan, no gasta
+cupo, no se vota y no se publica en Instagram. Mezclarlas habría metido cientos de fotos en la
+fila que `DB.loadAll()` trae entera en cada carga.
+
+```
+{ id, companyId, companyName, titulo, fecha, nota, visible, fotos:[{id,name,type,url,size,at}],
+  createdBy, createdAt, publicadaAt }
+```
+
+- **En la fila va solo la URL.** El binario se sube por `/api/upload` al mismo bucket `contenido`
+  que el material de las piezas. Nunca base64 aquí, por lo mismo que en `tasks`.
+- **`visible` es una decisión, no un efecto de haber subido el archivo.** Una sesión a medio subir
+  no puede aparecerle al cliente solo porque exista la fila. El corte lo hace el **servidor**
+  (`scopeCliente`), no el navegador: al cliente se le entregan únicamente las galerías de SU
+  empresa **y** con `visible !== false`. `galerias` está en `CLAVES_CLIENTE` solo para LEER — el
+  cliente sigue sin poder escribir nada que no sea `tasks`.
+- **Se sube foto por foto y cada una se guarda al llegar.** Si la número 40 falla, las 39 anteriores
+  ya están puestas: reintentar es soltar las que faltan, no subir la sesión entera otra vez.
+- **Quitar una foto quita la referencia, no el objeto de Storage** — igual que con el material de
+  las piezas. La app no borra binarios, así un descuido no destruye el original.
+- Al publicar se avisa al cliente por correo (`co.email`) y al equipo por la campanita. Ocultar no
+  avisa a nadie.
+- La rejilla es **3:4 vertical**: las fotos de sesión son retratos y una celda cuadrada corta
+  cabezas y pies. El recorte lo hace el CSS sobre la foto completa, que es la que abre el visor —
+  lo que se ve recortado nunca es lo que se descarga.
+- El visor (`ZoomLayer`, el mismo de toda la app) lleva **Descargar**. El atributo `download` de un
+  `<a>` lo ignora el navegador cuando el archivo vive en otro origen —y Storage lo es—, así que un
+  enlace a secas solo NAVEGA a la foto. `descargarArchivo()` baja el binario y lo guarda desde un
+  blob del mismo origen, que sí respeta el nombre.
+- `galerias` **no** está en `CLAVES_LIMPIABLES`: son fotos reales de clientes, no contenido de
+  prueba.
 
 ## Notificaciones
 

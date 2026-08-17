@@ -647,14 +647,22 @@ async function idEmpresaCliente(coName, companiesArr) {
   const found = arr.find(c => _slug(c.name) === objetivo);
   return found ? String(found.id) : null;
 }
-// Recorta el mapa completo a lo único que un cliente puede ver: SU empresa y SUS tareas.
+// Claves que un cliente puede LEER (ya scopeadas por scopeCliente). Todo lo demás ni lo ve.
+const CLAVES_CLIENTE = ["companies", "tasks", "galerias"];
+// Recorta el mapa completo a lo único que un cliente puede ver: SU empresa, SUS tareas y SUS
+// sesiones de fotos.
 async function scopeCliente(mapa, coName) {
   const companies = Array.isArray(mapa.companies) ? mapa.companies : [];
   const cid = await idEmpresaCliente(coName, companies);
-  if (!cid) return { companies: [], tasks: [] }; // fail-closed
+  if (!cid) return { companies: [], tasks: [], galerias: [] }; // fail-closed
   const miCo = companies.find(c => String(c.id) === cid);
   const tasks = (Array.isArray(mapa.tasks) ? mapa.tasks : []).filter(t => String(t.companyId) === cid);
-  return { companies: miCo ? [miCo] : [], tasks };
+  // Sesiones de fotos: además de ser de SU empresa, tienen que estar publicadas. El equipo sube
+  // el material a lo largo de la sesión y lo suelta cuando está revisado; una galería a medio
+  // subir no puede aparecerle al cliente solo porque exista la fila.
+  const galerias = (Array.isArray(mapa.galerias) ? mapa.galerias : [])
+    .filter(g => g && String(g.companyId) === cid && g.visible !== false);
+  return { companies: miCo ? [miCo] : [], tasks, galerias };
 }
 
 // Lee TODA la tabla de una vez (menos las privadas), con la forma { clave: valor } que espera el
@@ -687,9 +695,13 @@ app.get("/api/data/:key", requireAuth, async (req, res) => {
   try {
     const co = clienteDe(authInfo(req));
     if (co) {
-      // A un cliente, por clave suelta, solo se le entregan tasks/companies y ya scopeadas.
-      if (req.params.key !== "tasks" && req.params.key !== "companies") return res.status(403).json({ error: "clave no accesible" });
-      const scoped = await scopeCliente({ tasks: await sbGet("tasks", []), companies: await sbGet("companies", []) }, co);
+      // A un cliente, por clave suelta, solo se le entregan las de CLAVES_CLIENTE y ya scopeadas.
+      if (!CLAVES_CLIENTE.includes(req.params.key)) return res.status(403).json({ error: "clave no accesible" });
+      const scoped = await scopeCliente({
+        tasks: await sbGet("tasks", []),
+        companies: await sbGet("companies", []),
+        galerias: await sbGet("galerias", []),
+      }, co);
       return res.json({ value: scoped[req.params.key] || [] });
     }
     res.json({ value: await sbGet(req.params.key, null) });
