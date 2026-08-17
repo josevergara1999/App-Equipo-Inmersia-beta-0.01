@@ -8538,11 +8538,15 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
     for(let i=0;i<files.length;i++){
       try{
         const meta=await API.upload(files[i],g.companyId);
-        // La miniatura viaja con la foto. Si falla —un formato raro, un archivo enorme— se sube
-        // igual sin ella: mejor una rejilla pesada que una foto que no llega.
+        // La miniatura viaja con la foto, y se reintenta: sin ella la galería le recarga el
+        // teléfono al cliente. Si aun así no sale, la foto se sube igual —mejor una foto sin
+        // miniatura que una foto perdida— y la recoge el repaso automático de abajo; hasta que
+        // esté, la sesión no se puede publicar.
         let thumb=null;
-        try{const mini=await miniaturaDe(files[i]);if(mini)thumb=(await API.upload(mini,g.companyId)).url;}
-        catch(e){console.error("miniatura:",e);}
+        for(let intento=0;intento<2&&!thumb;intento++){
+          try{const chica=await miniaturaDe(files[i]);if(!chica)break;thumb=(await API.upload(chica,g.companyId)).url;}
+          catch(e){console.error("miniatura (intento "+(intento+1)+"):",e);}
+        }
         upG(g.id,x=>({fotos:[...(x.fotos||[]),{id:uid(),...meta,thumb,at:new Date().toISOString()}]}));
         ok++;
       }catch(e){addN("❌ "+files[i].name+": "+e.message);}
@@ -8555,30 +8559,53 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
   // Las sesiones subidas antes de que existieran las miniaturas se arreglan desde aquí: se baja
   // cada original, se reduce en este navegador y se sube la copia chica. Es de una sola vez por
   // sesión y hay que hacerlo desde un computador: son cientos de MB de bajada.
-  const[mini,sMini]=useState(null);   // {gid,hechas,total}
+  const[mini,sMini]=useState(null);       // {gid,hechas,total}
+  const corriendo=useRef(false);
+  // Las que no se dejan reducir (un formato que el navegador no abre, un archivo roto) se apuntan
+  // para no reintentarlas en bucle en esta sesión de trabajo. Al recargar se vuelven a intentar.
+  const imposibles=useRef(new Set());
+  const sinMini=g=>(g.fotos||[]).filter(f=>isImg(f)&&!f.thumb&&!imposibles.current.has(f.id));
+  const faltanMini=g=>(g.fotos||[]).filter(f=>isImg(f)&&!f.thumb).length;
+
   const generarMiniaturas=async g=>{
-    const faltan=(g.fotos||[]).filter(f=>!f.thumb&&isImg(f));
+    if(corriendo.current)return;
+    const faltan=sinMini(g);
     if(!faltan.length)return;
+    corriendo.current=true;
     sMini({gid:g.id,hechas:0,total:faltan.length});
     let ok=0;
-    for(let i=0;i<faltan.length;i++){
-      const f=faltan[i];
-      try{
-        const r=await fetch(fSrc(f),{mode:"cors"});
-        if(!r.ok)throw new Error("no se pudo bajar ("+r.status+")");
-        const blob=await r.blob();
-        const chica=await miniaturaDe(new File([blob],f.name||"foto.jpg",{type:blob.type||"image/jpeg"}));
-        if(chica){
+    try{
+      for(let i=0;i<faltan.length;i++){
+        const f=faltan[i];
+        try{
+          const r=await fetch(fSrc(f),{mode:"cors"});
+          if(!r.ok)throw new Error("no se pudo bajar ("+r.status+")");
+          const blob=await r.blob();
+          const chica=await miniaturaDe(new File([blob],f.name||"foto.jpg",{type:blob.type||"image/jpeg"}));
+          if(!chica)throw new Error("el navegador no pudo abrir la imagen");
           const m=await API.upload(chica,g.companyId);
           upG(g.id,x=>({fotos:(x.fotos||[]).map(y=>y.id===f.id?{...y,thumb:m.url}:y)}));
           ok++;
-        }
-      }catch(e){console.error("miniatura de",f.name,e);}
-      sMini({gid:g.id,hechas:i+1,total:faltan.length});
-    }
-    sMini(null);
-    addN(ok?"✅ "+ok+" miniaturas generadas — la galería ya carga liviana":"⚠️ No se pudo generar ninguna miniatura");
+        }catch(e){console.error("miniatura de",f.name,e);imposibles.current.add(f.id);}
+        sMini({gid:g.id,hechas:i+1,total:faltan.length});
+      }
+    }finally{corriendo.current=false;sMini(null);}
+    const rotas=faltan.length-ok;
+    addN(rotas
+      ? "⚠️ "+ok+" miniaturas listas, "+rotas+" no se pudieron generar. Esas fotos no se pueden entregar así — cámbialas o vuelve a subirlas."
+      : "✅ "+ok+" miniaturas generadas — la galería ya carga liviana");
   };
+
+  // Se generan SOLAS: no puede depender de que alguien se acuerde de un botón, porque una sesión
+  // sin miniaturas es una galería que le recarga el teléfono al cliente. Va de una sesión a la
+  // vez y solo en pantalla ancha: en el móvil, bajarse cientos de MB sin avisar sería abusivo, así
+  // que ahí queda el botón para hacerlo a mano.
+  useEffect(()=>{
+    if(mini||corriendo.current)return;
+    if(typeof window!=="undefined"&&window.innerWidth<900)return;
+    const pendiente=mias.find(g=>sinMini(g).length);
+    if(pendiente)generarMiniaturas(pendiente);
+  },[mias,mini]);
 
   // Quita la referencia de la sesión. El objeto sigue en Storage —igual que con el material de
   // las piezas—: la app no borra binarios, así un descuido no destruye la foto original.
@@ -8588,6 +8615,17 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
   };
 
   const publicar=(g,valor)=>{
+    // Candado: publicar una sesión sin miniaturas es entregarle al cliente una galería que le
+    // recarga el teléfono. No es una recomendación, es lo que pasó con las 33 fotos de Huemul.
+    if(valor){
+      const faltan=faltanMini(g);
+      if(faltan){
+        addN(corriendo.current
+          ? "⏳ Faltan "+faltan+" miniaturas y se están generando. En cuanto terminen puedes publicarla."
+          : "⛔ Faltan "+faltan+" miniaturas. Sin ellas la galería carga las fotos originales y le recarga el teléfono al cliente. Ábrela desde un computador para generarlas.");
+        return;
+      }
+    }
     upG(g.id,{visible:valor,publicadaAt:valor?new Date().toISOString():null});
     if(!valor){addN("Sesión oculta — el cliente ya no la ve");return;}
     addN("📸 Publicada en el portal de "+(co?.name||""));
@@ -8660,9 +8698,11 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             <Bg color={g.visible?"#8FF2C2":D.tx4}>{g.visible?"● Visible para el cliente":"○ Solo el equipo"}</Bg>
-            <button onClick={()=>publicar(g,!g.visible)} disabled={!g.visible&&!fotos.length}
-              title={!g.visible&&!fotos.length?"Súbele fotos antes de publicarla":""}
-              style={{padding:"9px 16px",borderRadius:999,background:g.visible?"transparent":D.cian,border:"1px solid "+(g.visible?D.line2:D.cian),color:g.visible?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(!g.visible&&!fotos.length)?"default":"pointer",opacity:(!g.visible&&!fotos.length)?.4:1,whiteSpace:"nowrap"}}>
+            <button onClick={()=>publicar(g,!g.visible)} disabled={!g.visible&&(!fotos.length||faltanMini(g)>0)}
+              title={!g.visible&&!fotos.length?"Súbele fotos antes de publicarla"
+                :!g.visible&&faltanMini(g)>0?"Faltan "+faltanMini(g)+" miniaturas — sin ellas la galería le recarga el teléfono al cliente"
+                :""}
+              style={{padding:"9px 16px",borderRadius:999,background:g.visible?"transparent":D.cian,border:"1px solid "+(g.visible?D.line2:D.cian),color:g.visible?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(!g.visible&&(!fotos.length||faltanMini(g)>0))?"default":"pointer",opacity:(!g.visible&&(!fotos.length||faltanMini(g)>0))?.4:1,whiteSpace:"nowrap"}}>
               {g.visible?"Ocultar":"Publicar al portal"}</button>
             <button onClick={()=>borrarSesion(g)} title="Borrar sesión" style={{width:34,height:34,borderRadius:"50%",background:"transparent",border:"1px solid "+D.line2,color:D.tx4,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Ic n="trash" s={15} c={D.tx4}/></button>
           </div>
@@ -8691,14 +8731,21 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
           if(!sin.length)return null;
           const enCurso=mini&&mini.gid===g.id?mini:null;
           const pesoMB=Math.round(sin.reduce((n,f)=>n+(f.size||0),0)/1048576);
-          return(<div style={{marginTop:12,padding:"12px 15px",borderRadius:14,background:"rgba(255,139,139,.07)",border:"1px solid rgba(255,139,139,.35)",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+          const pct=enCurso?Math.round(enCurso.hechas/enCurso.total*100):0;
+          return(<div style={{marginTop:12,padding:"12px 15px",borderRadius:14,background:enCurso?"rgba(111,231,242,.06)":"rgba(255,139,139,.07)",border:"1px solid "+(enCurso?"rgba(111,231,242,.35)":"rgba(255,139,139,.35)"),display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{flex:"1 1 260px",minWidth:0,fontSize:12.5,color:D.tx2,lineHeight:1.55}}>
-              <b>{sin.length} foto{sin.length===1?"":"s"} sin miniatura{pesoMB?" ("+pesoMB+" MB)":""}.</b> En el teléfono del cliente la galería carga los originales y el navegador puede quedarse sin memoria y recargarle la página. Genera las miniaturas desde un computador.
+              {enCurso
+                ? <><b style={{color:D.cian}}>Generando miniaturas · {enCurso.hechas} de {enCurso.total}.</b> No cierres esta pestaña. Hasta que termine, la sesión no se puede publicar.</>
+                : <><b>{sin.length} foto{sin.length===1?"":"s"} sin miniatura{pesoMB?" ("+pesoMB+" MB)":""}.</b> Así no se puede entregar: el teléfono del cliente carga los originales, se queda sin memoria y le recarga la página. {typeof window!=="undefined"&&window.innerWidth<900?"Abre esta sección desde un computador y se generan solas.":"Se están generando solas; si no arranca, dale al botón."}</>}
             </div>
-            <button onClick={()=>generarMiniaturas(g)} disabled={!!mini}
-              style={{flexShrink:0,padding:"9px 18px",borderRadius:999,background:enCurso?"transparent":D.cian,border:"1px solid "+(enCurso?D.line2:D.cian),color:enCurso?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:mini?"default":"pointer",opacity:mini&&!enCurso?.4:1,whiteSpace:"nowrap"}}>
-              {enCurso?"Generando "+enCurso.hechas+" de "+enCurso.total+"…":"Generar miniaturas"}
-            </button>
+            {enCurso
+              ? <div style={{flex:"1 1 140px",minWidth:120,height:6,borderRadius:999,background:D.line,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:pct+"%",borderRadius:999,background:D.cian,transition:"width .3s"}}/>
+                </div>
+              : <button onClick={()=>generarMiniaturas(g)} disabled={!!mini}
+                  style={{flexShrink:0,padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:mini?"default":"pointer",opacity:mini?.4:1,whiteSpace:"nowrap"}}>
+                  Generar ahora
+                </button>}
           </div>);
         })()}
 
