@@ -228,6 +228,12 @@ Las fotos de una sesión se entregan **por la app**, no por Drive: el cliente la
 a aprobar su contenido y deja de haber una carpeta más que compartir, ordenar y perder cuando
 alguien cambia el permiso del enlace.
 
+Se suben en **Contenido → Fotos**, la cuarta pestaña, y no en una página aparte: es material de la
+misma empresa que el resto de Contenido, esa pantalla ya trae el selector de empresa y el estado
+de Storage, y con una página propia había que elegir la empresa dos veces y mirar en dos sitios lo
+que se le entregó al cliente. En el portal sí es una pestaña propia (**Fotos**), que solo aparece
+cuando esa empresa ya tiene alguna sesión publicada.
+
 Viven en `app_data.galerias`, aparte de `tasks`: una sesión no es una pieza del plan, no gasta
 cupo, no se vota y no se publica en Instagram. Mezclarlas habría metido cientos de fotos en la
 fila que `DB.loadAll()` trae entera en cada carga.
