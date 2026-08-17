@@ -6533,6 +6533,144 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
   </div>);
 }
 
+// ═══ ALTA DE UNA PIEZA, POR PASOS ══════════════════════════════
+// La tarjeta abierta de Org Semanal mostraba diez controles a la vez —tipo, título, estado,
+// producción, drive, automatización, descripción, referencias, archivo y confirmar— y quien no
+// conoce la app no sabía por dónde empezar, qué era obligatorio ni qué podía dejar para después.
+// Ahora se pregunta lo mínimo y de a un paso: qué es, quién lo hace, y los detalles que solo
+// aplican a veces. Eso es todo lo que hace falta para que la pieza exista en Contenido; el resto
+// del ciclo lo lleva el encargado cambiando de estado.
+//
+// Los datos del alta NO se editan sueltos después: se cambian volviendo a entrar al asistente.
+// Un select de tipo y un input de título sueltos en la tarjeta eran la mitad del ruido, y se
+// tocaban sin querer sobre piezas que ya estaban en marcha.
+function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,editando,onSubirRef,onQuitarRef,subiendoRef}){
+  const equipo=users.filter(u=>u.role!=="cliente");
+  const carpetas=co?.links||[];
+  const tieneAuto=["reel","post"].includes(it.type);
+  const PASOS=[
+    {t:"¿Qué se publica?", sub:"El tipo y el título con el que lo vas a reconocer."},
+    {t:"¿Quién lo hace?",  sub:"Le llega el aviso y es quien va moviendo la pieza de estado."},
+    {t:"Detalles",         sub:"Todo lo de este paso es opcional."},
+  ];
+  // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está,
+  // y al retomar una a medias cae justo donde se dejó.
+  const[i,sI]=useState(!(it.title||"").trim()?0:!(it.production||[]).length?1:0);
+  const paso=PASOS[i];
+  const puedeSeguir=i===0?!!(it.title||"").trim():i===1?(it.production||[]).length>0:true;
+  const ultimo=i===PASOS.length-1;
+
+  const campo={padding:"11px 13px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:14,outline:"none",boxSizing:"border-box",width:"100%"};
+  const chip=(on,c)=>({padding:"8px 14px",borderRadius:999,background:on?(c||D.cian)+"1f":"transparent",border:"1px solid "+(on?(c||D.cian)+"8c":D.line2),color:on?(c||D.cian):D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:on?700:600,cursor:"pointer"});
+
+  return(<div style={{position:"relative",display:"flex",flexDirection:"column",gap:14}}>
+    {/* Migas: cuántos pasos son y en cuál vas. Sin esto un asistente se siente infinito. */}
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:5,flexShrink:0}}>
+        {PASOS.map((p,n)=>(
+          <span key={n} title={p.t} style={{width:n===i?22:7,height:7,borderRadius:999,background:n<=i?D.cian:D.line2,transition:"width .2s"}}/>
+        ))}
+      </div>
+      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4}}>Paso {i+1} de {PASOS.length}</span>
+      <div style={{flex:"1 1 auto"}}/>
+      <button onClick={onCancelar} style={{padding:"6px 12px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Cancelar</button>
+    </div>
+
+    <div>
+      <div style={{fontSize:17,fontWeight:700,color:D.tx,letterSpacing:"-0.015em"}}>{paso.t}</div>
+      <div style={{fontSize:12,color:D.tx4,marginTop:3,lineHeight:1.5}}>{paso.sub}</div>
+    </div>
+
+    {i===0&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        {Object.entries(TT).map(([k,v])=>(
+          <button key={k} onClick={()=>onCambio({type:k})} style={chip(it.type===k,v.c)}>{v.l}</button>))}
+      </div>
+      <input autoFocus value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
+        onKeyDown={e=>{if(e.key==="Enter"&&puedeSeguir)sI(1);}}
+        placeholder="Título — ej. «Receta de la hamburguesa nueva»" style={campo}/>
+    </div>)}
+
+    {i===1&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        {equipo.map(u=>{const on=(it.production||[]).includes(u.id);return(
+          <button key={u.id} onClick={()=>onCambio({production:on?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
+            style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on)}}>
+            <Av u={u} sz={20}/>{u.name}{on&&<Ic n="check" s={12} c={D.cian}/>}
+          </button>);})}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Nota para quien lo hace · opcional</span>
+        <AutoTx value={it.description||""} onChange={e=>onCambio({description:e.target.value})} placeholder="La idea, el ángulo, lo que no puede faltar…"
+          style={{...campo,fontSize:13,lineHeight:1.55}}/>
+      </div>
+    </div>)}
+
+    {i===2&&(<div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Drive: solo si la empresa tiene carpetas cargadas. Ofrecer "asignar carpeta" a una
+          empresa que no tiene ninguna es un callejón sin salida. */}
+      {carpetas.length>0&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Carpeta de Drive con el material</span>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {carpetas.map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
+            <button key={l.id} onClick={()=>onCambio({driveLinks:on?(it.driveLinks||[]).filter(x=>x!==l.id):[...(it.driveLinks||[]),l.id]})}
+              style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on,D.lav)}}>
+              <Ic n="companies" s={13} c={on?D.lav:D.tx3}/>{l.name}{on&&<Ic n="check" s={12} c={D.lav}/>}
+            </button>);})}
+        </div>
+      </div>)}
+
+      {/* Automatización: solo reel y post, que son los tipos a los que se les puede atar una
+          cadena de comentario→DM. La cadena se arma después, en Contenido → Automatización. */}
+      {tieneAuto&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Automatización de comentarios</span>
+        <button onClick={()=>onCambio({autoComentario:!it.autoComentario})}
+          style={{display:"flex",alignItems:"center",gap:10,alignSelf:"flex-start",padding:"10px 14px",borderRadius:12,background:it.autoComentario?"rgba(155,180,255,.14)":D.panel,border:"1px solid "+(it.autoComentario?"rgba(155,180,255,.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          💬 Quien comente recibe un privado
+          <span style={{width:28,height:16,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
+            <span style={{position:"absolute",top:2,left:it.autoComentario?14:2,width:12,height:12,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
+          </span>
+        </button>
+        {it.autoComentario&&<span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>La cadena de mensajes se arma en <b style={{color:D.tx3}}>Contenido → Automatización</b> y se enciende sola al publicar.</span>}
+      </div>)}
+
+      {/* Referencias: lo que se le enseña a quien produce («que quede como esto»). Vive en el
+          paso opcional y no en la ficha, que es de un vistazo: son archivos que se miran al
+          empezar la pieza, no cada vez que se abre la tarjeta. */}
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Referencias</span>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+          {(it.refs||[]).map((rf,n)=>(
+            <div key={n} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:999,background:"rgba(201,191,255,.06)",border:"1px solid rgba(201,191,255,.3)",maxWidth:"100%"}}>
+              <Ic n="paperclip" s={12} c={D.lav}/>
+              <span onClick={()=>openZoom(it.refs,n)} title="Toca para ver" style={{fontSize:12,fontWeight:600,color:D.lav,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"zoom-in"}}>{rf.name||"Referencia"}</span>
+              <button onClick={()=>onQuitarRef(n)} style={{width:18,height:18,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>✕</button>
+            </div>))}
+          <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:subiendoRef?"default":"pointer"}}>
+            {subiendoRef?"Subiendo…":"+ Anclar referencia"}
+            <input type="file" multiple accept="image/*,video/*" disabled={subiendoRef} style={{display:"none"}} onChange={onSubirRef}/>
+          </label>
+        </div>
+      </div>
+    </div>)}
+
+    {/* Navegación. El botón de avanzar dice qué falta cuando no se puede seguir, en vez de
+        quedarse apagado sin explicar por qué. */}
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:12,borderTop:"1px solid "+D.line3}}>
+      {i>0&&<button onClick={()=>sI(i-1)} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>← Atrás</button>}
+      <span style={{flex:"1 1 auto",minWidth:0,fontSize:11.5,color:D.tx4,lineHeight:1.45}}>
+        {i===0&&!puedeSeguir?"Ponle un título para seguir":i===1&&!puedeSeguir?"Elige al menos una persona":""}
+      </span>
+      {!ultimo
+        ? <button disabled={!puedeSeguir} onClick={()=>sI(i+1)}
+            style={{flexShrink:0,padding:"9px 20px",borderRadius:999,background:puedeSeguir?D.cian:"transparent",border:"1px solid "+(puedeSeguir?D.cian:D.line2),color:puedeSeguir?D.bg:D.tx5,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:puedeSeguir?"pointer":"default"}}>Siguiente →</button>
+        : <button disabled={trabajando} onClick={onTerminar}
+            style={{flexShrink:0,padding:"9px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:trabajando?"default":"pointer",opacity:trabajando?.5:1}}>
+            {trabajando?"Guardando…":editando?"Guardar cambios":"Crear la pieza"}</button>}
+    </div>
+  </div>);
+}
+
 function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo,addN,avisar,correosDe,cu}){
   const[wkOff,sWkOff]=useState(0);const[dragItem,sDragItem]=useState(null);const[dragOver,sDragOver]=useState(null);
   const[selCo,sSelCo]=useState(()=>fCo!=="all"?String(fCo):cos[0]?String(cos[0].id):"0");
@@ -6559,7 +6697,16 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     sPlanners(prev=>{const idx=prev.findIndex(p=>p.weekKey===weekKey);if(idx>=0){const u=[...prev];u[idx]=np;return u;}return[...prev,np];});
   };
 
-  const addItem=(day)=>{const ni2={id:String(Date.now())+Math.floor(Math.random()*1000),day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length};updatePlan([...items,ni2]);};
+  // Se abre sola: una fila nueva que dice «Sin título…» y hay que descubrir que se toca era
+  // justo el punto en el que se atascaba quien no conoce la app. Al crearla, el asistente ya
+  // está preguntando.
+  // La marca de «está en el asistente» se pone aquí y solo la quita terminar o cancelar. Si se
+  // dedujera de que falten datos, el asistente se cerraría solo en cuanto se eligiera encargado
+  // —a mitad del paso 2— y la pieza saltaría a la ficha sin haber pasado por el último paso.
+  const addItem=(day)=>{const id=uid();updatePlan([...items,{id,day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length}]);sAbierto(o=>({...o,[id]:true}));sEditandoItem(m=>({...m,[id]:true}));};
+  // Descarta un item recién creado que quedó vacío. Ni pregunta ni toca `tasks`: nunca llegó a
+  // existir en Contenido, así que no hay nada que se pueda perder.
+  const descartarItem=id=>updatePlan(items.filter(x=>x.id!==id));
   const updateItem=(id,u)=>updatePlan(items.map(it=>it.id===id?{...it,...u}:it));
   // Borrar una pieza aquí también la saca de Contenido. Antes solo desaparecía del planner
   // y su tarea quedaba huérfana: la pieza seguía en Contenido para siempre, porque nada
@@ -6636,7 +6783,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   };
   const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h).toString(36);};
 
-  const confirmarItem=async(it)=>{
+  // `opts.items`  → lista de items YA actualizada, para cuando el cambio se aplica en el mismo
+  //                  tick (ver aplicarYSync): `items` es la copia de este render y aún no lo tiene.
+  // `opts.silencioso` → es un volcado automático (cambio de estado, subida de archivo), no un alta.
+  //                  Se calla el toast y el aviso de asignación; el de votación sigue, que es el
+  //                  único que pide algo a alguien.
+  const confirmarItem=async(it,opts)=>{
+    const silencioso=!!(opts&&opts.silencioso);
     const titulo=(it.title||"").trim();
     if(!titulo&&!(it.description||"").trim()){addN("⚠️ Escribe al menos un título para confirmar la pieza");return;}
     sConfirmando(it.id);
@@ -6703,7 +6856,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         plannerTag,
       };
       const sig=firmaItem(it);
-      const nuevosItems=items.map(x=>x.id===it.id?{...x,confirmadaSig:sig,confirmadaAt:new Date().toISOString()}:x);
+      const nuevosItems=((opts&&opts.items)||items).map(x=>x.id===it.id?{...x,confirmadaSig:sig,confirmadaAt:new Date().toISOString()}:x);
       const fp=Array.isArray(fresh.planners)?fresh.planners:planners;
       const np={...plan,items:nuevosItems,weekKey,companyId:selCo,companyName:co?.name||""};
       const all=fp.some(p=>p.weekKey===weekKey)?fp.map(p=>p.weekKey===weekKey?np:p):[...fp,np];
@@ -6719,14 +6872,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       // Al confirmar una pieza nueva se consume cupo del mes. Se avisa si ya no queda, pero no
       // se impide: producir de más es una decisión del equipo, y se factura aparte.
       const libre=vieja?null:(saldoDe(co,freshTasks,hoyY,hoyM).find(s=>s.tipo===it.type)?.libre??null);
-      addN(vieja?"✅ Cambios confirmados en «"+tarea.title+"»"
+      if(!silencioso)addN(vieja?"✅ Cambios confirmados en «"+tarea.title+"»"
         :libre!==null&&libre<=0?"⚠️ «"+tarea.title+"» está en Contenido, pero "+(co?.name||"la empresa")+" ya no tenía cupo de "+(TT[it.type]?.l||it.type)+" este mes"
         :"✅ «"+tarea.title+"» ya está en Contenido"+(libre!==null?" · quedan "+(libre-1)+" "+(TT[it.type]?.l||it.type):""));
 
       // Aviso por pieza: producción de esa tarjeta más los admins, deduplicado. Nunca a quien
       // confirma: ya sabe lo que acaba de hacer.
       const dest=otrosQueYo([...new Map([...users.filter(u=>(it.production||[]).includes(u.id)),...users.filter(u=>u.role==="admin")].map(u=>[u.id,u])).values()],cu);
-      if(avisar&&dest.length)avisar({
+      if(avisar&&dest.length&&!silencioso)avisar({
         type:"asignacion",
         title:vieja?"📝 Pieza actualizada":"📋 Nueva pieza confirmada",
         body:tarea.title+" · "+(co?.name||"")+(it.day?" · "+it.day:""),
@@ -6791,9 +6944,22 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // Candados del flujo. No se puede saltar pasos:
   //   · "Listo" exige que el archivo esté subido
   //   · "Enviado al portal" exige que hayan votado los cuatro que deciden y que nadie objete
+  // El voto es UNO SOLO. El planner lo guarda en `item.votes` y Contenido en `task.votes`, y
+  // `confirmarItem` los fusiona dando prioridad a la tarea. Si aquí se escribiera solo en el item,
+  // el voto recién emitido no llegaría nunca a Contenido: se lee fusionado y se escribe en ambos.
+  const votosDe=it=>{const t=tasks.find(x=>String(x.itemId)===String(it.id));return {...(it.votes||{}),...(t?.votes||{})};};
+  const votar=(it,userId)=>{
+    const actuales=votosDe(it);
+    const v=actuales[userId];
+    const votes={...actuales};
+    if(v===true)votes[userId]=false; else if(v===false)delete votes[userId]; else votes[userId]=true;
+    updateItem(it.id,{votes});
+    const t=tasks.find(x=>String(x.itemId)===String(it.id));
+    if(t)sT(prev=>{const r=prev.map(x=>x.id===t.id?{...x,votes}:x);DB.save("tasks",r);return r;});
+  };
   const votoResumen=it=>{
     const equipo=votantes(users);
-    const v=it.votes||{};
+    const v=votosDe(it);
     const emitidos=equipo.filter(u=>v[u.id]!==undefined);
     const aFavor=equipo.filter(u=>v[u.id]===true);
     const enContra=equipo.filter(u=>v[u.id]===false);
@@ -6802,8 +6968,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             todosAprueban:aFavor.length===equipo.length&&equipo.length>0};
   };
   const bloqueoEstado=(it,nuevo)=>{
-    if(nuevo==="listo"&&!(it.files||[]).length)
-      return "Primero sube el archivo: sin contenido no se puede marcar como Listo.";
+    // "Listo" ya NO exige tener el archivo: es justamente el paso en el que la tarjeta se
+    // convierte en la pantalla para subirlo. Exigirlo antes dejaba al encargado sin ningún sitio
+    // donde hacerlo y sin saber qué le faltaba. Enviar al portal sí lo sigue exigiendo.
     if(nuevo==="en_aprobacion"){
       if(!(it.files||[]).length)return "Falta subir el archivo antes de enviarlo al portal.";
       const r=votoResumen(it);
@@ -6813,13 +6980,25 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     }
     return null;
   };
+  // Aplica el cambio y, si la pieza YA está en Contenido, la vuelve a volcar allá. Antes había
+  // que acordarse de pulsar "Confirmar" después de cada cambio y, mientras tanto, Contenido
+  // mostraba una pieza que aquí ya iba dos pasos más adelante. Se pasa la lista ya actualizada
+  // porque `items` es la copia de este render y todavía no tiene el cambio: confirmar con la
+  // vieja escribiría el estado anterior y encima lo marcaría como confirmado.
+  const aplicarYSync=(it,updates)=>{
+    const nuevo={...it,...updates};
+    const nuevosItems=items.map(x=>x.id===it.id?nuevo:x);
+    updatePlan(nuevosItems);
+    if(tasks.some(t=>String(t.itemId)===String(it.id)))confirmarItem(nuevo,{items:nuevosItems,silencioso:true});
+  };
   const cambiarEstado=(it,nuevo)=>{
     const motivo=bloqueoEstado(it,nuevo);
     if(motivo)return addN("🔒 "+motivo);
-    updateItem(it.id,{state:nuevo});
+    aplicarYSync(it,{state:nuevo});
   };
 
   const [abierto,sAbierto]=useState({});      // ítems expandidos
+  const [editandoItem,sEditandoItem]=useState({}); // ítems abiertos en modo asistente
   const [prodOpen,sProdOpen]=useState(null);  // desplegable de producción
   const [drvOpen,sDrvOpen]=useState(null);    // desplegable de drive
   const [guionOpen,sGuionOpen]=useState({});  // panel de guión por día
@@ -6837,8 +7016,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     try{
       const subidos=[];
       for(const f of files)subidos.push({...(await API.upload(f,selCo)),date:td()});
-      const actual=items.find(it=>it.id===itemId)?.[field]||[];
-      updateItem(itemId,{[field]:[...actual,...subidos]});
+      const actualIt=items.find(x=>x.id===itemId);
+      const actual=actualIt?.[field]||[];
+      // El material sube y, si la pieza ya está en Contenido, viaja allá solo: es exactamente lo
+      // que el equipo está esperando ver aparecer para votarlo.
+      if(field==="files"&&actualIt)aplicarYSync(actualIt,{files:[...actual,...subidos]});
+      else updateItem(itemId,{[field]:[...actual,...subidos]});
     }catch(err){addN("❌ "+err.message);}
     sSubiendo(null);
   };
@@ -7049,7 +7232,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               if(!exp)return(
                 <div key={it.id} style={{borderRadius:14,padding:realce?2:0,background:realce?realce.marco:"transparent"}}>
                   <button draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>sDragItem(null)}
-                    onClick={()=>sAbierto(o=>({...o,[it.id]:true}))} title="Toca para abrir"
+                    onClick={()=>{sAbierto(o=>({...o,[it.id]:true}));
+                      // Una pieza a medio llenar (de antes de este cambio, o dejada a medias)
+                      // se abre directa en el asistente, y ahí se queda hasta terminarlo.
+                      if(!(it.title||"").trim()||!(it.production||[]).length)sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
                     className="d-in"
                     style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,cursor:"pointer",fontFamily:"inherit",textAlign:"left",overflow:"hidden"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
@@ -7057,6 +7243,8 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
                     {/* Distintivo: este contenido lleva automatización de comentario→DM */}
                     {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{position:"relative",fontSize:12,flexShrink:0}}>💬</span>}
+                    {/* Quién lo tiene: es lo primero que se busca al repasar la semana. */}
+                    {prodSel.slice(0,3).map(u=><span key={u.id} style={{position:"relative",display:"inline-flex",flexShrink:0}}><Av u={u} sz={18}/></span>)}
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
                       <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:"#EFD9A0",flexShrink:0}}/>}
@@ -7065,179 +7253,153 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                   </button>
                 </div>);
 
+              // ── Tarjeta abierta ─────────────────────────────────────────────
+              // Lo que se ve depende del punto del ciclo, en vez de mostrarlo todo siempre:
+              //   · sin completar, o al editar → el asistente por pasos
+              //   · borrador / en producción   → ficha de solo lectura: qué es, quién y su drive
+              //   · listo                      → la tarjeta entera se vuelve subir-y-votar
+              //   · del portal en adelante     → la ficha, con el material y en qué quedó
+              // Se muestra lo que hace falta en ese punto y nada más: la tarjeta de antes tenía
+              // todo a la vez y, a la hora de votar, el voto quedaba enterrado entre diez campos.
+              const enAsistente=!!editandoItem[it.id]||!(it.title||"").trim()||!(it.production||[]).length;
+              const tarea=tasks.find(t=>String(t.itemId)===String(it.id));
+              const archivo=(it.files||[])[0];
+              const estado=it.state||"borrador";
+
+              const selEstado=(
+                <select value={estado} onChange={e=>cambiarEstado(it,e.target.value)} title="En qué punto va"
+                  style={{padding:"7px 10px",borderRadius:999,background:D.panel,border:"1px solid "+(est.bor||est.c+"59"),color:est.c,fontFamily:"inherit",fontSize:12,fontWeight:700,outline:"none",colorScheme:"dark",cursor:"pointer",width:"auto"}}>
+                  {Object.entries(STATES).map(([k,v])=>{const bl=bloqueoEstado(it,k);return <option key={k} value={k}>{bl?"🔒 ":""}{v.l}</option>;})}
+                </select>);
+              const btnAchicar=(
+                <button onClick={()=>sAbierto(o=>({...o,[it.id]:false}))} title="Achicar"
+                  style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:11,flexShrink:0}}>▴</button>);
+              const chipTipo=(
+                <span style={{padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>);
+
+              // El material, grande y tocable. Es lo único que hay que mirar para votar, así que
+              // manda en la tarjeta en vez de ser una línea con el nombre del archivo.
+              const preview=archivo?(
+                <div onClick={()=>openZoom(it.files,0)} title="Toca para verlo en grande"
+                  style={{position:"relative",alignSelf:"center",width:"min(280px,100%)",borderRadius:16,overflow:"hidden",border:"1px solid "+D.line2,background:D.bg,cursor:"zoom-in",aspectRatio:"3 / 4",flexShrink:0}}>
+                  {isVid(archivo)
+                    ? <video src={fSrc(archivo)} muted playsInline loop autoPlay preload="metadata" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",pointerEvents:"none"}}/>
+                    : <img src={fSrc(archivo)} alt={archivo.name||""} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>}
+                  <span style={{position:"absolute",right:8,bottom:8,padding:"5px 10px",borderRadius:999,background:"rgba(5,6,11,.72)",border:"1px solid rgba(255,255,255,.18)",color:"#fff",fontSize:10.5,fontWeight:700,pointerEvents:"none"}}>Toca para agrandar</span>
+                </div>):null;
+
               return(
                 <div key={it.id} className="d-in" style={{borderRadius:20,padding:5,background:realce?realce.marco:"linear-gradient(160deg, rgba(200,210,228,.28), rgba(200,210,228,.05) 45%, rgba(155,180,255,.18))"}}>
                   <div style={{position:"relative",borderRadius:16,background:"linear-gradient(170deg, rgba(13,17,27,.97), rgba(6,8,14,.99))",border:"1px solid rgba(200,210,228,.08)",boxShadow:"inset 0 1px 0 rgba(255,255,255,.06)",borderLeft:"3px solid "+col,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:16,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
 
-                    {/* Fila de controles */}
-                    <div style={{position:"relative",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                      <select value={it.type} onChange={e=>updateItem(it.id,{type:e.target.value})} style={{padding:"8px 10px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:col,fontFamily:"inherit",fontSize:12.5,fontWeight:600,outline:"none",colorScheme:"dark",cursor:"pointer",width:"auto"}}>
-                        {Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
-                      </select>
-                      <input value={it.title||""} onChange={e=>updateItem(it.id,{title:e.target.value})} placeholder="Título…" style={{flex:"1 1 160px",minWidth:120,padding:"9px 12px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13.5,fontWeight:600,outline:"none"}}/>
-                      <select value={it.state||"borrador"} onChange={e=>cambiarEstado(it,e.target.value)} style={{padding:"8px 10px",borderRadius:10,background:D.panel,border:"1px solid "+(est.bor||est.c+"59"),color:est.c,fontFamily:"inherit",fontSize:12,fontWeight:600,outline:"none",colorScheme:"dark",cursor:"pointer",width:"auto"}}>
-                        {Object.entries(STATES).map(([k,v])=>{const bl=bloqueoEstado(it,k);return <option key={k} value={k}>{bl?"🔒 ":""}{v.l}</option>;})}
-                      </select>
+                    {enAsistente?(
+                      <AsistentePieza it={it} co={co} users={users} editando={!!editandoItem[it.id]}
+                        trabajando={confirmando===it.id}
+                        subiendoRef={subiendo===it.id}
+                        onSubirRef={e=>handleFiles(it.id,"refs",e)}
+                        onQuitarRef={n=>removeFile(it.id,"refs",n)}
+                        onCambio={u=>updateItem(it.id,u)}
+                        onCancelar={()=>{
+                          sEditandoItem(m=>({...m,[it.id]:false}));
+                          // Una pieza recién creada y sin nada escrito no deja rastro al cancelar:
+                          // dejarla vuelve a llenar el día de filas «Sin título…» que nadie sabe
+                          // si sirven. Si ya tenía algo, solo se cierra.
+                          if(!(it.title||"").trim()&&!(it.description||"").trim()&&!(it.production||[]).length)descartarItem(it.id);
+                          else sAbierto(o=>({...o,[it.id]:false}));
+                        }}
+                        onTerminar={()=>{sEditandoItem(m=>({...m,[it.id]:false}));confirmarItem(it);}}/>
 
-                      {/* Producción */}
-                      <div style={{position:"relative"}}>
-                        <button onClick={()=>sProdOpen(p=>p===it.id?null:it.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:10,background:D.panel,border:"1px solid "+(prodSel.length?"rgba(111,231,242,.45)":D.line2),color:prodSel.length?D.cian:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer",maxWidth:210}}>
-                          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{prodSel.length?prodSel.map(u=>u.name).join(", "):"Producción"}</span>
-                          <span style={{fontSize:9,flexShrink:0}}>▾</span>
-                        </button>
-                        {prodOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:180,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
-                          {users.map(u=>{const on=(it.production||[]).includes(u.id);return(
-                            <button key={u.id} onClick={()=>updateItem(it.id,{production:on?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 10px",borderRadius:8,background:"transparent",border:"none",color:on?D.tx:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>
-                              <span style={{width:7,height:7,borderRadius:"50%",background:u.color||D.peri,flexShrink:0}}/>
-                              <span style={{flex:"1 1 auto"}}>{u.name}</span>
-                              {on&&<Ic n="check" s={12} c={D.cian}/>}
-                            </button>);})}
-                        </div>}
+                    ):estado==="listo"?(<>
+                      {/* ── LISTO: subir y votar, nada más ── */}
+                      <div style={{position:"relative",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        {chipTipo}
+                        <span style={{flex:"1 1 120px",minWidth:0,fontSize:13,fontWeight:600,color:D.tx2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title}</span>
+                        {selEstado}
+                        {btnAchicar}
                       </div>
 
-                      {/* Drive por contenido */}
-                      <div style={{position:"relative"}}>
-                        <button onClick={()=>sDrvOpen(p=>p===it.id?null:it.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:10,background:D.panel,border:"1px solid "+(drvSel.length?"rgba(201,191,255,.45)":D.line2),color:drvSel.length?D.lav:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer",maxWidth:170}}>
-                          <Ic n="companies" s={12} c={drvSel.length?D.lav:D.tx3}/>
-                          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{drvSel.length?drvSel.map(d=>d.name).join(", "):"Drive"}</span>
-                          <span style={{fontSize:9,flexShrink:0}}>▾</span>
-                        </button>
-                        {drvOpen===it.id&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:220,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
-                          <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,padding:"6px 10px 4px"}}>Asignar drive a este contenido</span>
-                          {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"4px 10px 8px"}}>Esta empresa no tiene carpetas.</span>}
-                          {(co?.links||[]).map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
-                            <button key={l.id} onClick={()=>updateItem(it.id,{driveLinks:on?(it.driveLinks||[]).filter(x=>x!==l.id):[...(it.driveLinks||[]),l.id]})} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 10px",borderRadius:8,background:"transparent",border:"none",color:on?D.tx:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>
-                              <span style={{width:24,height:24,borderRadius:7,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(201,191,255,.12)",flexShrink:0}}><Ic n="companies" s={12} c={D.lav}/></span>
-                              <span style={{flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.name}</span>
-                              <a href={l.url} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} title="Abrir en Drive" style={{color:D.tx4,display:"inline-flex",flexShrink:0}}><Ic n="external" s={12} c={D.tx4}/></a>
-                              {on&&<Ic n="check" s={12} c={D.cian}/>}
-                            </button>);})}
-                        </div>}
-                      </div>
-
-                      {/* Switch de automatización de comentario→DM. Solo en reel/post (los tipos a
-                          los que se les puede atar una cadena). Marca que este contenido va con una
-                          automatización, para que todos lo sepan desde la planificación. La cadena
-                          se prepara después en Contenido → Automatización. */}
-                      {["reel","post"].includes(it.type)&&(
-                        <button onClick={()=>updateItem(it.id,{autoComentario:!it.autoComentario})}
-                          title={it.autoComentario?"Lleva automatización de comentario→DM. La cadena se arma en Contenido → Automatización.":"Marca que este contenido lleva una automatización de comentario→DM"}
-                          style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:it.autoComentario?"rgba(155,180,255,.14)":D.panel,border:"1px solid "+(it.autoComentario?"rgba(155,180,255,.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                          💬 Automatización
-                          <span style={{width:26,height:15,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
-                            <span style={{position:"absolute",top:2,left:it.autoComentario?13:2,width:11,height:11,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
-                          </span>
-                        </button>
-                      )}
-
-                      <button onClick={()=>sAbierto(o=>({...o,[it.id]:false}))} title="Achicar" style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>▴</button>
-                      <button onClick={()=>removeItem(it.id)} title="Eliminar" style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.3)",color:D.rojo,cursor:"pointer"}}><Ic n="trash" s={13} c={D.rojo}/></button>
-                    </div>
-
-                    {/* Descripción */}
-                    <div style={{position:"relative",display:"flex",flexDirection:"column",gap:6}}>
-                      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Descripción</span>
-                      <AutoTx value={it.description||""} onChange={e=>updateItem(it.id,{description:e.target.value})} placeholder="Idea, contenido…" style={{padding:"10px 12px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontSize:13,width:"100%",boxSizing:"border-box",lineHeight:1.55}}/>
-                    </div>
-
-                    <div style={{position:"relative",display:"flex",gap:16,flexWrap:"wrap"}}>
-                      {/* Referencias */}
-                      <div style={{display:"flex",flexDirection:"column",gap:6,flex:"1 1 220px",minWidth:0}}>
-                        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Referencias</span>
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                          {(it.refs||[]).map((rf,i)=>(
-                            <div key={i} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:10,background:"rgba(201,191,255,.06)",border:"1px solid rgba(201,191,255,.3)",maxWidth:"100%"}}>
-                              <Ic n="paperclip" s={12} c={D.lav}/>
-                              <span onClick={()=>openZoom(it.refs,i)} title="Toca para ver" style={{fontSize:12,fontWeight:600,color:D.lav,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"zoom-in"}}>{rf.name||"Referencia"}</span>
-                              <button onClick={()=>removeFile(it.id,"refs",i)} style={{width:18,height:18,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>✕</button>
-                            </div>))}
-                          <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:subiendo===it.id?"default":"pointer"}}>
-                            {subiendo===it.id?"Subiendo…":"+ Anclar referencia"}
-                            <input type="file" multiple accept="image/*,video/*" disabled={subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"refs",e)}/>
-                          </label>
+                      {!archivo?(<>
+                        {!stReady&&<div style={{position:"relative",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>⚠️ No se pueden subir archivos ahora mismo{stMotivo?": "+stMotivo:""}.</div>}
+                        <label style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"38px 20px",borderRadius:16,border:"1px dashed "+(subiendo===it.id?D.cian:D.line2),background:subiendo===it.id?"rgba(111,231,242,.05)":"transparent",color:subiendo===it.id?D.cian:D.tx3,cursor:stReady&&subiendo!==it.id?"pointer":"default",textAlign:"center"}}>
+                          <input type="file" accept="image/*,video/*" disabled={!stReady||subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"files",e)}/>
+                          <Ic n="inbox" s={26} c={subiendo===it.id?D.cian:D.tx4}/>
+                          <span style={{fontSize:14,fontWeight:700}}>{subiendo===it.id?"Subiendo…":"Sube el contenido"}</span>
+                          <span style={{fontSize:12,color:D.tx4,lineHeight:1.5,maxWidth:320}}>Cuando esté arriba, el equipo lo vota aquí mismo.</span>
+                        </label>
+                      </>):(<>
+                        {preview}
+                        <div style={{position:"relative",display:"flex",justifyContent:"center"}}>
+                          <button onClick={()=>removeFile(it.id,"files",0)} style={{padding:"6px 13px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Cambiar archivo</button>
                         </div>
+                        {(()=>{const r=votoResumen(it);const v=votosDe(it);
+                          const listoParaEnviar=r.todosVotaron&&r.todosAprueban;
+                          return(<div style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+                            <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+                              {r.equipo.map(u=>{
+                                const mio=v[u.id];
+                                const c=mio===true?STATES.listo.c:mio===false?D.rojo:D.tx4;
+                                return(<button key={u.id} onClick={()=>votar(it,u.id)} title="Toca para cambiar el voto"
+                                  style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 15px",borderRadius:999,background:mio===undefined?"transparent":c+"14",border:"1px solid "+(mio===undefined?D.line2:c+"8c"),color:c,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                                  <Av u={u} sz={20}/>{u.name}<span style={{fontSize:13}}>{mio===true?"✓":mio===false?"✕":"–"}</span>
+                                </button>);})}
+                            </div>
+                            <span style={{fontSize:12,fontWeight:600,color:r.enContra.length?D.rojo:listoParaEnviar?STATES.listo.c:D.tx4,textAlign:"center",lineHeight:1.5}}>
+                              {r.enContra.length?`${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"} — corrige antes de enviar`
+                                :listoParaEnviar?"Aprobado por todo el equipo"
+                                :`Faltan ${r.faltan} ${r.faltan===1?"voto":"votos"}`}
+                            </span>
+                            {listoParaEnviar&&<button onClick={()=>cambiarEstado(it,"en_aprobacion")}
+                              style={{padding:"11px 24px",borderRadius:999,background:STATES.en_aprobacion.c,border:"1px solid "+STATES.en_aprobacion.c,color:D.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Enviar al portal del cliente →</button>}
+                          </div>);})()}
+                      </>)}
+
+                    </>):(<>
+                      {/* ── FICHA: lo que hay que saber, sin poder tocarlo sin querer ── */}
+                      <div style={{position:"relative",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        {chipTipo}
+                        {selEstado}
+                        {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{fontSize:13}}>💬</span>}
+                        <div style={{flex:"1 1 auto"}}/>
+                        <button onClick={()=>sEditandoItem(m=>({...m,[it.id]:true}))} title="Cambiar tipo, título o encargado"
+                          style={{display:"inline-flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+                          <Ic n="edit" s={12} c={D.tx3}/>Editar
+                        </button>
+                        <button onClick={()=>removeItem(it.id)} title="Eliminar" style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,107,107,.07)",border:"1px solid rgba(255,107,107,.3)",color:D.rojo,cursor:"pointer",flexShrink:0}}><Ic n="trash" s={13} c={D.rojo}/></button>
+                        {btnAchicar}
                       </div>
 
-                      {/* Aprobación interna */}
-                      <div style={{display:"flex",flexDirection:"column",gap:6,flex:"1 1 220px",minWidth:0}}>
-                        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Aprobación</span>
-                        {!(it.files||[]).length
-                          ? <label style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:10,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:subiendo===it.id?"default":"pointer",width:"fit-content"}}>
-                              <Ic n="inbox" s={14} c={D.tx4}/>{subiendo===it.id?"Subiendo…":"Subir contenido para aprobación del equipo"}
-                              <input type="file" accept="image/*,video/*" disabled={subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"files",e)}/>
-                            </label>
-                          : <div style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 13px",borderRadius:12,background:"rgba(111,231,242,.04)",border:"1px solid rgba(111,231,242,.3)",maxWidth:"100%",boxSizing:"border-box"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                                <Ic n="check" s={14} c={D.cian}/>
-                                <span onClick={()=>openZoom(it.files,0)} title="Toca para agrandar" style={{fontSize:12.5,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 auto",minWidth:0,cursor:"zoom-in"}}>{it.files[0].name||"Archivo"}</span>
-                                <button onClick={()=>removeFile(it.id,"files",0)} style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0}}>✕</button>
-                              </div>
-                              {/* La votación se abre al marcarlo Listo: antes no hay nada que juzgar */}
-                              {(it.state||"borrador")==="borrador"||it.state==="en_proceso"
-                                ? <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>Marca el contenido como <b style={{color:STATES.listo.c}}>Listo</b> para abrir la votación del equipo.</span>
-                                : (()=>{const r=votoResumen(it);return(<>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                                    <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,width:"100%"}}>Votación del equipo · {r.emitidos.length}/{r.equipo.length}</span>
-                                    {r.equipo.map(u=>{
-                                      const v=(it.votes||{})[u.id];
-                                      const c=v===true?STATES.listo.c:v===false?D.rojo:D.tx4;
-                                      return(<button key={u.id} title="Toca para cambiar el voto"
-                                        onClick={()=>updateItem(it.id,{votes:{...(it.votes||{}),[u.id]:v===true?false:v===false?undefined:true}})}
-                                        style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:999,background:v===undefined?"transparent":c+"14",border:"1px solid "+(v===undefined?D.line2:c+"73"),color:c,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                                        {u.name}<span style={{fontSize:10}}>{v===true?"✓":v===false?"✕":"–"}</span>
-                                      </button>);})}
-                                  </div>
-                                  {/* Barra de avance hacia el envío al portal */}
-                                  <div style={{height:4,borderRadius:999,background:D.line,overflow:"hidden"}}>
-                                    <div style={{height:"100%",width:(r.equipo.length?r.emitidos.length/r.equipo.length*100:0)+"%",borderRadius:999,background:r.enContra.length?D.rojo:"linear-gradient(90deg,"+D.cian+","+STATES.listo.c+")",transition:"width .4s"}}/>
-                                  </div>
-                                  {(()=>{
-                                    const listoParaEnviar=r.todosVotaron&&r.todosAprueban;
-                                    const txt=r.enContra.length
-                                      ? `${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"} — corrige antes de enviar`
-                                      : listoParaEnviar ? "Aprobado por todo el equipo — ya puedes enviarlo al portal"
-                                      : r.emitidos.length===0 ? "Nadie ha votado todavía"
-                                      : `Faltan ${r.faltan} ${r.faltan===1?"voto":"votos"}: ${r.equipo.filter(u=>(it.votes||{})[u.id]===undefined).map(u=>u.name).join(", ")}`;
-                                    return(<>
-                                      <span style={{fontSize:11.5,fontWeight:600,color:r.enContra.length?D.rojo:listoParaEnviar?STATES.listo.c:D.tx4,lineHeight:1.5}}>{txt}</span>
-                                      {listoParaEnviar&&(it.state||"")==="listo"&&
-                                        <button onClick={()=>cambiarEstado(it,"en_aprobacion")} style={{alignSelf:"flex-start",padding:"8px 16px",borderRadius:999,background:STATES.en_aprobacion.c,border:"1px solid "+STATES.en_aprobacion.c,color:D.bg,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>Enviar al portal →</button>}
-                                    </>);
-                                  })()}
-                                </>);})()}
-                            </div>}
-                      </div>
-                    </div>
+                      <div style={{position:"relative",fontSize:21,fontWeight:700,color:D.tx,letterSpacing:"-0.02em",lineHeight:1.25}}>{it.title}</div>
 
-                    {/* Confirmar la pieza. Es lo que reemplaza al "Guardar y sincronizar" de
-                        toda la semana: hasta que no se confirma, la pieza vive solo en el
-                        planner y no aparece en Contenido. Lo escrito no se pierde igual,
-                        porque el planner se guarda solo. */}
-                    {(()=>{
-                      const lista=confirmada(it);
-                      const yaEsta=tasks.some(t=>String(t.itemId)===String(it.id));
-                      const vacia=!(it.title||"").trim()&&!(it.description||"").trim();
-                      const trabajando=confirmando===it.id;
-                      return(
-                        <div style={{position:"relative",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:12,borderTop:"1px solid "+D.line3}}>
-                          <span style={{flex:"1 1 160px",minWidth:0,fontSize:11.5,fontWeight:600,lineHeight:1.45,color:lista?STATES.listo.c:yaEsta?"#EFD9A0":D.tx4}}>
-                            {lista?"Confirmada · está en Contenido"
-                              :yaEsta?"Tiene cambios sin confirmar"
-                              :vacia?"Ponle un título para poder confirmarla"
-                              :"Sin confirmar · todavía no aparece en Contenido"}
-                          </span>
-                          {/* Sigue pulsable cuando ya está confirmada: sirve para reenviarla
-                              a Contenido si algo quedó desincronizado. Repetirla no duplica
-                              nada —la tarea se reconoce por itemId— y el aviso no se repite
-                              dentro de las 12 h si no cambió el contenido. */}
-                          <button disabled={vacia||trabajando} onClick={()=>confirmarItem(it)}
-                            title={lista?"Volver a mandarla a Contenido":undefined}
-                            style={{flexShrink:0,padding:"9px 18px",borderRadius:999,background:lista?"transparent":D.cian,border:"1px solid "+(lista?D.line2:D.cian),color:lista?D.tx4:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:vacia||trabajando?"default":"pointer",opacity:vacia?.45:1}}>
-                            {trabajando?"Confirmando…":lista?"Confirmada ✓":yaEsta?"Confirmar cambios":"Confirmar pieza"}
-                          </button>
-                        </div>);
-                    })()}
+                      <div style={{position:"relative",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx5}}>{prodSel.length===1?"Encargado":"Encargados"}</span>
+                          {prodSel.map(u=>(
+                            <span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 12px 5px 5px",borderRadius:999,background:D.panel,border:"1px solid "+D.line3,fontSize:12.5,fontWeight:600,color:D.tx2}}>
+                              <Av u={u} sz={20}/>{u.name}
+                            </span>))}
+                        </div>
+                        {/* Enlace directo: la gracia de tener el drive asignado es entrar de un toque,
+                            no acordarse de en qué carpeta de la empresa estaba. */}
+                        {drvSel.map(l=>(
+                          <a key={l.id} href={l.url} target="_blank" rel="noreferrer"
+                            style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:"rgba(201,191,255,.07)",border:"1px solid rgba(201,191,255,.35)",color:D.lav,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
+                            <Ic n="companies" s={13} c={D.lav}/>{l.name}<Ic n="external" s={11} c={D.lav}/>
+                          </a>))}
+                      </div>
+
+                      {(it.description||"").trim()&&(
+                        <div style={{position:"relative",fontSize:13,color:D.tx3,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{it.description}</div>)}
+
+                      {/* El motivo del rechazo es lo único que importa cuando el cliente devuelve
+                          una pieza; la corrección se sube en Contenido. */}
+                      {tarea?.clientApproval?.status==="rechazado"&&tarea.clientApproval.comment&&(
+                        <div style={{position:"relative",padding:"11px 14px",borderRadius:12,background:"rgba(255,139,139,.07)",border:"1px solid rgba(255,139,139,.3)",fontSize:12.5,color:D.tx2,lineHeight:1.55}}>
+                          <b style={{color:D.rojo}}>El cliente pidió cambios:</b> {tarea.clientApproval.comment}
+                        </div>)}
+
+                      {preview}
+                    </>)}
                   </div>
                 </div>);
             })}

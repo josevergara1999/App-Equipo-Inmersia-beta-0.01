@@ -201,6 +201,43 @@ al calendario piezas a medio llenar. Ahora:
 - `confirmadaSig` es la firma de los campos que se vuelcan. Si cambia alguno, la pieza vuelve a
   quedar por confirmar. Los items sin firma pero con tarea son de antes de este cambio y se dan
   por confirmados.
+- **Ya no hay botón de confirmar.** Lo hace el último paso del asistente de alta, y de ahí en
+  adelante `aplicarYSync()` vuelve a volcar sola la pieza cada vez que cambia de estado o se le
+  sube el archivo — con `silencioso:true`, que se calla el toast y el aviso de asignación pero
+  deja pasar el de votación. Antes había que acordarse de pulsar «Confirmar» después de cada
+  cambio, y mientras tanto Contenido mostraba una pieza que en el planner ya iba dos pasos más
+  adelante. `aplicarYSync` recibe la lista de items **ya actualizada**: `items` es la copia del
+  render y todavía no tiene el cambio, así que confirmar con la vieja escribiría el estado
+  anterior y encima lo marcaría como confirmado.
+
+### La tarjeta de Org Semanal muestra solo el paso en el que va
+
+La tarjeta abierta tenía diez controles a la vez —tipo, título, estado, producción, drive,
+automatización, descripción, referencias, archivo y confirmar— y quien no conoce la app no sabía
+por dónde empezar, qué era obligatorio ni qué podía dejar para después. A la hora de votar, el
+voto quedaba enterrado entre campos que ya no venían al caso. Ahora la tarjeta enseña lo que hace
+falta en ese punto y nada más:
+
+- **Alta por pasos** (`AsistentePieza`): 1) tipo y título · 2) encargado (+ nota opcional) ·
+  3) detalles opcionales: carpeta de Drive **solo si la empresa tiene**, automatización **solo en
+  reel y post**, y referencias. El último botón es el que crea la pieza en Contenido.
+- **La marca de «está en el asistente» es explícita** (`editandoItem`), no se deduce de que falten
+  datos: dedujéndola, el asistente se cerraba solo al elegir encargado —a mitad del paso 2— y la
+  pieza saltaba a la ficha sin pasar por el último paso.
+- **Ficha** (borrador / en producción / del portal en adelante): tipo, título en grande, encargados
+  y el enlace directo al Drive, **todo de solo lectura**. Los datos del alta se cambian volviendo a
+  entrar al asistente con «Editar»; sueltos en la tarjeta eran la mitad del ruido y se tocaban sin
+  querer sobre piezas ya en marcha.
+- **Listo** convierte la tarjeta en la pantalla de subir el archivo y, con el archivo puesto, en
+  preview grande + los botones de votar. Por eso **«Listo» ya no exige tener el archivo**:
+  exigirlo antes dejaba al encargado sin ningún sitio donde subirlo. Enviar al portal sí lo sigue
+  exigiendo, junto con los cuatro votos.
+- **El voto es uno solo.** El planner lo guarda en `item.votes` y Contenido en `task.votes`, y
+  `confirmarItem` los fusiona dando prioridad a la tarea: escribiendo solo en el item, el voto
+  recién emitido no llegaba nunca a Contenido. `votosDe()` lee fusionado y `votar()` escribe en
+  los dos lados.
+- «+ Agregar contenido» abre la tarjeta ya preguntando; cancelar una pieza recién creada y vacía
+  la descarta sin dejar rastro, en vez de sembrar el día de filas «Sin título…».
 
 Las tareas se reconocen por `itemId` y se conservan; **antes se borraban y recreaban de cero**, y
 en cada guardado se perdían archivos, votos, comentarios y la respuesta del cliente, además de
