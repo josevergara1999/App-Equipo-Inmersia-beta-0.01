@@ -1,6 +1,6 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = "inmersia-v6";
+const CACHE = "inmersia-v7";
 
 // El esqueleto: lo mínimo para pintar la app en pantalla. React, Babel y las fuentes vienen
 // de CDN, otro origen, y los cachea el navegador por su cuenta con su propio max-age largo.
@@ -14,9 +14,15 @@ const SHELL = ['/index.html', '/manifest.json', '/icon-180.png', '/icon-192.png'
 // de la app, el service worker devuelve index.html en su lugar y esas páginas desaparecen sin
 // aviso. Se detectan por lo que son: una lista corta de rutas propias, más cualquier ruta que
 // termine en extensión.
+// Se detectan por lo que son: una lista corta de rutas propias, más cualquier ruta que termine
+// en extensión. Hay dos formas porque las hay de dos clases: `/guion` es una ruta fija, mientras
+// que las de fidelización llevan un id o un código pegado (/unirse/<id>, /tarjeta/<código>) y
+// nunca coincidirían con una comparación exacta.
 const NO_ES_APP = ['/guion'];
+const NO_ES_APP_PREFIJO = ['/unirse/', '/tarjeta/'];
+const esOtraPagina = (p) => NO_ES_APP.includes(p) || NO_ES_APP_PREFIJO.some(x => p.startsWith(x));
 const esNavegacionApp = (req, url) =>
-  req.mode === 'navigate' && !NO_ES_APP.includes(url.pathname) && !/\.[a-z0-9]+$/i.test(url.pathname);
+  req.mode === 'navigate' && !esOtraPagina(url.pathname) && !/\.[a-z0-9]+$/i.test(url.pathname);
 
 // Los iconos se piden con `?v=2`; guardar por pathname ignora la query y evita duplicados.
 const claveDe = (req, url) =>

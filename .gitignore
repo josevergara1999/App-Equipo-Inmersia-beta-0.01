@@ -16,3 +16,6 @@ backup-*.json
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Grafo de graphify — se regenera, no se versiona
+graphify-out/

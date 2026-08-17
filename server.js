@@ -70,11 +70,23 @@ function requireAuth(req, res, next) {
 // ===============================
 const _hits = new Map();
 setInterval(() => _hits.clear(), 60000);
-function rateLimit(max) {
+
+// Un balde POR RUTA y por IP, no uno solo compartido.
+//
+// Antes la cuenta era solo por IP: todas las rutas sumaban al mismo contador y cada una lo
+// comparaba contra SU tope, así que el más estricto mandaba sobre todos. Con el tope general de
+// `/api` en 120, cualquier ruta con un tope menor quedaba inalcanzable en cuanto la app hacía sus
+// primeras llamadas. Lo rompía de verdad en fidelización: el cliente final se inscribe desde el
+// wifi del local, el MISMO que usa el tablet con la app abierta; el tablet pasaba de 20 llamadas
+// en un minuto sin despeinarse y a la persona del mesón le salía "demasiadas solicitudes" al
+// tocar Inscribirme, sin haber pedido nada dos veces.
+function rateLimit(max, tag) {
+  const balde = tag || "r" + max;
   return (req, res, next) => {
     const ip = (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
-    const n = (_hits.get(ip) || 0) + 1;
-    _hits.set(ip, n);
+    const clave = balde + "|" + ip;
+    const n = (_hits.get(clave) || 0) + 1;
+    _hits.set(clave, n);
     if (n > max) return res.status(429).json({ error: "Demasiadas solicitudes, espera un momento" });
     next();
   };
@@ -103,7 +115,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use("/api", rateLimit(120));
+app.use("/api", rateLimit(120, "api"));
 
 // ===============================
 // ✅ igId WHITELIST
@@ -343,7 +355,7 @@ function setAuthCookie(req, res, email) {
   });
 }
 
-app.post("/api/auth/login", rateLimit(30), async (req, res) => {
+app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
   try {
     const email = normUser(req.body?.email);
     const pass = String(req.body?.password || "");
@@ -360,7 +372,7 @@ app.post("/api/auth/login", rateLimit(30), async (req, res) => {
   } catch (err) { console.error("login:", err); res.status(500).json({ error: err.message }); }
 });
 
-app.post("/api/auth/password", requireAuth, rateLimit(20), async (req, res) => {
+app.post("/api/auth/password", requireAuth, rateLimit(20, "password"), async (req, res) => {
   try {
     const email = normUser(req.body?.email);
     const actual = String(req.body?.actual || "");
@@ -1145,6 +1157,286 @@ app.post("/api/loyalty/generate-push", requireAuth, async (req, res) => {
 });
 
 // ===============================
+// 💳 FIDELIZACIÓN — programas, socios y sellos
+// ===============================
+// Estas rutas NO usan `app_data`: hablan con las tablas de `db/loyalty.sql`. Un programa tiene
+// miles de socios y crece para siempre; meterlo en el almacén clave-valor haría que cada carga de
+// la app se bajara la base de socios completa de todas las empresas (la misma trampa ya
+// documentada con los videos en base64).
+//
+// Dos rutas son PÚBLICAS a propósito: `/join` y `/card/:codigo`. El cliente final del cliente no
+// tiene cuenta en Inmersia — llega por un QR pegado en el mesón. Van con `rateLimit` y devuelven
+// solo lo justo para pintar la tarjeta (nunca el id interno del socio). En cambio TODO lo que
+// suma o descuenta sellos exige sesión: **el QR del socio identifica, no autoriza**. Si sumar un
+// sello fuera público, cualquiera se regalaría el premio desde su casa.
+
+async function lyRest(path, opts = {}) {
+  const { url, key } = SB();
+  const r = await fetch(`${url}/rest/v1/${path}`, {
+    ...opts,
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+  const txt = await r.text();
+  let d = null; try { d = txt ? JSON.parse(txt) : null; } catch { d = txt; }
+  if (!r.ok) throw new Error(d?.message || d?.hint || `Supabase ${r.status}`);
+  return d;
+}
+
+// Alfabeto sin caracteres que se confunden al leer un QR gastado o al dictarlo por teléfono:
+// sin 0/O, sin 1/I/L. Aleatorio, nunca correlativo: un código adivinable son sellos regalados.
+const LY_ABC = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+function lyCodigo(n = 8) {
+  const b = crypto.randomBytes(n);
+  let s = ""; for (let i = 0; i < n; i++) s += LY_ABC[b[i] % LY_ABC.length];
+  return s;
+}
+const lyUno = (d) => (Array.isArray(d) ? d[0] : d) || null;
+
+// ── Programas (equipo) ──────────────────────────────────────────────────────
+app.get("/api/loyalty/programs", requireAuth, async (req, res) => {
+  try {
+    const co = (req.query.companyId || "").trim();
+    const filtro = co ? `company_id=eq.${encodeURIComponent(co)}&` : "";
+    res.json(await lyRest(`loyalty_programs?${filtro}order=created_at.desc`));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/loyalty/programs", requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.company_id || !b.nombre || !b.premio) return res.status(400).json({ error: "Faltan empresa, nombre o premio" });
+    const fila = {
+      company_id: String(b.company_id),
+      nombre: b.nombre,
+      tipo: b.tipo || "sellos",
+      meta: Math.max(1, parseInt(b.meta, 10) || 10),
+      premio: b.premio,
+      // Diseño. Los nombres siguen a los de Apple (backgroundColor / foregroundColor /
+      // labelColor / logoText / strip) para que firmar el .pkpass sea un mapeo directo.
+      color_fondo: b.color_fondo || "#05060B",
+      color_texto: b.color_texto || "#FFFFFF",
+      color_etiqueta: b.color_etiqueta || "#8E93A6",
+      logo_url: b.logo_url || null,
+      logo_text: b.logo_text || null,
+      strip_url: b.strip_url || null,
+      strip_estilo: b.strip_estilo || null,
+      sello_icono: b.sello_icono || "circulo",
+      vigencia_dias: b.vigencia_dias ? parseInt(b.vigencia_dias, 10) : null,
+      updated_at: new Date().toISOString(),
+    };
+    if (b.id) fila.id = b.id;                                  // con id actualiza, sin id crea
+    if (typeof b.activo === "boolean") fila.activo = b.activo;
+    const d = await lyRest("loyalty_programs", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(fila),
+    });
+    res.json(lyUno(d));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Socios de un programa, los que volvieron hace menos primero.
+app.get("/api/loyalty/programs/:id/socios", requireAuth, async (req, res) => {
+  try {
+    res.json(await lyRest(
+      `loyalty_members?program_id=eq.${encodeURIComponent(req.params.id)}` +
+      `&select=id,codigo,nombre,email,telefono,saldo,canjes,created_at,ultima_visita` +
+      `&order=ultima_visita.desc.nullslast&limit=500`));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Últimos movimientos del programa — es lo que responde un "me faltó un sello".
+app.get("/api/loyalty/programs/:id/eventos", requireAuth, async (req, res) => {
+  try {
+    const socios = await lyRest(`loyalty_members?program_id=eq.${encodeURIComponent(req.params.id)}&select=id,nombre,codigo`);
+    if (!socios.length) return res.json([]);
+    const evs = await lyRest(`loyalty_events?member_id=in.(${socios.map(s => s.id).join(",")})&order=created_at.desc&limit=200`);
+    const porId = Object.fromEntries(socios.map(s => [s.id, s]));
+    res.json(evs.map(e => ({ ...e, socio: porId[e.member_id]?.nombre || porId[e.member_id]?.codigo || "—" })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Programa visto desde fuera (PÚBLICA) ────────────────────────────────────
+// Lo que necesita la página de alta para pintar la tarjeta ANTES de que la persona se inscriba:
+// sin esto el mesón muestra un formulario gris y nadie sabe a qué se está apuntando. Devuelve
+// solo el diseño y la promesa; nunca `company_id` ni el conteo de socios, que son del negocio.
+app.get("/api/loyalty/program/:id", rateLimit(60, "ly-programa"), async (req, res) => {
+  try {
+    const p = lyUno(await lyRest(
+      `loyalty_programs?id=eq.${encodeURIComponent(req.params.id)}` +
+      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo` +
+      `&limit=1`));
+    if (!p || !p.activo) return res.status(404).json({ error: "Este programa no está disponible" });
+    res.json(p);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Alta del socio (PÚBLICA) ────────────────────────────────────────────────
+app.post("/api/loyalty/join", rateLimit(20, "ly-alta"), async (req, res) => {
+  try {
+    const { programId, nombre, email, telefono } = req.body || {};
+    if (!programId) return res.status(400).json({ error: "Falta el programa" });
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${encodeURIComponent(programId)}&select=id,activo&limit=1`));
+    if (!p || !p.activo) return res.status(404).json({ error: "Este programa no está disponible" });
+
+    // Si ya se inscribió con el mismo correo, devolverle SU tarjeta en vez de crear otra: si no,
+    // el que se inscribe dos veces pierde los sellos que ya tenía.
+    if (email) {
+      const ya = lyUno(await lyRest(
+        `loyalty_members?program_id=eq.${encodeURIComponent(programId)}&email=eq.${encodeURIComponent(email)}&select=codigo&limit=1`));
+      if (ya) return res.json({ codigo: ya.codigo, yaExistia: true });
+    }
+
+    const socio = lyUno(await lyRest("loyalty_members", {
+      method: "POST", headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ program_id: programId, codigo: lyCodigo(), nombre: nombre || null, email: email || null, telefono: telefono || null }),
+    }));
+    await lyRest("loyalty_events", { method: "POST", body: JSON.stringify({ member_id: socio.id, tipo: "alta", cantidad: 0, saldo_despues: 0 }) });
+    res.json({ codigo: socio.codigo, yaExistia: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Tarjeta del socio (PÚBLICA) ─────────────────────────────────────────────
+app.get("/api/loyalty/card/:codigo", rateLimit(60, "ly-tarjeta"), async (req, res) => {
+  try {
+    const m = lyUno(await lyRest(
+      `loyalty_members?codigo=eq.${encodeURIComponent(req.params.codigo)}` +
+      `&select=codigo,nombre,saldo,canjes,ultima_visita,program_id&limit=1`));
+    if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
+    const p = lyUno(await lyRest(
+      `loyalty_programs?id=eq.${m.program_id}` +
+      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo` +
+      `&limit=1`));
+    res.json({
+      socio: { codigo: m.codigo, nombre: m.nombre, saldo: m.saldo, canjes: m.canjes, ultima_visita: m.ultima_visita },
+      programa: p,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Sumar un sello (equipo) ─────────────────────────────────────────────────
+// `idemKey` es una clave única por lectura que manda el escáner. Sin ella, un doble toque o un
+// reintento de red le regala dos sellos al cliente. Con cola en el mesón esto pasa, no es teórico.
+app.post("/api/loyalty/scan", requireAuth, async (req, res) => {
+  try {
+    const { codigo, idemKey, localId, operador, cantidad } = req.body || {};
+    if (!codigo) return res.status(400).json({ error: "Falta el código" });
+
+    if (idemKey) {
+      const ya = lyUno(await lyRest(`loyalty_events?idem_key=eq.${encodeURIComponent(idemKey)}&select=saldo_despues&limit=1`));
+      if (ya) return res.json({ saldo: ya.saldo_despues, repetido: true });
+    }
+
+    const m = lyUno(await lyRest(`loyalty_members?codigo=eq.${encodeURIComponent(codigo)}&select=*&limit=1`));
+    if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio,nombre,activo&limit=1`));
+    if (!p || !p.activo) return res.status(400).json({ error: "El programa está pausado" });
+
+    const suma = Math.max(1, parseInt(cantidad, 10) || 1);
+    const saldo = (m.saldo || 0) + suma;
+    try {
+      await lyRest("loyalty_events", {
+        method: "POST",
+        body: JSON.stringify({ member_id: m.id, tipo: "sello", cantidad: suma, saldo_despues: saldo, local_id: localId || null, operador: operador || null, idem_key: idemKey || null }),
+      });
+    } catch (e) {
+      // Chocó contra el índice único de idem_key: otra lectura idéntica ganó la carrera.
+      if (/duplicate|23505/i.test(e.message)) {
+        const ya = lyUno(await lyRest(`loyalty_events?idem_key=eq.${encodeURIComponent(idemKey)}&select=saldo_despues&limit=1`));
+        return res.json({ saldo: ya?.saldo_despues ?? m.saldo, repetido: true });
+      }
+      throw e;
+    }
+    await lyRest(`loyalty_members?id=eq.${m.id}`, { method: "PATCH", body: JSON.stringify({ saldo, ultima_visita: new Date().toISOString() }) });
+    res.json({ saldo, meta: p.meta, premio: p.premio, socio: m.nombre, listo: saldo >= p.meta, repetido: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Banda generada con IA (equipo) ──────────────────────────────────────────
+// Devuelve la imagen en base64 y NO la guarda: el navegador la recorta a 960×369 exactos y
+// recién ahí la sube por /api/upload. Así lo que queda en Storage siempre tiene la medida que
+// Apple espera, venga de la IA o de un archivo que trajo el cliente.
+//
+// Imagen de Google se apaga el 17-ago-2026, así que esto va contra los modelos nativos de
+// Gemini. Se prueban en orden por si el primero cambia de nombre otra vez.
+const LY_MODELOS_IMG = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
+
+app.post("/api/loyalty/strip-ia", requireAuth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(400).json({ error: "Falta GEMINI_API_KEY en el servidor" });
+    const { prompt, marca, c1, c2 } = req.body || {};
+    if (!(prompt || "").trim()) return res.status(400).json({ error: "Escribe qué quieres que dibuje" });
+
+    // La banda es larguísima y estrecha, y en el pase queda ARRIBA con los campos justo debajo.
+    // Sin estas instrucciones el modelo devuelve una escena centrada que al recortar se pierde.
+    // El texto se prohíbe a propósito: el nombre de la marca lo dibuja Wallet por su cuenta y si
+    // además viene escrito en la imagen, sale duplicado y torcido.
+    const instruccion = [
+      "Banda horizontal muy ancha y baja para la cabecera de una tarjeta de fidelización digital.",
+      marca ? `Marca: ${marca}.` : "",
+      `Lo que se quiere ver: ${prompt}.`,
+      (c1 || c2) ? `Paleta dominante: ${[c1, c2].filter(Boolean).join(" y ")}.` : "",
+      "Composición apaisada y limpia, con aire.",
+      "Sin texto, sin letras, sin números, sin logotipos, sin marcos ni bordes.",
+      "Nada importante pegado a los bordes superior e inferior: la imagen se recorta por ahí.",
+    ].filter(Boolean).join(" ");
+
+    let ultimo = "";
+    for (const modelo of LY_MODELOS_IMG) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${key}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: instruccion }] }],
+            generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "21:9" } },
+          }),
+        });
+        const d = await r.json();
+        if (d.error) { ultimo = d.error.message || "Error de Gemini"; continue; }
+        const parte = (d.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data);
+        if (!parte) { ultimo = "El modelo no devolvió ninguna imagen"; continue; }
+        return res.json({
+          modelo,
+          dataUrl: `data:${parte.inlineData.mimeType || "image/png"};base64,${parte.inlineData.data}`,
+        });
+      } catch (e) { ultimo = e.message; }
+    }
+    res.status(502).json({ error: ultimo || "No se pudo generar la imagen" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Canjear el premio (equipo) ──────────────────────────────────────────────
+app.post("/api/loyalty/redeem", requireAuth, async (req, res) => {
+  try {
+    const { codigo, idemKey, localId, operador } = req.body || {};
+    if (!codigo) return res.status(400).json({ error: "Falta el código" });
+
+    if (idemKey) {
+      const ya = lyUno(await lyRest(`loyalty_events?idem_key=eq.${encodeURIComponent(idemKey)}&select=saldo_despues&limit=1`));
+      if (ya) return res.json({ saldo: ya.saldo_despues, repetido: true });
+    }
+
+    const m = lyUno(await lyRest(`loyalty_members?codigo=eq.${encodeURIComponent(codigo)}&select=*&limit=1`));
+    if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio&limit=1`));
+    if ((m.saldo || 0) < p.meta) return res.status(400).json({ error: `Le faltan ${p.meta - (m.saldo || 0)} para el premio` });
+
+    const saldo = m.saldo - p.meta;
+    await lyRest("loyalty_events", {
+      method: "POST",
+      body: JSON.stringify({ member_id: m.id, tipo: "canje", cantidad: -p.meta, saldo_despues: saldo, local_id: localId || null, operador: operador || null, idem_key: idemKey || null }),
+    });
+    await lyRest(`loyalty_members?id=eq.${m.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ saldo, canjes: (m.canjes || 0) + 1, ultima_visita: new Date().toISOString() }),
+    });
+    res.json({ saldo, canjeado: p.premio, socio: m.nombre, repetido: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===============================
 // 📣 META ADS ADVISOR
 // ===============================
 app.post("/api/meta/advisor", requireAuth, async (req, res) => {
@@ -1627,7 +1919,7 @@ app.get("/api/meta/post-stats", requireAuth, async (req, res) => {
   } catch (e) { console.error("post-stats:", e.message); res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/ai/post-chat", requireAuth, rateLimit(25), async (req, res) => {
+app.post("/api/ai/post-chat", requireAuth, rateLimit(25, "ai-chat"), async (req, res) => {
   try {
     const { igId, mediaId, caption, mensajes } = req.body || {};
     if (!igId) return res.status(400).json({ error: "igId requerido" });
@@ -1949,6 +2241,13 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
+        // El `apikey` NO es redundante. Con la service_role antigua (un JWT) bastaba el Bearer,
+        // porque Storage parseaba el token. Las claves nuevas `sb_secret_…` son opacas, no JWT:
+        // sin este header Storage intenta parsearlas como JWT y responde 403 "Invalid Compact
+        // JWS". Eso es lo que se leía como "la llave puede leer pero no escribir" —la lectura
+        // del bucket sí mandaba `apikey` y por eso pasaba—. Comprobado contra Storage: la misma
+        // subida da 403 sin este header y 200 con él.
+        apikey: key,
         "Content-Type": req.file.mimetype || "application/octet-stream",
         "x-upsert": "true",
       },
@@ -3087,6 +3386,15 @@ ${r
 // ===============================
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/guion", (req, res) => { res.sendFile(path.join(__dirname, "public", "inm_guion_definitivo.html")); });
+
+// Fidelización, cara pública. Son páginas APARTE de la SPA y eso es deliberado: quien las abre
+// es el cliente final parado en el mesón con el teléfono en la mano, no el equipo. Bajarle los
+// 650 KB de index.html —más React, ReactDOM y Babel transpilando en vivo— para pedirle un correo
+// es perder a la mitad en la espera. Estas pesan unos pocos KB y no dependen de ningún CDN.
+// Van ANTES del comodín; si no, el catch-all les devuelve el login de la app.
+app.get("/unirse/:id",     (req, res) => { res.sendFile(path.join(__dirname, "public", "unirse.html")); });
+app.get("/tarjeta/:codigo", (req, res) => { res.sendFile(path.join(__dirname, "public", "tarjeta.html")); });
+
 app.get("*", (req, res) => { res.sendFile(path.join(__dirname, "public", "index.html")); });
 
 app.listen(PORT, () => { console.log("Server INMERSIA v3.3 corriendo en puerto", PORT); });

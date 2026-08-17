@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Únete al programa</title>
+<meta name="robots" content="noindex">
+<!--
+  PÁGINA PÚBLICA — la abre el cliente final del cliente escaneando un QR pegado en el mesón.
+
+  Es intencionalmente TONTA: sin React, sin Babel, sin fuentes de CDN, sin service worker. La
+  única dependencia externa la carga la tarjeta y solo para dibujar el QR, con respaldo en texto.
+  El motivo es el contexto de uso: alguien de pie, con datos móviles, esperando su café. Cada
+  segundo de espera es gente que no se inscribe. La app del equipo pesa 650 KB; esto, unos pocos.
+
+  Tampoco lleva marca de INMERSIA por ningún lado: quien la abre es cliente de la marca del
+  cliente, y la página se tiñe con los colores de ESE programa.
+-->
+<style>
+  :root{
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --tx:#F4F2ED; --tx2:#C9CFDC; --tx3:#8E93A6; --tx4:#6B7484;
+    --linea:rgba(200,210,228,.14); --panel:rgba(11,14,23,.72); --rojo:#FF8B8B;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:#05060B;color:var(--tx2);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100dvh;                          /* dvh, no vh: en iOS la barra del navegador se come el final */
+    padding:28px 20px calc(28px + env(safe-area-inset-bottom));
+    display:flex;align-items:flex-start;justify-content:center;
+  }
+  .caja{width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center;gap:22px}
+  h1{margin:0;font-size:21px;line-height:1.25;color:var(--tx);font-weight:700;text-align:center}
+  .sub{margin:7px 0 0;font-size:13.5px;line-height:1.5;color:var(--tx3);text-align:center}
+  form{width:100%;display:flex;flex-direction:column;gap:11px}
+  label{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx4);margin-bottom:6px}
+  input{
+    width:100%;padding:13px 14px;border-radius:12px;
+    background:var(--panel);border:1px solid var(--linea);color:var(--tx);
+    font-family:inherit;font-size:16px;                /* 16px o iOS hace zoom al enfocar */
+    outline:none;
+  }
+  input:focus{border-color:rgba(200,210,228,.34)}
+  button{
+    width:100%;padding:15px;border-radius:13px;border:none;
+    background:var(--tx);color:#05060B;
+    font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;
+  }
+  button[disabled]{opacity:.55;cursor:default}
+  .nota{font-size:11.5px;line-height:1.5;color:var(--tx4);text-align:center}
+  .error{
+    width:100%;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.45;
+    background:rgba(255,139,139,.09);border:1px solid rgba(255,139,139,.28);color:var(--rojo);
+  }
+  .vuelve{
+    width:100%;padding:14px 16px;border-radius:14px;background:var(--panel);
+    border:1px solid var(--linea);text-align:center;
+  }
+  .vuelve a{display:inline-block;margin-top:9px;color:var(--tx);font-weight:600;font-size:14px;text-decoration:none;
+    border-bottom:1px solid var(--linea);padding-bottom:2px}
+  .cargando{color:var(--tx4);font-size:13px;padding:60px 0}
+</style>
+</head>
+<body>
+<div class="caja" id="caja"><div class="cargando">Cargando…</div></div>
+
+<script src="/loyalty-card.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // El id del programa viene en la ruta (/unirse/:id), que es lo que dice el QR impreso.
+  const programId = decodeURIComponent(location.pathname.split("/")[2] || "");
+  const caja = document.getElementById("caja");
+
+  // Quién ya se inscribió EN ESTE TELÉFONO. Sirve para el caso más común después del primer día:
+  // la persona vuelve, ve el mismo QR pegado en el mesón y lo escanea otra vez. Sin esto se
+  // encuentra un formulario en blanco y cree que no está inscrita.
+  const memoria = "ly:" + programId;
+  const recordar = (cod) => { try{ localStorage.setItem(memoria, cod); }catch(_){} };
+  const recordado = () => { try{ return localStorage.getItem(memoria); }catch(_){ return null; } };
+
+  const vaciar = () => { while(caja.firstChild) caja.removeChild(caja.firstChild); };
+
+  function fallo(msg){
+    vaciar();
+    const d = document.createElement("div");
+    d.className = "error";
+    d.textContent = msg;
+    caja.appendChild(d);
+  }
+
+  fetch("/api/loyalty/program/" + encodeURIComponent(programId))
+    .then(r => r.json().then(d => r.ok ? d : Promise.reject(new Error(d.error || "No se pudo cargar"))))
+    .then(pintar)
+    .catch(e => fallo(e.message === "Failed to fetch"
+      ? "No hay conexión. Revisa el internet del teléfono y vuelve a intentar."
+      : e.message));
+
+  function pintar(p){
+    LY.fondo(p);
+    document.title = p.nombre || "Únete al programa";
+    vaciar();
+
+    caja.appendChild(LY.tarjeta(p, { saldo:0, placeholder:"Tu código aparece al inscribirte" }));
+
+    const enc = document.createElement("div");
+    const h = document.createElement("h1");
+    h.textContent = p.premio ? ("Junta " + p.meta + " y llévate " + p.premio.toLowerCase()) : (p.nombre || "");
+    const s = document.createElement("p");
+    s.className = "sub";
+    s.textContent = "Deja tus datos una vez y tu tarjeta queda en el teléfono. No hay que instalar nada.";
+    enc.appendChild(h); enc.appendChild(s);
+    caja.appendChild(enc);
+
+    // Ya inscrita en este teléfono: no se le vuelve a pedir nada, se le abre su tarjeta.
+    const ya = recordado();
+    if (ya) {
+      const v = document.createElement("div");
+      v.className = "vuelve";
+      const t = document.createElement("div");
+      t.style.cssText = "font-size:13.5px;color:var(--tx2)";
+      t.textContent = "Ya tienes tu tarjeta en este teléfono.";
+      const a = document.createElement("a");
+      a.href = "/tarjeta/" + encodeURIComponent(ya);
+      a.textContent = "Abrir mi tarjeta";
+      v.appendChild(t); v.appendChild(a);
+      caja.appendChild(v);
+
+      const otra = document.createElement("button");
+      otra.type = "button";
+      otra.style.cssText = "background:transparent;color:var(--tx4);font-weight:600;font-size:12.5px;padding:6px";
+      otra.textContent = "Inscribir a otra persona";
+      otra.onclick = () => { v.remove(); otra.remove(); caja.appendChild(formulario(p)); };
+      caja.appendChild(otra);
+      return;
+    }
+
+    caja.appendChild(formulario(p));
+  }
+
+  function formulario(p){
+    const f = document.createElement("form");
+    f.appendChild(campo("Nombre", "nombre", "text", "Cómo te llamamos", "name"));
+    f.appendChild(campo("Correo", "email", "email", "tucorreo@ejemplo.cl", "email"));
+    f.appendChild(campo("Teléfono (opcional)", "telefono", "tel", "+56 9 …", "tel"));
+
+    const btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = "Inscribirme";
+    f.appendChild(btn);
+
+    const nota = document.createElement("p");
+    nota.className = "nota";
+    // El correo no es un capricho de formulario: es lo ÚNICO que reconecta a la persona con su
+    // tarjeta si cambia de teléfono o borra los datos del navegador. Conviene decirlo, porque
+    // así deja de parecer que se lo piden para llenarlo de publicidad.
+    nota.textContent = "Con tu correo recuperas la tarjeta si cambias de teléfono. Nada más.";
+    f.appendChild(nota);
+
+    const err = document.createElement("div");
+    err.className = "error";
+    err.style.display = "none";
+    f.appendChild(err);
+
+    f.onsubmit = (ev) => {
+      ev.preventDefault();
+      const datos = {
+        programId,
+        nombre:   f.nombre.value.trim(),
+        email:    f.email.value.trim(),
+        telefono: f.telefono.value.trim(),
+      };
+      if (!datos.nombre) return mostrar("Falta tu nombre.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(datos.email)) return mostrar("Revisa el correo, parece incompleto.");
+
+      err.style.display = "none";
+      btn.disabled = true; btn.textContent = "Inscribiendo…";
+
+      fetch("/api/loyalty/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(datos),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(new Error(d.error || "No se pudo completar"))))
+        .then(d => {
+          recordar(d.codigo);
+          // `replace`, no `assign`: si queda en el historial, el botón atrás devuelve al
+          // formulario ya enviado y la persona se inscribe dos veces.
+          location.replace("/tarjeta/" + encodeURIComponent(d.codigo));
+        })
+        .catch(e => {
+          btn.disabled = false; btn.textContent = "Inscribirme";
+          mostrar(e.message === "Failed to fetch"
+            ? "Se cortó la conexión. Intenta de nuevo."
+            : e.message);
+        });
+
+      function mostrar(m){ err.textContent = m; err.style.display = "block"; return false; }
+    };
+
+    return f;
+  }
+
+  function campo(titulo, nombre, tipo, placeholder, autocomplete){
+    const d = document.createElement("div");
+    const l = document.createElement("label");
+    l.textContent = titulo; l.htmlFor = "f_" + nombre;
+    const i = document.createElement("input");
+    i.id = "f_" + nombre; i.name = nombre; i.type = tipo;
+    i.placeholder = placeholder; i.autocomplete = autocomplete;
+    if (tipo === "email") { i.autocapitalize = "off"; i.spellcheck = false; }
+    d.appendChild(l); d.appendChild(i);
+    return d;
+  }
+})();
+</script>
+</body>
+</html>

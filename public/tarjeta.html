@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mi tarjeta</title>
+<meta name="robots" content="noindex">
+<!--
+  PÁGINA PÚBLICA — la tarjeta del socio. Es la que se muestra en el mesón para que le sumen el
+  sello, así que manda una sola cosa: que el QR se vea grande, nítido y rápido.
+
+  Mientras no exista el pase de Wallet, ESTA es la tarjeta. La persona la guarda en la pantalla
+  de inicio y funciona igual. Misma cocina que /unirse: sin React, sin Babel, sin fuentes de CDN.
+-->
+<style>
+  :root{
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --tx:#F4F2ED; --tx2:#C9CFDC; --tx3:#8E93A6; --tx4:#6B7484;
+    --linea:rgba(200,210,228,.14); --panel:rgba(11,14,23,.72); --rojo:#FF8B8B; --ok:#7BE8A8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:#05060B;color:var(--tx2);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100dvh;
+    padding:28px 20px calc(28px + env(safe-area-inset-bottom));
+    display:flex;align-items:flex-start;justify-content:center;
+  }
+  .caja{width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center;gap:18px}
+  .estado{text-align:center}
+  .estado b{display:block;font-size:19px;line-height:1.3;color:var(--tx);font-weight:700}
+  .estado span{display:block;margin-top:6px;font-size:13px;line-height:1.5;color:var(--tx3)}
+  .listo{
+    width:100%;padding:14px 16px;border-radius:14px;text-align:center;
+    background:rgba(123,232,168,.10);border:1px solid rgba(123,232,168,.32);color:var(--ok);
+    font-size:14px;font-weight:600;line-height:1.4;
+  }
+  .pie{
+    width:100%;padding:13px 15px;border-radius:14px;background:var(--panel);
+    border:1px solid var(--linea);font-size:12px;line-height:1.55;color:var(--tx4);text-align:center;
+  }
+  .pie b{color:var(--tx3);font-weight:600}
+  .meta{display:flex;gap:18px;justify-content:center;font-size:11.5px;color:var(--tx4)}
+  .meta i{font-style:normal;color:var(--tx2);font-family:var(--mono)}
+  .error{
+    width:100%;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.45;
+    background:rgba(255,139,139,.09);border:1px solid rgba(255,139,139,.28);color:var(--rojo);
+  }
+  .cargando{color:var(--tx4);font-size:13px;padding:60px 0}
+</style>
+</head>
+<body>
+<div class="caja" id="caja"><div class="cargando">Cargando tu tarjeta…</div></div>
+
+<script src="/loyalty-card.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const codigo = decodeURIComponent(location.pathname.split("/")[2] || "");
+  const caja = document.getElementById("caja");
+  const vaciar = () => { while(caja.firstChild) caja.removeChild(caja.firstChild); };
+
+  let saldoPrevio = null;
+
+  function fallo(msg){
+    vaciar();
+    const d = document.createElement("div");
+    d.className = "error"; d.textContent = msg;
+    caja.appendChild(d);
+  }
+
+  function traer(){
+    return fetch("/api/loyalty/card/" + encodeURIComponent(codigo))
+      .then(r => r.json().then(d => r.ok ? d : Promise.reject(Object.assign(new Error(d.error || "No se pudo cargar"), { status: r.status }))));
+  }
+
+  traer().then(pintar).catch(e => fallo(
+    e.status === 404 ? "No encontramos esta tarjeta. Puede que el enlace esté incompleto."
+    : e.message === "Failed to fetch" ? "No hay conexión. Revisa el internet del teléfono."
+    : e.message));
+
+  function pintar(d){
+    const p = d.programa || {}, s = d.socio || {};
+    LY.fondo(p);
+    document.title = (s.nombre ? s.nombre.split(" ")[0] + " · " : "") + (p.nombre || "Mi tarjeta");
+    vaciar();
+
+    const meta  = Math.max(1, parseInt(p.meta, 10) || 10);
+    const saldo = Math.max(0, parseInt(s.saldo, 10) || 0);
+    const faltan = Math.max(0, meta - saldo);
+    const listo = saldo >= meta;
+
+    // El premio conseguido va ARRIBA de todo. Es el único momento en que la persona necesita que
+    // la pantalla le diga algo distinto, y si queda bajo la tarjeta no lo ve: en un teléfono, la
+    // tarjeta sola ya llena la pantalla.
+    if (listo) {
+      const l = document.createElement("div");
+      l.className = "listo";
+      l.textContent = "¡Completaste la tarjeta! Muestra este código y pide " + (p.premio || "tu premio") + ".";
+      caja.appendChild(l);
+    }
+
+    caja.appendChild(LY.tarjeta(p, { saldo, codigo: s.codigo || codigo }));
+
+    const est = document.createElement("div");
+    est.className = "estado";
+    const b = document.createElement("b");
+    const sp = document.createElement("span");
+    if (listo) {
+      b.textContent = "Premio listo";
+      sp.textContent = "Se descuenta cuando lo canjees en el local.";
+    } else if (saldo === 0) {
+      b.textContent = "Tu tarjeta está lista";
+      sp.textContent = "Muestra el código en el mesón y te suman el primer sello.";
+    } else {
+      b.textContent = faltan === 1 ? "Te falta 1 sello" : "Te faltan " + faltan + " sellos";
+      sp.textContent = "Llevas " + saldo + " de " + meta + ". Muestra el código cada vez que vengas.";
+    }
+    est.appendChild(b); est.appendChild(sp);
+    caja.appendChild(est);
+
+    if (s.canjes > 0 || s.ultima_visita) {
+      const m = document.createElement("div");
+      m.className = "meta";
+      if (s.canjes > 0) m.appendChild(dato("Premios canjeados", String(s.canjes)));
+      if (s.ultima_visita) m.appendChild(dato("Última visita", fecha(s.ultima_visita)));
+      caja.appendChild(m);
+    }
+
+    const pie = document.createElement("div");
+    pie.className = "pie";
+    pie.innerHTML = guardarAqui();
+    caja.appendChild(pie);
+
+    saldoPrevio = saldo;
+  }
+
+  function dato(titulo, valor){
+    const d = document.createElement("div");
+    d.appendChild(document.createTextNode(titulo + " "));
+    const i = document.createElement("i");
+    i.textContent = valor;
+    d.appendChild(i);
+    return d;
+  }
+
+  function fecha(iso){
+    try { return new Date(iso).toLocaleDateString("es-CL", { day:"numeric", month:"short" }); }
+    catch(_) { return "—"; }
+  }
+
+  // Sin pase de Wallet todavía, "guardar la tarjeta" es agregar la página a la pantalla de
+  // inicio. Es distinto en cada teléfono y nadie lo adivina, así que se dice el paso exacto.
+  function guardarAqui(){
+    const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    return esIOS
+      ? '<b>Guárdala:</b> toca Compartir <span style="font-family:var(--mono)">↑</span> y luego “Añadir a pantalla de inicio”.'
+      : '<b>Guárdala:</b> abre el menú <span style="font-family:var(--mono)">⋮</span> del navegador y elige “Añadir a pantalla principal”.';
+  }
+
+  // ── Refresco en vivo ──────────────────────────────────────────────────────
+  // El momento que importa es el del mesón: le suman el sello y la persona lo ve aparecer en su
+  // pantalla sin tocar nada. Eso es lo que convierte la tarjeta en algo que se muestra con ganas.
+  //
+  // Solo se consulta con la pestaña a la vista —en segundo plano no hay nadie mirando— y ante un
+  // 429 se afloja el intervalo en vez de insistir: en el wifi del local todos los clientes salen
+  // por la misma IP y el tope es compartido.
+  let intervalo = 15000, timer = null;
+
+  function latido(){
+    if (document.hidden) return;
+    traer()
+      .then(d => {
+        intervalo = 15000;
+        if (d && d.socio && d.socio.saldo !== saldoPrevio) pintar(d);
+      })
+      .catch(e => { if (e.status === 429) intervalo = Math.min(intervalo * 2, 120000); });
+  }
+
+  function programar(){
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { latido(); programar(); }, intervalo);
+  }
+  programar();
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { latido(); programar(); }   // al volver, mirar de inmediato
+  });
+})();
+</script>
+</body>
+</html>

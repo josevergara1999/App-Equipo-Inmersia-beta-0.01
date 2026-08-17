@@ -148,6 +148,7 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
   .main-col{height:auto!important}
   .main-col>div{overflow:visible!important}
 }
+@media (max-width: 820px){ .ly-diseno{ grid-template-columns: 1fr !important; } }
 </style>
 </head>
 <body data-variant="A">
@@ -237,6 +238,47 @@ const API={
   async loyaltyPush(company,topic){
     const r=await fetch("/api/loyalty/generate-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company,topic})});
     const d=await r.json();if(d.error)throw new Error(d.error);return d.text;
+  },
+  // ── Fidelización ──────────────────────────────────────────────
+  // Estas rutas NO pasan por DB/app_data: van a las tablas de db/loyalty.sql a través del
+  // servidor. El navegador nunca habla con esas tablas directamente.
+  async lyProgramas(companyId){
+    const r=await fetch("/api/loyalty/programs"+(companyId?"?companyId="+encodeURIComponent(companyId):""),{credentials:"same-origin"});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudieron cargar los programas");return d;
+  },
+  async lyGuardarPrograma(p){
+    const r=await fetch("/api/loyalty/programs",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(p)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo guardar el programa");return d;
+  },
+  async lySocios(programId){
+    const r=await fetch("/api/loyalty/programs/"+programId+"/socios",{credentials:"same-origin"});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudieron cargar los socios");return d;
+  },
+  async lyEventos(programId){
+    const r=await fetch("/api/loyalty/programs/"+programId+"/eventos",{credentials:"same-origin"});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudieron cargar los movimientos");return d;
+  },
+  async lyAlta(programId,nombre,email,telefono){
+    const r=await fetch("/api/loyalty/join",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({programId,nombre,email,telefono})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo inscribir");return d;
+  },
+  async lyTarjeta(codigo){
+    const r=await fetch("/api/loyalty/card/"+encodeURIComponent(codigo));
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Tarjeta no encontrada");return d;
+  },
+  async lyScan(body){
+    const r=await fetch("/api/loyalty/scan",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(body)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo sumar el sello");return d;
+  },
+  // Devuelve la imagen en base64 SIN guardarla: el recorte a 960×369 y la subida los hace
+  // el navegador, así nunca queda en Storage una banda con la medida equivocada.
+  async lyStripIA(body){
+    const r=await fetch("/api/loyalty/strip-ia",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(body)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo generar la imagen");return d;
+  },
+  async lyCanje(body){
+    const r=await fetch("/api/loyalty/redeem",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(body)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo canjear");return d;
   },
   async metaAdvisor(company,campaigns,totalBudget,question){
     const r=await fetch("/api/meta/advisor",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company,campaigns,totalBudget,question})});
@@ -914,7 +956,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const canProspectos=isA||cu.role==="Sales";
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
-  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"]};
+  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
@@ -1402,6 +1444,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {/* MÉTRICAS */}
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
         {pg==="informe"&&<InformePg cos={cos}/>}
+        {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
         {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners}/>}
 
         {/* TEAM */}
@@ -4269,6 +4312,798 @@ function InfHero({valor,texto,sub}){
       <div style={{fontSize:13,fontWeight:700,color:PC.tx,marginTop:8,lineHeight:1.35}}>{texto}</div>
       <div style={{fontSize:11.5,color:PC.tx3,marginTop:5,lineHeight:1.45}}>{sub}</div>
     </div>);
+}
+
+// ═══ FIDELIZACIÓN ═══════════════════════════════════════════════
+// Las librerías de QR se cargan SOLO al abrir la sección. Son ~60 KB que no tiene por qué
+// pagar en cada arranque quien nunca entra acá.
+const LY_LIBS={
+  qr:"https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+  jsqr:"https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
+};
+const _lyScripts={};
+function lyCargar(src){
+  if(_lyScripts[src])return _lyScripts[src];
+  _lyScripts[src]=new Promise((ok,err)=>{
+    const s=document.createElement("script");
+    s.src=src;s.async=true;s.onload=()=>ok();s.onerror=()=>err(new Error("No se pudo cargar la librería"));
+    document.head.appendChild(s);
+  });
+  return _lyScripts[src];
+}
+
+// qrcodejs pinta en un nodo del DOM y no tiene API de React: por eso el ref y el innerHTML.
+function LyQR({texto,size=176,marco=true}){
+  const ref=useRef(null);
+  const[fallo,sFallo]=useState(false);
+  useEffect(()=>{
+    let vivo=true;
+    lyCargar(LY_LIBS.qr).then(()=>{
+      if(!vivo||!ref.current||!window.QRCode)return;
+      ref.current.innerHTML="";
+      new window.QRCode(ref.current,{text:texto||"—",width:size,height:size,colorDark:"#05060B",colorLight:"#FFFFFF",correctLevel:window.QRCode.CorrectLevel.M});
+    }).catch(()=>vivo&&sFallo(true));
+    return()=>{vivo=false;};
+  },[texto,size]);
+  if(fallo)return <div style={{fontSize:11,color:PC.rojo}}>No se pudo dibujar el QR.</div>;
+  return <div ref={ref} style={marco?{background:"#fff",padding:10,borderRadius:14,display:"inline-block",lineHeight:0}:{display:"inline-block",lineHeight:0}}/>;
+}
+
+// ── El strip ────────────────────────────────────────────────────
+// `strip.png` es 320×123 pt (960×369 en @3x) y es LA banda ancha del pase. En un storeCard es
+// la única imagen grande que Apple admite —no acepta imagen de fondo—, así que es el único
+// lugar donde se puede diseñar de verdad. En vez de obligar a subir una foto, se puede generar
+// con los colores de la marca: mismo dibujo para el preview y para el PNG que se sube.
+const LY_PRESETS=[
+  {id:"degradado",nombre:"Degradado"},
+  {id:"diagonal", nombre:"Diagonales"},
+  {id:"puntos",   nombre:"Puntos"},
+  {id:"ondas",    nombre:"Ondas"},
+  {id:"solido",   nombre:"Sólido"},
+];
+// Mientras alguien escribe un hex a mano pasan valores intermedios inválidos ("#", "#FF"). El
+// canvas LANZA con esos (addColorStop) y eso tumbaba la app entera hasta el ErrorBoundary. No se
+// puede confiar en el valor crudo del input: hay que filtrarlo antes de tocar el canvas o el CSS.
+const lyColor=(c,fb)=>/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(c||"").trim())?String(c).trim():fb;
+function lyDibujarStrip(ctx,e,w,h){
+  const c1=lyColor(e.c1,"#161B2A"), c2=lyColor(e.c2,"#6FE7F2"), preset=e.preset||"degradado";
+  ctx.clearRect(0,0,w,h);
+  if(preset==="solido"){ ctx.fillStyle=c1; }
+  else{
+    const g=ctx.createLinearGradient(0,0,w,h);
+    g.addColorStop(0,c1); g.addColorStop(1,c2);
+    ctx.fillStyle=g;
+  }
+  ctx.fillRect(0,0,w,h);
+  ctx.save();
+  ctx.strokeStyle="#fff"; ctx.fillStyle="#fff";
+  if(preset==="diagonal"){
+    ctx.globalAlpha=.11; ctx.lineWidth=h*0.055;
+    for(let x=-h;x<w+h;x+=h*0.24){ ctx.beginPath(); ctx.moveTo(x,h); ctx.lineTo(x+h,0); ctx.stroke(); }
+  }else if(preset==="puntos"){
+    ctx.globalAlpha=.15;
+    const paso=h*0.17, r=h*0.028;
+    for(let y=paso/2;y<h;y+=paso)for(let x=paso/2;x<w;x+=paso){ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+  }else if(preset==="ondas"){
+    ctx.globalAlpha=.13; ctx.lineWidth=h*0.04;
+    for(let i=0;i<4;i++){
+      ctx.beginPath();
+      for(let x=0;x<=w;x+=6){
+        const y=h*(0.22+i*0.2)+Math.sin((x/w)*Math.PI*3+i)*h*0.085;
+        x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+function LyStrip({estilo,url}){
+  const ref=useRef(null);
+  const clave=JSON.stringify(estilo||{});
+  useEffect(()=>{
+    if(url||!ref.current)return;
+    const c=ref.current; c.width=960; c.height=369;
+    try{ lyDibujarStrip(c.getContext("2d"), estilo||{}, 960, 369); }catch(e){}
+  },[clave,url]);
+  if(url)return <img src={url} alt="" style={{width:"100%",aspectRatio:"960/369",objectFit:"cover",display:"block"}}/>;
+  return <canvas ref={ref} style={{width:"100%",aspectRatio:"960/369",display:"block"}}/>;
+}
+
+// ── Preview del pase ────────────────────────────────────────────
+// Reproduce el layout REAL de un storeCard de Apple, que es fijo: logo y nombre arriba, strip,
+// campos, código. No se puede mover nada de sitio — por eso el preview vale: lo que se ve acá
+// es lo que Wallet va a dibujar, sin sorpresas al firmar el .pkpass.
+function LyPasePreview({p,saldo=3,codigo="BUVXN73C"}){
+  const meta=Math.max(1,parseInt(p.meta,10)||10);
+  const bg=lyColor(p.color_fondo,"#05060B"), fg=lyColor(p.color_texto,"#FFFFFF"), lb=lyColor(p.color_etiqueta,"#8E93A6");
+  const llenos=Math.min(saldo,meta);
+  const faltan=Math.max(0,meta-llenos);
+  const premio=p.premio||"tu premio";
+  return(
+    <div style={{width:292,borderRadius:16,overflow:"hidden",background:bg,color:fg,
+      boxShadow:"0 22px 48px rgba(0,0,0,.62)",border:"1px solid rgba(255,255,255,.09)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,padding:"11px 13px 9px"}}>
+        {p.logo_url
+          ? <img src={p.logo_url} alt="" style={{height:24,maxWidth:96,objectFit:"contain"}}/>
+          : <div style={{height:24,width:24,borderRadius:7,background:"rgba(255,255,255,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:lb}}>◎</div>}
+        <div style={{flex:1,textAlign:"right",fontSize:10.5,fontWeight:600,letterSpacing:".02em",opacity:.93,
+          overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{p.logo_text||p.nombre||"Tu marca"}</div>
+      </div>
+      <LyStrip estilo={p.strip_estilo} url={p.strip_url}/>
+
+      {/* Sellos y premio ya no se reparten en dos columnas. Van uno debajo del otro y el premio
+          se cuenta en una frase con el número que falta: "junta 3 más" da un motivo para volver,
+          que una etiqueta llamada PREMIO no da. Además es lo que estira la tarjeta a lo alto,
+          que es la proporción con la que se lee bien en un teléfono. */}
+      <div style={{padding:"13px 14px 0"}}>
+        <div style={{fontSize:11.5,fontWeight:700,lineHeight:1.38,letterSpacing:".01em",textTransform:"uppercase"}}>
+          {faltan>0
+            ? "Junta "+faltan+" sello"+(faltan===1?"":"s")+" más para "+premio
+            : "¡Listo! Canjea "+premio}
+        </div>
+        <div style={{display:"flex",gap:4.5,flexWrap:"wrap",marginTop:11}}>
+          {[...Array(meta)].map((_,i)=>(
+            <span key={i} style={{width:10,height:10,borderRadius:"50%",display:"inline-block",
+              background:i<llenos?fg:"transparent",border:"1px solid "+(i<llenos?fg:lb),opacity:i<llenos?1:.6}}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{background:"#fff",margin:"14px 14px 14px",borderRadius:10,padding:"12px 12px 7px",textAlign:"center"}}>
+        <LyQR texto={codigo} size={118} marco={false}/>
+        <div style={{fontFamily:"var(--font-mono)",fontSize:8,color:"#555",letterSpacing:".12em",marginTop:4}}>{codigo}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Diseñador ───────────────────────────────────────────────────
+function LyDisenador({edit,sEdit,onGuardar,onCerrar,addN}){
+  const[ocupado,sOcupado]=useState("");
+  const[err,sErr]=useState("");
+  const[fuente,sFuente]=useState("estilo");     // estilo | ia | archivo
+  const[prompt,sPrompt]=useState("");
+  const[previaIA,sPreviaIA]=useState(null);
+  const est=edit.strip_estilo||{preset:"degradado",c1:"#161B2A",c2:"#6FE7F2"};
+  const setEst=(k,v)=>sEdit({...edit,strip_estilo:{...est,[k]:v}});
+
+  // Todo lo que acabe siendo banda pasa por acá: se recorta a 960×369 EXACTOS antes de subir.
+  // Si se sube con otra proporción, el recorte lo decide Apple y el resultado sorprende.
+  const subirComoStrip=async(src)=>{
+    const img=new Image(); img.crossOrigin="anonymous"; img.src=src;
+    await (img.decode?img.decode():new Promise(r=>{img.onload=r;}));
+    const c=document.createElement("canvas"); c.width=960; c.height=369;
+    const ctx=c.getContext("2d");
+    const esc=Math.max(960/img.width,369/img.height);
+    const w=img.width*esc, h=img.height*esc;
+    ctx.drawImage(img,(960-w)/2,(369-h)/2,w,h);
+    const blob=await new Promise(r=>c.toBlob(r,"image/png"));
+    const fd=new FormData(); fd.append("file",new File([blob],"strip.png",{type:"image/png"}));
+    const r=await fetch("/api/upload",{method:"POST",credentials:"same-origin",body:fd});
+    const d=await r.json(); if(!r.ok)throw new Error(d.error||"No se pudo subir la imagen");
+    return d.url;
+  };
+
+  const subirLogo=async(file)=>{
+    if(!file)return;
+    sOcupado("logo");sErr("");
+    try{
+      const fd=new FormData(); fd.append("file",file);
+      const r=await fetch("/api/upload",{method:"POST",credentials:"same-origin",body:fd});
+      const d=await r.json(); if(!r.ok)throw new Error(d.error||"No se pudo subir el logo");
+      sEdit({...edit,logo_url:d.url});
+    }catch(e){ sErr(e.message); }
+    sOcupado("");
+  };
+
+  // Hornea el estilo generado. Es el mismo dibujo del preview, así que lo que se guarda es
+  // exactamente lo que se vio.
+  const desdeEstilo=async()=>{
+    sOcupado("strip");sErr("");
+    try{
+      const c=document.createElement("canvas"); c.width=960; c.height=369;
+      lyDibujarStrip(c.getContext("2d"),est,960,369);
+      const url=await subirComoStrip(c.toDataURL("image/png"));
+      sEdit({...edit,strip_url:url});
+      addN&&addN("Banda guardada");
+    }catch(e){ sErr(e.message); }
+    sOcupado("");
+  };
+
+  const desdeArchivo=async(file)=>{
+    if(!file)return;
+    sOcupado("strip");sErr("");
+    try{
+      const src=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=no;fr.readAsDataURL(file);});
+      const url=await subirComoStrip(src);
+      sEdit({...edit,strip_url:url});
+      addN&&addN("Banda guardada");
+    }catch(e){ sErr(e.message); }
+    sOcupado("");
+  };
+
+  const generarIA=async()=>{
+    sOcupado("ia");sErr("");sPreviaIA(null);
+    try{
+      const d=await API.lyStripIA({prompt,marca:edit.logo_text||edit.nombre,c1:est.c1,c2:est.c2});
+      sPreviaIA(d.dataUrl);
+    }catch(e){ sErr(e.message); }
+    sOcupado("");
+  };
+  const usarIA=async()=>{
+    sOcupado("strip");sErr("");
+    try{
+      const url=await subirComoStrip(previaIA);
+      sEdit({...edit,strip_url:url}); sPreviaIA(null);
+      addN&&addN("Banda guardada");
+    }catch(e){ sErr(e.message); }
+    sOcupado("");
+  };
+
+  const inp={width:"100%",background:PC.panel3,border:"1px solid "+PC.line2,borderRadius:10,
+    padding:"10px 12px",color:PC.tx,fontFamily:"inherit",fontSize:14};
+  const colorBox=(valor,onCh)=>(
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <input type="color" value={lyColor(valor,"#000000")} onChange={e=>onCh(e.target.value)}
+        style={{width:38,height:34,padding:0,border:"1px solid "+PC.line2,borderRadius:8,background:"transparent",cursor:"pointer"}}/>
+      <input value={valor} onChange={e=>onCh(e.target.value)} style={{...inp,fontFamily:"var(--font-mono)",fontSize:12.5}}/>
+    </div>);
+  const titulo=(t)=><div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,margin:"20px 0 12px"}}>{t}</div>;
+
+  return(<Md open={true} onClose={onCerrar} title={edit.id?"Diseñar la tarjeta":"Nueva tarjeta"} width={940}>
+    <div className="ly-diseno" style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:24,alignItems:"start"}}>
+
+      <div>
+        <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:12}}>El programa</div>
+        <Fd label="Nombre interno" hint="Solo lo ves tú, no sale en la tarjeta.">
+          <input value={edit.nombre||""} onChange={e=>sEdit({...edit,nombre:e.target.value})} placeholder="Ej: Huemul · Tarjeta de sellos" style={inp}/>
+        </Fd>
+        <div style={{display:"flex",gap:12}}>
+          <div style={{flex:1}}><Fd label="Sellos para el premio">
+            <input type="number" min="1" max="30" value={edit.meta||10} onChange={e=>sEdit({...edit,meta:e.target.value})} style={inp}/>
+          </Fd></div>
+          <div style={{flex:2}}><Fd label="Premio">
+            <input value={edit.premio||""} onChange={e=>sEdit({...edit,premio:e.target.value})} placeholder="Ej: Un café gratis" style={inp}/>
+          </Fd></div>
+        </div>
+
+        {titulo("La marca")}
+        <Fd label="Nombre en la tarjeta" hint="Lo que se lee arriba, junto al logo.">
+          <input value={edit.logo_text||""} onChange={e=>sEdit({...edit,logo_text:e.target.value})} placeholder="Ej: HUEMUL" style={inp}/>
+        </Fd>
+        <Fd label="Logo" hint="Apple lo dibuja a 160×50 pt. Un PNG con fondo transparente y apaisado es lo que mejor cae.">
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <label style={{...inp,cursor:"pointer",flex:1,color:PC.tx3,fontSize:12.5}}>
+              {ocupado==="logo"?"Subiendo…":(edit.logo_url?"Cambiar logo…":"Elegir archivo…")}
+              <input type="file" accept="image/*" onChange={e=>subirLogo(e.target.files[0])} style={{display:"none"}}/>
+            </label>
+            {edit.logo_url&&<Bt v="g" onClick={()=>sEdit({...edit,logo_url:null})}>Quitar</Bt>}
+          </div>
+        </Fd>
+
+        {titulo("La banda")}
+        {edit.strip_url
+          ? <div style={{...D_CARD,padding:14}}>
+              <img src={edit.strip_url} alt="" style={{width:"100%",borderRadius:8,display:"block",marginBottom:10}}/>
+              <Bt v="s" onClick={()=>sEdit({...edit,strip_url:null})}>Quitar y volver a diseñarla</Bt>
+            </div>
+          : <>
+            <div style={{...dGrupo,marginBottom:14,width:"fit-content"}}>
+              {[["estilo","Estilo"],["ia","Con IA"],["archivo","Mi imagen"]].map(([k,l])=>(
+                <button key={k} onClick={()=>sFuente(k)} style={dPill(fuente===k)}>{l}</button>
+              ))}
+            </div>
+
+            {fuente==="estilo"&&<>
+              <Fd label="Patrón">
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {LY_PRESETS.map(pr=>(
+                    <button key={pr.id} onClick={()=>setEst("preset",pr.id)} style={dPill((est.preset||"degradado")===pr.id)}>{pr.nombre}</button>
+                  ))}
+                </div>
+              </Fd>
+              <div style={{display:"flex",gap:12}}>
+                <div style={{flex:1}}><Fd label="Color 1">{colorBox(est.c1||"#161B2A",v=>setEst("c1",v))}</Fd></div>
+                <div style={{flex:1}}><Fd label="Color 2">{colorBox(est.c2||"#6FE7F2",v=>setEst("c2",v))}</Fd></div>
+              </div>
+              <Bt v="s" onClick={desdeEstilo} disabled={!!ocupado}>{ocupado==="strip"?"Guardando…":"Usar esta banda"}</Bt>
+              <div style={{fontSize:11,color:PC.tx4,marginTop:8,lineHeight:1.5}}>
+                Mientras no la guardes, el preview la dibuja en vivo. Al guardarla queda como PNG de 960×369.
+              </div>
+            </>}
+
+            {fuente==="ia"&&<>
+              <Fd label="Qué quieres que dibuje" hint="Los colores de arriba se le pasan como paleta. No pidas texto: el nombre de la marca lo pone Wallet aparte.">
+                <textarea value={prompt} onChange={e=>sPrompt(e.target.value)} rows={3}
+                  placeholder="Ej: granos de café tostado sobre madera oscura, luz cálida, fotografía cenital"
+                  style={{...inp,resize:"vertical",lineHeight:1.5}}/>
+              </Fd>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <Bt v="s" onClick={generarIA} disabled={!!ocupado||!prompt.trim()}>{ocupado==="ia"?"Dibujando…":(previaIA?"Probar otra":"Generar")}</Bt>
+                {previaIA&&<Bt onClick={usarIA} disabled={!!ocupado}>{ocupado==="strip"?"Guardando…":"Usar esta"}</Bt>}
+              </div>
+              {previaIA&&<div style={{marginTop:14}}>
+                <img src={previaIA} alt="" style={{width:"100%",borderRadius:10,display:"block"}}/>
+                <div style={{fontSize:11,color:PC.tx4,marginTop:8,lineHeight:1.5}}>
+                  Se recorta al centro para dejarla en 960×369. Si lo importante te queda fuera, pide una composición más abierta.
+                </div>
+              </div>}
+              {!previaIA&&<div style={{fontSize:11,color:PC.tx4,marginTop:10,lineHeight:1.5}}>
+                Cada intento cuesta unos centavos de dólar. No se guarda nada hasta que le des a "Usar esta".
+              </div>}
+            </>}
+
+            {fuente==="archivo"&&<>
+              <label style={{...inp,cursor:"pointer",display:"block",color:PC.tx3,fontSize:12.5,textAlign:"center",padding:"22px 12px",borderStyle:"dashed"}}>
+                {ocupado==="strip"?"Subiendo…":"Elegir una imagen…"}
+                <input type="file" accept="image/*" onChange={e=>desdeArchivo(e.target.files[0])} style={{display:"none"}}/>
+              </label>
+              <div style={{fontSize:11,color:PC.tx4,marginTop:10,lineHeight:1.5}}>
+                Se recorta sola al centro a <b>960×369</b>, así que no tienes que preparar el archivo.
+                Igual, mientras más apaisada venga, menos se pierde.
+              </div>
+            </>}
+          </>}
+
+        {titulo("Colores del pase")}
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 150px"}}><Fd label="Fondo">{colorBox(edit.color_fondo||"#05060B",v=>sEdit({...edit,color_fondo:v}))}</Fd></div>
+          <div style={{flex:"1 1 150px"}}><Fd label="Texto">{colorBox(edit.color_texto||"#FFFFFF",v=>sEdit({...edit,color_texto:v}))}</Fd></div>
+          <div style={{flex:"1 1 150px"}}><Fd label="Etiquetas">{colorBox(edit.color_etiqueta||"#8E93A6",v=>sEdit({...edit,color_etiqueta:v}))}</Fd></div>
+        </div>
+
+        {edit.id&&<Fd label="Estado">
+          <div style={{...dGrupo,width:"fit-content"}}>
+            <button onClick={()=>sEdit({...edit,activo:true})} style={dPill(edit.activo!==false)}>Activa</button>
+            <button onClick={()=>sEdit({...edit,activo:false})} style={dPill(edit.activo===false)}>Pausada</button>
+          </div>
+        </Fd>}
+
+        {err&&<div style={{fontSize:12.5,color:PC.rojo,marginTop:10,lineHeight:1.5}}>{err}</div>}
+      </div>
+
+      <div style={{position:"sticky",top:0}}>
+        <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:12,textAlign:"center"}}>Así se verá en Wallet</div>
+        <div style={{display:"flex",justifyContent:"center"}}><LyPasePreview p={edit} saldo={3}/></div>
+        <div style={{fontSize:11,color:PC.tx4,marginTop:14,lineHeight:1.55}}>
+          El layout es el de un <b>storeCard</b> de Apple y no se puede reordenar: logo y marca arriba,
+          banda, campos, código. Lo que se diseña son los colores, el logo y la banda.
+        </div>
+      </div>
+    </div>
+
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:22,paddingTop:16,borderTop:"1px solid "+PC.line}}>
+      <Bt v="s" onClick={onCerrar}>Cancelar</Bt>
+      <Bt onClick={()=>onGuardar(edit)} disabled={!(edit.nombre||"").trim()||!(edit.premio||"").trim()}>Guardar</Bt>
+    </div>
+  </Md>);
+}
+
+// ── Escáner ─────────────────────────────────────────────────────
+// Cámara + jsQR leyendo cuadro a cuadro. Siempre con entrada manual al lado: la cámara falla
+// (permiso denegado, lente sucio, QR arrugado) y en el mesón no se puede quedar pegado.
+function LyEscaner({modo:modoInicial,cu,programa,onCerrar,onHecho}){
+  const vRef=useRef(null),cRef=useRef(null),rafRef=useRef(0),streamRef=useRef(null),ocupado=useRef(false);
+  const[estado,sEstado]=useState("iniciando");
+  const[msg,sMsg]=useState(null);
+  const[manual,sManual]=useState("");
+
+  // Sumar y canjear son el MISMO gesto —leer el QR del cliente— y solo cambia qué se hace con la
+  // lectura. Separarlos en dos ventanas obligaba a cerrar, reabrir y esperar la cámara otra vez,
+  // con el cliente esperando delante. Aquí el modo se cambia sin soltar la cámara.
+  const[modo,sModo]=useState(modoInicial==="canje"?"canje":"sello");
+
+  // El lazo de lectura se crea UNA sola vez y captura este closure para siempre. Sin espejarlo en
+  // un ref seguiría sumando sellos aunque la ventana ya estuviera puesta en "canjear".
+  const modoRef=useRef(modo);
+  useEffect(()=>{modoRef.current=modo;},[modo]);
+
+  const registrar=async(codigo)=>{
+    const cod=(codigo||"").trim().toUpperCase();
+    if(!cod||ocupado.current)return;
+    const m=modoRef.current;
+    ocupado.current=true;
+    try{
+      // Una clave única por lectura. Si el dedo toca dos veces o la red reintenta, el servidor
+      // reconoce que es la misma lectura y NO suma otro sello.
+      const payload={codigo:cod,idemKey:uid(),operador:cu.email||cu.gmail||cu.name||""};
+      const r=m==="canje"?await API.lyCanje(payload):await API.lyScan(payload);
+      if(m==="canje")sMsg({ok:true,txt:"Premio entregado: "+r.canjeado,sub:r.socio||cod});
+      else sMsg({ok:true,txt:r.repetido?"Esa lectura ya estaba registrada":(r.listo?"¡Completó la tarjeta!":"Sello sumado"),
+                 sub:(r.socio||cod)+" · "+r.saldo+(r.meta?"/"+r.meta:"")});
+      onHecho&&onHecho();
+    }catch(e){ sMsg({ok:false,txt:e.message}); }
+    // Anti-rebote del propio lector: sin esto la cámara reenvía el mismo QR 30 veces por segundo.
+    setTimeout(()=>{ocupado.current=false;},2000);
+  };
+
+  useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        await lyCargar(LY_LIBS.jsqr);
+        const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+        if(!vivo){stream.getTracks().forEach(t=>t.stop());return;}
+        streamRef.current=stream;
+        const v=vRef.current;if(!v)return;
+        v.srcObject=stream;v.setAttribute("playsinline","");await v.play();
+        sEstado("leyendo");
+        const c=cRef.current,ctx=c.getContext("2d",{willReadFrequently:true});
+        const tick=()=>{
+          if(!vivo)return;
+          if(v.readyState===v.HAVE_ENOUGH_DATA&&!ocupado.current){
+            c.width=v.videoWidth;c.height=v.videoHeight;
+            ctx.drawImage(v,0,0,c.width,c.height);
+            try{
+              const img=ctx.getImageData(0,0,c.width,c.height);
+              const code=window.jsQR(img.data,img.width,img.height,{inversionAttempts:"dontInvert"});
+              if(code&&code.data)registrar(code.data);
+            }catch(e){}
+          }
+          rafRef.current=requestAnimationFrame(tick);
+        };
+        tick();
+      }catch(e){
+        if(vivo)sEstado("error");
+      }
+    })();
+    return()=>{
+      vivo=false;
+      cancelAnimationFrame(rafRef.current);
+      if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());
+    };
+  },[]);
+
+  const meta=programa?.meta||10, premio=programa?.premio||"el premio";
+
+  return(<Md open={true} onClose={onCerrar} title="Escáner" width={520}>
+    {/* Qué se le hace a la lectura. Va ARRIBA de la cámara a propósito: hay que elegirlo antes de
+        apuntar, no después de haber leído. */}
+    <div style={{...dGrupo,marginBottom:14,width:"100%",display:"flex"}}>
+      {[["sello","Sumar sello"],["canje","Canjear premio"]].map(([k,l])=>(
+        <button key={k} onClick={()=>{sModo(k);sMsg(null);}} style={{...dPill(modo===k),flex:1}}>{l}</button>
+      ))}
+    </div>
+
+    <div style={{fontSize:12.5,color:PC.tx3,marginBottom:12,lineHeight:1.5}}>
+      {modo==="canje"
+        ? <>Lee el QR del cliente para <b style={{color:PC.tx}}>entregarle {premio}</b>. Le descuenta {meta} sellos; si tenía de más, los conserva.</>
+        : <>Lee el QR del cliente para <b style={{color:PC.tx}}>sumarle un sello</b>. Se registra solo, no hay que confirmar nada.</>}
+    </div>
+
+    <div style={{position:"relative",borderRadius:16,overflow:"hidden",background:PC.panel3,aspectRatio:"4/3",marginBottom:14,border:"1px solid "+(modo==="canje"?PC.lav:PC.line2)}}>
+      <video ref={vRef} muted playsInline style={{width:"100%",height:"100%",objectFit:"cover",display:estado==="leyendo"?"block":"none"}}/>
+      <canvas ref={cRef} style={{display:"none"}}/>
+      {estado!=="leyendo"&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:20,textAlign:"center"}}>
+        <Ic n="loyalty" s={26} c={PC.tx4}/>
+        <div style={{fontSize:13,color:PC.tx3}}>
+          {estado==="iniciando"?"Abriendo la cámara…":"No se pudo abrir la cámara. Escribe el código a mano."}
+        </div>
+      </div>}
+      {/* El marco cambia de color con el modo: es lo único que se mira mientras se apunta, así que
+          es donde tiene que estar la señal de qué va a pasar al leer. */}
+      {estado==="leyendo"&&<div style={{position:"absolute",inset:"18%",border:"2px solid "+(modo==="canje"?PC.lav:PC.cian),borderRadius:14,pointerEvents:"none",opacity:.75,transition:"border-color .25s ease"}}/>}
+    </div>
+
+    {msg&&<div style={{padding:"11px 14px",borderRadius:12,marginBottom:14,background:msg.ok?"rgba(111,231,242,.10)":"rgba(255,139,139,.10)",border:"1px solid "+(msg.ok?"rgba(111,231,242,.35)":"rgba(255,139,139,.35)")}}>
+      <div style={{fontSize:13.5,fontWeight:600,color:msg.ok?PC.cian:PC.rojo}}>{msg.txt}</div>
+      {msg.sub&&<div style={{fontSize:12,color:PC.tx3,marginTop:3}}>{msg.sub}</div>}
+    </div>}
+
+    <Fd label="O escribe el código de la tarjeta" hint="Las letras se convierten solas a mayúscula.">
+      <div style={{display:"flex",gap:8}}>
+        <input value={manual} onChange={e=>sManual(e.target.value.toUpperCase())} placeholder="Ej: K7M2QX4B"
+          style={{flex:1,background:PC.panel3,border:"1px solid "+PC.line2,borderRadius:10,padding:"10px 12px",color:PC.tx,fontFamily:"var(--font-mono)",fontSize:15,letterSpacing:".08em"}}/>
+        <Bt onClick={()=>{registrar(manual);sManual("");}} disabled={!manual.trim()}>Aplicar</Bt>
+      </div>
+    </Fd>
+
+    {/* El local no lee un manual antes de atender. Las reglas que evitan los tres problemas reales
+        —cobrar dos veces, regalar el premio, y que el escáner acabe en manos del cliente— tienen
+        que estar en la misma pantalla donde se trabaja. */}
+    <div style={{borderTop:"1px solid "+PC.line,marginTop:16,paddingTop:14}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:10}}>Cómo se hace en el mesón</div>
+      <ol style={{margin:0,paddingLeft:18,fontSize:12.5,color:PC.tx3,lineHeight:1.65}}>
+        <li>El cliente abre <b style={{color:PC.tx}}>su</b> tarjeta en el teléfono y muestra el QR.</li>
+        <li>Apuntas la cámara. El sello se suma solo — no hay que confirmar.</li>
+        <li>Al llegar a {meta}, cambias arriba a <b style={{color:PC.tx}}>Canjear premio</b> y lees el mismo QR.</li>
+        <li>Si la cámara falla o el teléfono no da, escribes el código a mano.</li>
+      </ol>
+      <div style={{marginTop:12,padding:"10px 12px",borderRadius:10,background:"rgba(255,139,139,.07)",border:"1px solid rgba(255,139,139,.25)"}}>
+        <div style={{fontSize:12,color:PC.tx3,lineHeight:1.55}}>
+          <b style={{color:PC.rojo}}>Este teléfono no se le pasa al cliente.</b> Su QR lo identifica, no lo autoriza:
+          quien tiene esta pantalla abierta puede regalar sellos y premios. Va en el aparato del local, con la sesión del equipo.
+        </div>
+      </div>
+      <div style={{fontSize:11.5,color:PC.tx4,marginTop:10,lineHeight:1.5}}>
+        Leer dos veces el mismo QR no suma dos sellos: el sistema reconoce la lectura repetida y la ignora.
+      </div>
+    </div>
+  </Md>);
+}
+
+// ── Sección ─────────────────────────────────────────────────────
+const LY_NUEVA={nombre:"",tipo:"sellos",meta:10,premio:"",color_fondo:"#05060B",color_texto:"#FFFFFF",
+  color_etiqueta:"#8E93A6",strip_estilo:{preset:"degradado",c1:"#161B2A",c2:"#6FE7F2"}};
+
+function FidelizacionPg({cos,cu,addN}){
+  const[coId,sCoId]=useState("");
+  const[progs,sProgs]=useState([]);
+  const[sel,sSel]=useState(null);
+  const[socios,sSocios]=useState([]);
+  const[evs,sEvs]=useState([]);
+  const[tab,sTab]=useState("socios");
+  const[edit,sEdit]=useState(null);
+  const[escaner,sEscaner]=useState(null);
+  const[qrDe,sQrDe]=useState(null);
+  const[cargando,sCargando]=useState(false);
+  const[err,sErr]=useState("");
+  const[guardandoActivo,sGuardandoActivo]=useState(false);
+  // Ver el QR es una decisión de la pantalla, no del programa: nada que ver con pausar la tarjeta.
+  const[verQr,sVerQr]=useState(false);
+
+  const empresa=cos.find(c=>String(c.id)===String(coId));
+
+  const cargarProgs=async(id)=>{
+    if(!id){sProgs([]);return;}
+    sCargando(true);sErr("");
+    try{ sProgs(await API.lyProgramas(id)); }
+    catch(e){ sErr(e.message); }
+    sCargando(false);
+  };
+  useEffect(()=>{cargarProgs(coId);sSel(null);},[coId]);
+
+  const abrir=async(p)=>{
+    sSel(p);sTab("socios");sVerQr(false);
+    try{
+      const[s,e]=await Promise.all([API.lySocios(p.id),API.lyEventos(p.id)]);
+      sSocios(s);sEvs(e);
+    }catch(e){sErr(e.message);}
+  };
+  const refrescar=async()=>{ if(sel)await abrir(sel); };
+
+  const guardar=async(p)=>{
+    try{
+      const g=await API.lyGuardarPrograma({...p,company_id:coId});
+      sEdit(null);await cargarProgs(coId);
+      if(sel&&sel.id===g.id)sSel(g);
+      addN&&addN("Tarjeta guardada");
+    }catch(e){ sErr(e.message); }
+  };
+
+  // El interruptor de la cabecera. Se pinta el cambio ANTES de que responda el servidor: un
+  // interruptor que se queda quieto medio segundo se siente roto y la gente lo vuelve a tocar.
+  // Si el guardado falla se revierte, que es la única forma honesta de ser optimista.
+  //
+  // El cerrojo `guardandoActivo` NO es paranoia: sin él, dos clics seguidos lanzan dos escrituras
+  // sin orden garantizado, y si la respuesta de la segunda llega antes que la de la primera, en la
+  // base queda grabado el valor contrario al que muestra la pantalla. Pasó de verdad, y deja el
+  // enlace de inscripción caído sin que nadie se entere.
+  const alternarActivo=async()=>{
+    if(guardandoActivo)return;
+    const previo=sel;
+    const p={...sel,activo:!sel.activo};
+    sGuardandoActivo(true);
+    sSel(p);
+    try{
+      await API.lyGuardarPrograma({...p,company_id:coId});
+      await cargarProgs(coId);
+      addN&&addN(p.activo?"Tarjeta activada":"Tarjeta pausada");
+    }catch(e){ sSel(previo); sErr(e.message); }
+    finally{ sGuardandoActivo(false); }
+  };
+
+  // Estadísticas del programa abierto. Salen del ledger, no de un contador suelto.
+  const stats=useMemo(()=>{
+    if(!sel)return null;
+    const sellos=evs.filter(e=>e.tipo==="sello").reduce((a,e)=>a+e.cantidad,0);
+    const canjes=evs.filter(e=>e.tipo==="canje").length;
+    const hace30=Date.now()-30*864e5;
+    const activos=socios.filter(s=>s.ultima_visita&&new Date(s.ultima_visita).getTime()>hace30).length;
+    return{socios:socios.length,sellos,canjes,activos};
+  },[sel,socios,evs]);
+
+  const urlAlta=sel?`${location.origin}/unirse/${sel.id}`:"";
+
+  return(<div className="d-in" style={{maxWidth:1120,margin:"0 auto"}}>
+    <div style={{marginBottom:18}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:10.5,letterSpacing:".18em",textTransform:"uppercase",color:PC.cian,marginBottom:6}}>Fidelización</div>
+      <h1 style={{fontSize:29,fontWeight:600,letterSpacing:"-.025em",margin:0}}>Tarjetas de fidelización</h1>
+      <p style={{fontSize:13.5,color:PC.tx3,marginTop:6,lineHeight:1.55,maxWidth:720}}>
+        Tarjetas de sellos para los clientes de cada empresa. Se reparten con un QR, se llenan escaneando
+        en el local y viven en el teléfono sin instalar nada.
+      </p>
+    </div>
+
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+      <select value={coId} onChange={e=>sCoId(e.target.value)}
+        style={{background:PC.panel,border:"1px solid "+PC.line2,borderRadius:10,padding:"10px 12px",color:PC.tx,fontFamily:"inherit",fontSize:13.5,minWidth:230}}>
+        <option value="">Elige una empresa…</option>
+        {cos.map(c=><option key={c.id} value={c.id}>{c.name||c.nombre}</option>)}
+      </select>
+      {coId&&<Bt icon="plus" onClick={()=>sEdit({...LY_NUEVA})}>Nueva tarjeta</Bt>}
+    </div>
+
+    {err&&<div style={{...D_CARD,marginBottom:14,borderLeft:"3px solid "+PC.rojo}}>
+      <div style={{fontSize:13,color:PC.rojo}}>{err}</div>
+      <div style={{fontSize:11.5,color:PC.tx4,marginTop:6}}>Si dice que no existe la tabla, falta correr <b>db/loyalty.sql</b> en Supabase.</div>
+    </div>}
+
+    {!coId&&<div style={{...D_CARD,textAlign:"center",padding:"40px 22px"}}>
+      <Ic n="loyalty" s={30} c={PC.tx5}/>
+      <div style={{fontSize:14,color:PC.tx3,marginTop:10}}>Elige una empresa para ver o crear su tarjeta.</div>
+    </div>}
+
+    {coId&&!sel&&<div style={{display:"grid",gap:14,gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))"}}>
+      {cargando&&<div style={{fontSize:13,color:PC.tx3}}>Cargando…</div>}
+      {!cargando&&!progs.length&&<div style={{...D_CARD,gridColumn:"1/-1",textAlign:"center",padding:"36px 22px"}}>
+        <div style={{fontSize:14,color:PC.tx3}}>{empresa?.name||"Esta empresa"} todavía no tiene tarjeta.</div>
+        <div style={{marginTop:12}}><Bt icon="plus" onClick={()=>sEdit({...LY_NUEVA})}>Crear la primera</Bt></div>
+      </div>}
+      {progs.map(p=>(
+        <div key={p.id} style={{...D_CARD,padding:16}}>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:14,transform:"scale(.86)",transformOrigin:"top center"}}>
+            <LyPasePreview p={p} saldo={Math.round((p.meta||10)*0.3)}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:-24}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:14.5,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.nombre}</div>
+              <div style={{fontSize:12,color:PC.tx3,marginTop:3}}>{p.meta} sellos → {p.premio}</div>
+            </div>
+            <Bg color={p.activo?PC.cian:PC.tx4}>{p.activo?"Activa":"Pausada"}</Bg>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:14}}>
+            <Bt v="s" style={{flex:1,justifyContent:"center"}} onClick={()=>abrir(p)}>Abrir</Bt>
+            <Bt v="s" icon="edit" onClick={()=>sEdit(p)}>Diseño</Bt>
+          </div>
+        </div>
+      ))}
+    </div>}
+
+    {sel&&<>
+      {/* Cabecera. "Volver" vivía abajo a la izquierda, mezclado con las acciones, que es donde
+          nadie lo busca: la salida va arriba a la derecha y fuera del camino de lo que se hace. */}
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:20}}>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{fontSize:17,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{sel.nombre}</div>
+          <div style={{fontSize:12.5,color:PC.tx3,marginTop:3}}>{sel.meta} sellos → {sel.premio}</div>
+        </div>
+        {/* El escáner es lo que se abre mil veces al día: va arriba, junto al estado, no perdido
+            bajo la tarjeta. Sumar y canjear viven dentro porque son el mismo gesto. */}
+        <Bt icon="loyalty" onClick={()=>sEscaner("sello")}>Escáner</Bt>
+
+        {/* Era una etiqueta que solo informaba. Ahora es el control: activar la tarjeta es lo que
+            la pone en la calle. */}
+        <button role="switch" aria-checked={!!sel.activo} onClick={alternarActivo} disabled={guardandoActivo}
+          title={sel.activo?"Pausar la tarjeta (deja de admitir inscripciones)":"Activar la tarjeta"}
+          style={{display:"flex",alignItems:"center",gap:9,background:"transparent",border:"none",padding:"4px 2px",fontFamily:"inherit",
+            cursor:guardandoActivo?"wait":"pointer",opacity:guardandoActivo?.55:1,transition:"opacity .2s ease"}}>
+          <span style={{position:"relative",display:"block",width:38,height:22,borderRadius:999,flexShrink:0,
+            background:sel.activo?PC.cian:PC.line2,transition:"background .25s ease"}}>
+            <span style={{position:"absolute",top:3,left:sel.activo?19:3,width:16,height:16,borderRadius:"50%",
+              background:sel.activo?"#05060B":PC.tx3,transition:"left .28s cubic-bezier(.22,1,.36,1), background .25s ease"}}/>
+          </span>
+          <span style={{fontSize:12.5,fontWeight:500,color:sel.activo?PC.tx:PC.tx4}}>{sel.activo?"Activa":"Pausada"}</span>
+        </button>
+        <Bt v="g" icon="chevron_left" onClick={()=>sSel(null)}>Volver</Bt>
+      </div>
+
+      {/* La tarjeta va primero y centrada: es el objeto real, lo que el cliente final verá en su
+          teléfono. Y se edita TOCÁNDOLA. Un botón "Diseño" aparte era un distractor más y rompía
+          la relación entre el control y la cosa que controla. */}
+      {/* Tarjeta y QR se centran JUNTOS: al desplegarse el QR, el par se recoloca en el centro
+          de la pantalla en vez de quedarse la tarjeta clavada y el QR colgando a un lado. */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"center",marginBottom:24}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
+        <div role="button" tabIndex={0} title="Tocar para editar el diseño"
+          onClick={()=>sEdit(sel)}
+          onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();sEdit(sel);}}}
+          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";}}
+          onMouseLeave={e=>{e.currentTarget.style.transform="none";}}
+          style={{cursor:"pointer",borderRadius:16,transition:"transform .18s ease"}}>
+          <LyPasePreview p={sel} saldo={Math.round((sel.meta||10)*0.3)}/>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:12,color:PC.tx4}}>
+          <Ic n="edit" s={13}/><span>Toca la tarjeta para cambiar su diseño</span>
+        </div>
+
+        {/* Interruptor propio del QR. Enseñarlo u ocultarlo es una decisión de quien mira la
+            pantalla; pausar la tarjeta es una decisión del negocio. Mezclarlas en un mismo mando
+            hacía que pausar pareciera "esconder el QR", que no es lo que hace. */}
+        <button role="switch" aria-checked={verQr} onClick={()=>sVerQr(v=>!v)}
+          title={verQr?"Ocultar el QR de inscripción":"Mostrar el QR de inscripción"}
+          style={{display:"flex",alignItems:"center",gap:9,background:"transparent",border:"none",padding:"6px 2px",marginTop:14,cursor:"pointer",fontFamily:"inherit"}}>
+          <span style={{position:"relative",display:"block",width:38,height:22,borderRadius:999,flexShrink:0,
+            background:verQr?PC.cian:PC.line2,transition:"background .25s ease"}}>
+            <span style={{position:"absolute",top:3,left:verQr?19:3,width:16,height:16,borderRadius:"50%",
+              background:verQr?"#05060B":PC.tx3,transition:"left .28s cubic-bezier(.22,1,.36,1), background .25s ease"}}/>
+          </span>
+          <span style={{fontSize:12.5,fontWeight:500,color:verQr?PC.tx:PC.tx4}}>QR de inscripción</span>
+        </button>
+        </div>
+
+        {/* El QR entra deslizándose desde detrás de la tarjeta al activarla. Queda montado y
+            colapsado en vez de desmontarse, para que la salida se anime igual que la entrada:
+            aparecer de golpe y desaparecer de golpe se lee como un fallo, no como una respuesta. */}
+        <div aria-hidden={!verQr} style={{
+            width:verQr?320:0,flexShrink:0,overflow:"hidden",
+            opacity:verQr?1:0,
+            transform:verQr?"translateX(0) scale(1)":"translateX(-26px) scale(.96)",
+            pointerEvents:verQr?"auto":"none",
+            transition:"width .42s cubic-bezier(.22,1,.36,1), opacity .28s ease, transform .42s cubic-bezier(.22,1,.36,1)"}}>
+          <div style={{...D_CARD,textAlign:"center",width:300,marginLeft:20,boxSizing:"border-box"}}>
+            <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:12}}>QR de inscripción</div>
+            <LyQR texto={urlAlta}/>
+            <div style={{fontSize:11.5,color:PC.tx3,marginTop:12,lineHeight:1.5}}>
+              Esto se pega en el mesón o se sube a historias. Quien lo escanea se inscribe y recibe su tarjeta.
+            </div>
+            <div style={{marginTop:10}}>
+              <button onClick={()=>{navigator.clipboard?.writeText(urlAlta);addN&&addN("Link copiado");}}
+                style={{background:"transparent",border:"1px solid "+PC.line2,borderRadius:9,padding:"7px 12px",color:PC.tx3,fontSize:11.5,fontFamily:"inherit",cursor:"pointer"}}>Copiar link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            {[["Socios",stats?.socios],["Activos 30 d",stats?.activos],["Sellos dados",stats?.sellos],["Premios",stats?.canjes]].map(([l,v])=>(
+              <div key={l} style={{...D_CARD,padding:"14px 16px",flex:"1 1 120px"}}>
+                <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4}}>{l}</div>
+                <div style={{fontSize:24,fontWeight:600,marginTop:4}}>{v??"—"}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{...dGrupo,marginBottom:12,width:"fit-content"}}>
+            {[["socios","Socios"],["movimientos","Movimientos"]].map(([k,l])=>(
+              <button key={k} onClick={()=>sTab(k)} style={dPill(tab===k)}>{l}</button>
+            ))}
+          </div>
+
+          {tab==="socios"&&<div style={{...D_CARD,padding:0,overflow:"hidden"}}>
+            {!socios.length&&<div style={{padding:"30px 22px",textAlign:"center",fontSize:13,color:PC.tx3}}>Todavía no hay socios. Reparte el QR que está junto a la tarjeta, o crea uno a mano para probar.</div>}
+            {socios.map((s,i)=>(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderTop:i?"1px solid "+PC.line:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.nombre||"Sin nombre"}</div>
+                  <div style={{fontFamily:"var(--font-mono)",fontSize:11,color:PC.tx4,letterSpacing:".06em",marginTop:2}}>{s.codigo}</div>
+                </div>
+                <Bg color={s.saldo>=sel.meta?PC.cian:PC.tx3}>{s.saldo}/{sel.meta}</Bg>
+                <button onClick={()=>sQrDe(s)} style={{background:"transparent",color:PC.tx3,padding:6,borderRadius:8,display:"flex"}} title="Ver su tarjeta"><Ic n="loyalty" s={17}/></button>
+              </div>
+            ))}
+          </div>}
+
+          {tab==="movimientos"&&<div style={{...D_CARD,padding:0,overflow:"hidden"}}>
+            {!evs.length&&<div style={{padding:"30px 22px",textAlign:"center",fontSize:13,color:PC.tx3}}>Sin movimientos todavía.</div>}
+            {evs.map((e,i)=>(
+              <div key={e.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:i?"1px solid "+PC.line:"none"}}>
+                <Bg color={e.tipo==="canje"?PC.lav:e.tipo==="sello"?PC.cian:PC.tx4}>{e.tipo}</Bg>
+                <div style={{flex:1,fontSize:13,minWidth:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.socio}</div>
+                <div style={{fontSize:11.5,color:PC.tx4,whiteSpace:"nowrap"}}>{new Date(e.created_at).toLocaleString("es-CL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
+              </div>
+            ))}
+          </div>}
+        </div>
+      </div>
+    </>}
+
+    {edit&&<LyDisenador edit={edit} sEdit={sEdit} onGuardar={guardar} onCerrar={()=>sEdit(null)} addN={addN}/>}
+
+    {/* La tarjeta de un socio, tal cual la verá él */}
+    {qrDe&&<Md open={true} onClose={()=>sQrDe(null)} title={qrDe.nombre||"Tarjeta"} width={360}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+        <LyPasePreview p={sel||{}} saldo={qrDe.saldo||0} codigo={qrDe.codigo}/>
+        <div style={{fontSize:11.5,color:PC.tx3,marginTop:14,lineHeight:1.5,textAlign:"center"}}>
+          Muéstrala en otra pantalla y escanéala desde el celular para probar el circuito completo.
+        </div>
+      </div>
+    </Md>}
+
+    {escaner&&<LyEscaner modo={escaner} cu={cu} programa={sel} onCerrar={()=>sEscaner(null)} onHecho={refrescar}/>}
+  </div>);
 }
 
 function InformePg({cos}){
