@@ -621,45 +621,41 @@ function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;r
 // tiene que decir lo mismo en los dos sitios.
 function Cupos({co,tasks,y,m,compact}){
   const saldo=useMemo(()=>co?saldoDe(co,tasks,y,m):[],[co,tasks,y,m]);
-  // En Org Semanal la franja entra PLEGADA. Al abrir la semana lo que se viene a ver son
-  // las tarjetas de los días; el saldo del plan es una consulta, no un titular, y ocupando
-  // el ancho entero era lo primero que se comía la pantalla. En Contenido sigue abierta
-  // porque ahí sí manda: es la vista donde se crean las piezas que gastan el cupo.
-  // La decisión se recuerda en el navegador, para el que quiera tenerla siempre a la vista.
-  const[abierto,sAbierto]=useState(()=>{
-    if(!compact)return true;
-    try{return localStorage.getItem("cupos_abiertos")==="1"}catch(e){return false}
-  });
-  const alternar=()=>sAbierto(v=>{
-    const n=!v;
-    try{localStorage.setItem("cupos_abiertos",n?"1":"0")}catch(e){}
-    return n;
-  });
+  // En Org Semanal el saldo del plan deja de ser una franja y pasa a ser un botón más de la
+  // fila de arriba, al lado de Drive: es un dato de consulta, no un titular, y ocupando el
+  // ancho entero era lo primero que se comía la pantalla al abrir la semana. Desplegado se
+  // ve exactamente igual que antes. En Contenido no cambia: ahí sí manda, porque es la
+  // vista donde se crean las piezas que gastan el cupo.
+  const[abierto,sAbierto]=useState(false);
+  const[corre,sCorre]=useState(0);
+  const caja=useRef(null);
+  const panel=useRef(null);
+  // La fila de botones se parte sola en el teléfono, así que la pastilla puede acabar en
+  // cualquier sitio. Se mide el panel una vez abierto y, si se sale por la derecha, se
+  // corre lo justo para que quepa: sin esto, en pantalla chica se leía a medias.
+  useEffect(()=>{
+    if(!compact||!abierto||!panel.current){sCorre(0);return}
+    const r=panel.current.getBoundingClientRect();
+    const sobra=r.right-(window.innerWidth-12);
+    sCorre(sobra>0?-sobra:0);
+  },[compact,abierto]);
+  // Un menú que solo cierra con su propio botón se queda abierto tapando la semana. Cierra
+  // al tocar fuera y con Escape, como el resto de menús de la app.
+  useEffect(()=>{
+    if(!compact||!abierto)return;
+    const fuera=e=>{if(caja.current&&!caja.current.contains(e.target))sAbierto(false)};
+    const tecla=e=>{if(e.key==="Escape")sAbierto(false)};
+    document.addEventListener("mousedown",fuera);
+    document.addEventListener("keydown",tecla);
+    return()=>{document.removeEventListener("mousedown",fuera);document.removeEventListener("keydown",tecla)};
+  },[compact,abierto]);
   if(!co||!saldo.length)return null;
   const agotados=saldo.filter(s=>s.libre<=0&&s.incluido>0).length;
-  // Plegada no desaparece del todo: deja el número que de verdad importa y el aviso rojo
-  // si algo se agotó. Esconder el problema no es reducir ruido, es esconder el problema.
-  if(compact&&!abierto){
-    const libres=saldo.reduce((a,s)=>a+Math.max(0,s.libre),0);
-    return(
-      <button onClick={alternar} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"7px 12px",borderRadius:12,background:"transparent",border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),fontFamily:"inherit",fontSize:11.5,textAlign:"left",cursor:"pointer",marginBottom:10}}>
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4}}>{MO[m]} · cupos</span>
-        <span style={{color:PC.tx2,fontWeight:600}}>{libres} por empezar</span>
-        {agotados>0&&<span style={{color:PC.rojo,fontWeight:600}}>· sin cupo en {agotados===1?"un tipo":agotados+" tipos"}</span>}
-        <span style={{marginLeft:"auto",fontSize:9,color:PC.tx4}}>▾</span>
-      </button>);
-  }
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:compact?"8px 12px":"11px 14px",borderRadius:12,background:PC.panel,border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),marginBottom:compact?10:14}}>
-      {compact?(
-        <button onClick={alternar} style={{display:"flex",alignItems:"center",gap:6,padding:0,background:"transparent",border:"none",fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,cursor:"pointer",marginRight:2}}>
-          {MO[m]} · disponible <span style={{fontSize:9,letterSpacing:0}}>▴</span>
-        </button>
-      ):(
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
-          {MO[m]} · disponible
-        </span>
-      )}
+  const franja=(
+    <div style={compact?{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"11px 14px",borderRadius:12,background:PC.panel,border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),marginBottom:14}}>
+      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
+        {MO[m]} · disponible
+      </span>
       {/* Cada tipo lleva su barra: relleno sólido = aprobado (gastado de verdad), relleno
           tenue = en curso (comprometido, todavía sin confirmar). Se ve sin pasar el dedo por
           encima, que en el teléfono no existe. */}
@@ -690,6 +686,20 @@ function Cupos({co,tasks,y,m,compact}){
         El número grande es lo que queda por empezar. El cupo se confirma como gastado recién
         cuando el cliente aprueba; publicar ya depende de él.
       </span>
+    </div>);
+  if(!compact)return franja;
+  // Plegado queda el mes y nada más. Lo único que sobrevive al pliegue es el aviso de que
+  // algún tipo se agotó: esconder eso no es quitar ruido, es quitar la advertencia.
+  return(
+    <div ref={caja} style={{position:"relative"}}>
+      <button onClick={()=>sAbierto(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+(agotados?"rgba(255,139,139,.35)":D.line2),color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+        Cupo {MO[m].toLowerCase()}
+        {agotados>0&&<span title="Hay un tipo sin cupo este mes" style={{width:6,height:6,borderRadius:"50%",background:PC.rojo,flexShrink:0}}/>}
+        <span style={{fontSize:9}}>▾</span>
+      </button>
+      {abierto&&<div ref={panel} style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,width:"min(430px, calc(100vw - 32px))",transform:"translateX("+corre+"px)",borderRadius:12,background:D.panel2,border:"1px solid "+(agotados?"rgba(255,139,139,.3)":D.line2),boxShadow:"0 18px 44px rgba(2,3,8,.7)",padding:"12px 13px"}}>
+        {franja}
+      </div>}
     </div>);
 }
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
@@ -7154,6 +7164,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               {wkOff!==0&&<button onClick={()=>sWkOff(0)} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>}
             </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
               <div style={{position:"relative"}}>
                 <button onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                   <Ic n="companies" s={13} c={D.tx2}/>Drive<span style={{fontSize:9}}>▾</span>
@@ -7182,12 +7193,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             </div>
           </div>
 
-          <div style={{marginTop:16}}>
-            {!stReady&&<div style={{marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
-              <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
-            </div>}
-            <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
-          </div>
+          {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+            <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
+          </div>}
 
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",minHeight:26}}>
             {Object.entries(TT).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;if(!c)return null;return(
