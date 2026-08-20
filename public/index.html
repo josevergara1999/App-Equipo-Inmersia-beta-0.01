@@ -7085,17 +7085,27 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     return n>=0&&n<ORDEN_ESTADOS.length-1?ORDEN_ESTADOS[n+1]:null;
   };
   const ANCHO_BASURA=92, UMBRAL_IZQ=48, UMBRAL_DER=92;
+  // El gesto y el arrastre entre días se pisan: los dos son "apretar y mover en horizontal".
+  // En el teléfono no hay conflicto —el arrastre nativo no existe en pantallas táctiles—, pero
+  // con ratón hay que repartir la fila: el asa de la izquierda arrastra a otro día, y el resto
+  // de la fila desliza. Se dibuja solo donde hay puntero fino, para no ensuciar el teléfono.
+  const conRaton=useMemo(()=>{
+    try{return window.matchMedia("(pointer:fine)").matches}catch(e){return false}
+  },[]);
   const [revelado,sRevelado]=useState(null);       // fila que dejó el basurero a la vista
   const [deslizando,sDeslizando]=useState(null);   // {id,dx} mientras el dedo sigue encima
   const desRef=useRef(null);
   const noClick=useRef(false);                     // un gesto no es un toque: no abre la tarjeta
-  const desInicio=(e,it)=>{
-    if(e.pointerType==="mouse")return;
-    desRef.current={id:it.id,x0:e.clientX,y0:e.clientY,eje:null};
+  // Dos entradas para el mismo gesto: el dedo entra por los eventos táctiles y el ratón por
+  // los de puntero. Se probó con `pointer*` para los dos y en el teléfono no se movía nada:
+  // los eventos de puntero de iOS llegan tarde, mal o cancelados en cuanto el navegador cree
+  // que vas a desplazar la página. Los táctiles son de toda la vida y no fallan.
+  const desInicio=(x,y,it)=>{
+    desRef.current={id:it.id,x0:x,y0:y,eje:null};
   };
-  const desMueve=(e,it)=>{
+  const desMueve=(x,y,it)=>{
     const d=desRef.current; if(!d||d.id!==it.id)return;
-    const dx=e.clientX-d.x0, dy=e.clientY-d.y0;
+    const dx=x-d.x0, dy=y-d.y0;
     // Hasta que el gesto no se define no se roba nada: si va en vertical, es la lista
     // desplazándose y hay que soltarlo, o leer la semana se vuelve una pelea.
     if(!d.eje){
@@ -7106,7 +7116,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     const base=revelado===it.id?-ANCHO_BASURA:0;
     sDeslizando({id:it.id,dx:Math.max(-ANCHO_BASURA-28,Math.min(150,base+dx))});
   };
-  const desFin=(e,it)=>{
+  const desFin=(it)=>{
     const d=desRef.current; desRef.current=null;
     const x=deslizando&&deslizando.id===it.id?deslizando.dx:null;
     sDeslizando(null);
@@ -7372,9 +7382,27 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                         style={{position:"absolute",right:0,top:0,bottom:0,width:ANCHO_BASURA-8,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,borderRadius:12,background:"rgba(255,107,107,.16)",border:"1px solid rgba(255,107,107,.4)",color:D.rojo,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer",padding:0}}>
                         <Ic n="trash" s={15} c={D.rojo}/>Borrar
                       </button>)}
-                  <button draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>sDragItem(null)}
-                    onPointerDown={e=>desInicio(e,it)} onPointerMove={e=>desMueve(e,it)}
-                    onPointerUp={e=>desFin(e,it)} onPointerCancel={e=>desFin(e,it)}
+                  <div className="d-in"
+                    onTouchStart={e=>{const t=e.touches[0];if(t)desInicio(t.clientX,t.clientY,it);}}
+                    onTouchMove={e=>{const t=e.touches[0];if(t)desMueve(t.clientX,t.clientY,it);}}
+                    onTouchEnd={()=>desFin(it)} onTouchCancel={()=>desFin(it)}
+                    onPointerDown={e=>{if(e.pointerType!=="mouse")return;desInicio(e.clientX,e.clientY,it);
+                      // Con el ratón el cursor se sale de la fila a mitad del gesto y el pointerup
+                      // se pierde: la fila se quedaba colgada. Capturado, los eventos siguen
+                      // llegando aquí hasta que se suelta, esté donde esté el cursor.
+                      try{e.currentTarget.setPointerCapture(e.pointerId);}catch(err){}}}
+                    onPointerMove={e=>{if(e.pointerType!=="mouse")return;desMueve(e.clientX,e.clientY,it);}}
+                    onPointerUp={e=>{if(e.pointerType!=="mouse")return;desFin(it);}}
+                    onPointerCancel={e=>{if(e.pointerType!=="mouse")return;desFin(it);}}
+                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,overflow:"hidden",touchAction:"pan-y",userSelect:"none",transform:"translateX("+off+"px)",transition:enMano?"none":"transform .24s cubic-bezier(.2,.9,.3,1)"}}>
+                    {/* El asa: lo único que arrastra la pieza a otro día. Sin ella, con ratón no
+                        se podría deslizar, porque el navegador se queda con el gesto entero. */}
+                    {conRaton&&(
+                      <span draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>sDragItem(null)}
+                        onPointerDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}
+                        title="Arrastra para moverla de día" aria-hidden="true"
+                        style={{position:"relative",flexShrink:0,marginLeft:-4,padding:"0 2px",color:D.tx5,fontSize:13,lineHeight:1,cursor:"grab",letterSpacing:"-1px"}}>⠿</span>)}
+                  <button
                     onClick={()=>{
                       // Un deslizamiento termina en un click del navegador aunque el dedo se haya
                       // ido 100px: si no se descarta, cada gesto abriría la tarjeta.
@@ -7386,8 +7414,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       // formulario, y eso convertía el trabajo de otro en un cuestionario: la
                       // pieza estaba hecha y confirmada, pero al abrirla pedía todo de nuevo.
                       if(!(it.title||"").trim())sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
-                    className="d-in"
-                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,cursor:"pointer",fontFamily:"inherit",textAlign:"left",overflow:"hidden",touchAction:"pan-y",transform:"translateX("+off+"px)",transition:enMano?"none":"transform .24s cubic-bezier(.2,.9,.3,1)"}}>
+                    style={{flex:"1 1 auto",minWidth:0,boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:0,background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
                     <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
@@ -7402,6 +7429,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
+                  </div>
                   </div>
                 </div>);
               }
