@@ -621,13 +621,45 @@ function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;r
 // tiene que decir lo mismo en los dos sitios.
 function Cupos({co,tasks,y,m,compact}){
   const saldo=useMemo(()=>co?saldoDe(co,tasks,y,m):[],[co,tasks,y,m]);
+  // En Org Semanal la franja entra PLEGADA. Al abrir la semana lo que se viene a ver son
+  // las tarjetas de los días; el saldo del plan es una consulta, no un titular, y ocupando
+  // el ancho entero era lo primero que se comía la pantalla. En Contenido sigue abierta
+  // porque ahí sí manda: es la vista donde se crean las piezas que gastan el cupo.
+  // La decisión se recuerda en el navegador, para el que quiera tenerla siempre a la vista.
+  const[abierto,sAbierto]=useState(()=>{
+    if(!compact)return true;
+    try{return localStorage.getItem("cupos_abiertos")==="1"}catch(e){return false}
+  });
+  const alternar=()=>sAbierto(v=>{
+    const n=!v;
+    try{localStorage.setItem("cupos_abiertos",n?"1":"0")}catch(e){}
+    return n;
+  });
   if(!co||!saldo.length)return null;
   const agotados=saldo.filter(s=>s.libre<=0&&s.incluido>0).length;
+  // Plegada no desaparece del todo: deja el número que de verdad importa y el aviso rojo
+  // si algo se agotó. Esconder el problema no es reducir ruido, es esconder el problema.
+  if(compact&&!abierto){
+    const libres=saldo.reduce((a,s)=>a+Math.max(0,s.libre),0);
+    return(
+      <button onClick={alternar} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"7px 12px",borderRadius:12,background:"transparent",border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),fontFamily:"inherit",fontSize:11.5,textAlign:"left",cursor:"pointer",marginBottom:10}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4}}>{MO[m]} · cupos</span>
+        <span style={{color:PC.tx2,fontWeight:600}}>{libres} por empezar</span>
+        {agotados>0&&<span style={{color:PC.rojo,fontWeight:600}}>· sin cupo en {agotados===1?"un tipo":agotados+" tipos"}</span>}
+        <span style={{marginLeft:"auto",fontSize:9,color:PC.tx4}}>▾</span>
+      </button>);
+  }
   return(
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:compact?"8px 12px":"11px 14px",borderRadius:12,background:PC.panel,border:"1px solid "+(agotados?"rgba(255,139,139,.3)":PC.line3),marginBottom:compact?10:14}}>
-      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
-        {MO[m]} · disponible
-      </span>
+      {compact?(
+        <button onClick={alternar} style={{display:"flex",alignItems:"center",gap:6,padding:0,background:"transparent",border:"none",fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,cursor:"pointer",marginRight:2}}>
+          {MO[m]} · disponible <span style={{fontSize:9,letterSpacing:0}}>▴</span>
+        </button>
+      ):(
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginRight:2}}>
+          {MO[m]} · disponible
+        </span>
+      )}
       {/* Cada tipo lleva su barra: relleno sólido = aprobado (gastado de verdad), relleno
           tenue = en curso (comprometido, todavía sin confirmar). Se ve sin pasar el dedo por
           encima, que en el teléfono no existe. */}
