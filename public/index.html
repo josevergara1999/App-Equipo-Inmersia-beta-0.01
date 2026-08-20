@@ -6792,14 +6792,17 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       return result;
     });
   };
-  const removeItem=async(id)=>{
+  const removeItem=async(id,opts)=>{
     const tarea=tasks.find(t=>String(t.itemId)===String(id));
     const enPortal=salioAlPortal(tarea);
     const aviso=enPortal
       ? "Esta pieza ya pasó por el portal del cliente. Si la eliminas se va también de Contenido, con sus votos, archivos, correcciones y la respuesta del cliente. ¿Eliminar igual?"
       : tarea ? "Se elimina del planner y también de Contenido. ¿Eliminar?"
       : "¿Eliminar este contenido?";
-    if(!confirm(aviso))return;
+    // Borrando por gesto, deslizar + tocar el basurero YA son dos pasos deliberados: preguntar
+    // encima convierte el atajo en tres. La excepción es una pieza que pasó por el portal —ahí
+    // se pierden votos, correcciones y la respuesta del cliente—, que se pregunta siempre.
+    if((!(opts&&opts.yaConfirmado)||enPortal)&&!confirm(aviso))return;
     const newItems=items.filter(it=>it.id!==id);updatePlan(newItems);
     borrarTareasDe([id]);
     // Se relee fresco y solo se toca NUESTRA semana. loadAllStrict lanza si la lectura falla:
@@ -7069,6 +7072,55 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     aplicarYSync(it,{state:nuevo});
   };
 
+  // ── Deslizar la fila, como una notificación del teléfono ────────────────────
+  // A la izquierda asoma el basurero y la pieza NO se borra hasta tocarlo; a la derecha avanza
+  // al estado siguiente. Solo con el dedo: con el ratón, arrastrar en horizontal ya es mover la
+  // pieza a otro día, y cambiar eso sería romper algo que funciona para ganar un atajo.
+  const ORDEN_ESTADOS=["borrador","en_proceso","listo","en_aprobacion","aprobado","publicado"];
+  const siguienteEstado=it=>{
+    const e=it.state||"borrador";
+    // Lo que sigue a un rechazo del cliente no es "enviar otra vez", es volver a producirla.
+    if(e==="rechazado")return "en_proceso";
+    const n=ORDEN_ESTADOS.indexOf(e);
+    return n>=0&&n<ORDEN_ESTADOS.length-1?ORDEN_ESTADOS[n+1]:null;
+  };
+  const ANCHO_BASURA=92, UMBRAL_IZQ=48, UMBRAL_DER=92;
+  const [revelado,sRevelado]=useState(null);       // fila que dejó el basurero a la vista
+  const [deslizando,sDeslizando]=useState(null);   // {id,dx} mientras el dedo sigue encima
+  const desRef=useRef(null);
+  const noClick=useRef(false);                     // un gesto no es un toque: no abre la tarjeta
+  const desInicio=(e,it)=>{
+    if(e.pointerType==="mouse")return;
+    desRef.current={id:it.id,x0:e.clientX,y0:e.clientY,eje:null};
+  };
+  const desMueve=(e,it)=>{
+    const d=desRef.current; if(!d||d.id!==it.id)return;
+    const dx=e.clientX-d.x0, dy=e.clientY-d.y0;
+    // Hasta que el gesto no se define no se roba nada: si va en vertical, es la lista
+    // desplazándose y hay que soltarlo, o leer la semana se vuelve una pelea.
+    if(!d.eje){
+      if(Math.abs(dx)<10&&Math.abs(dy)<10)return;
+      d.eje=Math.abs(dx)>Math.abs(dy)?"x":"y";
+      if(d.eje==="y"){desRef.current=null;sDeslizando(null);return;}
+    }
+    const base=revelado===it.id?-ANCHO_BASURA:0;
+    sDeslizando({id:it.id,dx:Math.max(-ANCHO_BASURA-28,Math.min(150,base+dx))});
+  };
+  const desFin=(e,it)=>{
+    const d=desRef.current; desRef.current=null;
+    const x=deslizando&&deslizando.id===it.id?deslizando.dx:null;
+    sDeslizando(null);
+    if(!d||d.eje!=="x"||x===null)return;
+    noClick.current=true;
+    if(x<=-UMBRAL_IZQ){sRevelado(it.id);return;}
+    sRevelado(null);
+    if(x>=UMBRAL_DER){
+      const sig=siguienteEstado(it);
+      if(!sig)return addN("«"+(it.title||"La pieza")+"» ya está publicada: no hay estado siguiente.");
+      cambiarEstado(it,sig);
+    }
+  };
+
   const [abierto,sAbierto]=useState({});      // ítems expandidos
   const [editandoItem,sEditandoItem]=useState({}); // ítems abiertos en modo asistente
   const [prodOpen,sProdOpen]=useState(null);  // desplegable de producción
@@ -7299,17 +7351,43 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               const prodSel=(it.production||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
               const drvSel=(it.driveLinks||[]).map(lid=>(co?.links||[]).find(l=>l.id===lid)).filter(Boolean);
 
-              if(!exp)return(
+              if(!exp){
+                // Cuánto está corrida la fila: lo que marca el dedo si está encima, y si no, el
+                // sitio donde quedó (con el basurero fuera, o en su sitio).
+                const off=deslizando&&deslizando.id===it.id?deslizando.dx:(revelado===it.id?-ANCHO_BASURA:0);
+                const enMano=!!(deslizando&&deslizando.id===it.id);
+                const sig=siguienteEstado(it);
+                return(
                 <div key={it.id} style={{borderRadius:14,padding:realce?2:0,background:realce?realce.marco:"transparent"}}>
+                  <div style={{position:"relative",borderRadius:12,overflow:"hidden"}}>
+                    {/* Debajo de la fila, lo que asoma al deslizar. A la derecha el basurero, que
+                        es un botón de verdad: el gesto lo saca, el toque borra. A la izquierda,
+                        el nombre del estado al que va a saltar, para no soltar a ciegas. */}
+                    {off>6&&sig&&(
+                      <span style={{position:"absolute",left:0,top:0,bottom:0,display:"flex",alignItems:"center",padding:"0 13px",color:STATES[sig]?.c||D.tx3,fontSize:11.5,fontWeight:700,whiteSpace:"nowrap",pointerEvents:"none"}}>
+                        {STATES[sig]?.l||""}
+                      </span>)}
+                    {off<-6&&(
+                      <button onClick={e=>{e.stopPropagation();sRevelado(null);removeItem(it.id,{yaConfirmado:true});}}
+                        style={{position:"absolute",right:0,top:0,bottom:0,width:ANCHO_BASURA-8,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,borderRadius:12,background:"rgba(255,107,107,.16)",border:"1px solid rgba(255,107,107,.4)",color:D.rojo,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer",padding:0}}>
+                        <Ic n="trash" s={15} c={D.rojo}/>Borrar
+                      </button>)}
                   <button draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>sDragItem(null)}
-                    onClick={()=>{sAbierto(o=>({...o,[it.id]:true}));
+                    onPointerDown={e=>desInicio(e,it)} onPointerMove={e=>desMueve(e,it)}
+                    onPointerUp={e=>desFin(e,it)} onPointerCancel={e=>desFin(e,it)}
+                    onClick={()=>{
+                      // Un deslizamiento termina en un click del navegador aunque el dedo se haya
+                      // ido 100px: si no se descarta, cada gesto abriría la tarjeta.
+                      if(noClick.current){noClick.current=false;return;}
+                      if(revelado===it.id){sRevelado(null);return;}
+                      sAbierto(o=>({...o,[it.id]:true}));
                       // Solo una pieza SIN TÍTULO se abre en el asistente: es una fila en blanco,
                       // no hay ficha que enseñar. Que faltara el encargado también la mandaba al
                       // formulario, y eso convertía el trabajo de otro en un cuestionario: la
                       // pieza estaba hecha y confirmada, pero al abrirla pedía todo de nuevo.
                       if(!(it.title||"").trim())sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
                     className="d-in"
-                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,cursor:"pointer",fontFamily:"inherit",textAlign:"left",overflow:"hidden"}}>
+                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,cursor:"pointer",fontFamily:"inherit",textAlign:"left",overflow:"hidden",touchAction:"pan-y",transform:"translateX("+off+"px)",transition:enMano?"none":"transform .24s cubic-bezier(.2,.9,.3,1)"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
                     <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
@@ -7324,7 +7402,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
+                  </div>
                 </div>);
+              }
 
               // ── Tarjeta abierta ─────────────────────────────────────────────
               // Lo que se ve depende del punto del ciclo, en vez de mostrarlo todo siempre:
