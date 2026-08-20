@@ -7102,6 +7102,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // que vas a desplazar la página. Los táctiles son de toda la vida y no fallan.
   const desInicio=(x,y,it)=>{
     desRef.current={id:it.id,x0:x,y0:y,eje:null};
+    // Cada toque nuevo empieza limpio. Sin esto, el "no abras la tarjeta" que deja
+    // un deslizamiento se quedaba puesto para siempre y se comía el SIGUIENTE toque,
+    // que es justo el que la persona da para abrirla: la fila se sentía muerta.
+    noClick.current=false;
   };
   const desMueve=(x,y,it)=>{
     const d=desRef.current; if(!d||d.id!==it.id)return;
