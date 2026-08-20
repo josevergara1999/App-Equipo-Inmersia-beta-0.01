@@ -6617,14 +6617,17 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
   const tieneAuto=["reel","post"].includes(it.type);
   const PASOS=[
     {t:"¿Qué se publica?", sub:"El tipo y el título con el que lo vas a reconocer."},
-    {t:"¿Quién lo hace?",  sub:"Le llega el aviso y es quien va moviendo la pieza de estado."},
+    {t:"¿Quién lo hace?",  sub:"Le llega el aviso y es quien va moviendo la pieza de estado. Se puede dejar para después."},
     {t:"Detalles",         sub:"Todo lo de este paso es opcional."},
   ];
   // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está,
   // y al retomar una a medias cae justo donde se dejó.
   const[i,sI]=useState(!(it.title||"").trim()?0:!(it.production||[]).length?1:0);
   const paso=PASOS[i];
-  const puedeSeguir=i===0?!!(it.title||"").trim():i===1?(it.production||[]).length>0:true;
+  // El encargado dejó de ser obligatorio para avanzar. Era un callejón sin salida: a veces la
+  // pieza se anota primero y se reparte después, y quien no elegía a nadie se quedaba trabado en
+  // el paso 2 sin poder crearla. Lo que falta se avisa —aquí y en la tarjeta— en vez de bloquear.
+  const puedeSeguir=i===0?!!(it.title||"").trim():true;
   const ultimo=i===PASOS.length-1;
 
   const campo={padding:"11px 13px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:14,outline:"none",boxSizing:"border-box",width:"100%"};
@@ -6726,7 +6729,9 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:12,borderTop:"1px solid "+D.line3}}>
       {i>0&&<button onClick={()=>sI(i-1)} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>← Atrás</button>}
       <span style={{flex:"1 1 auto",minWidth:0,fontSize:11.5,color:D.tx4,lineHeight:1.45}}>
-        {i===0&&!puedeSeguir?"Ponle un título para seguir":i===1&&!puedeSeguir?"Elige al menos una persona":""}
+        {i===0&&!puedeSeguir?"Ponle un título para seguir"
+          :i===1&&!(it.production||[]).length?<span style={{color:"#EFD9A0"}}>Sin encargado no le llega el aviso a nadie. Se puede asignar después.</span>
+          :""}
       </span>
       {!ultimo
         ? <button disabled={!puedeSeguir} onClick={()=>sI(i+1)}
@@ -7298,9 +7303,11 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 <div key={it.id} style={{borderRadius:14,padding:realce?2:0,background:realce?realce.marco:"transparent"}}>
                   <button draggable onDragStart={()=>sDragItem(it.id)} onDragEnd={()=>sDragItem(null)}
                     onClick={()=>{sAbierto(o=>({...o,[it.id]:true}));
-                      // Una pieza a medio llenar (de antes de este cambio, o dejada a medias)
-                      // se abre directa en el asistente, y ahí se queda hasta terminarlo.
-                      if(!(it.title||"").trim()||!(it.production||[]).length)sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
+                      // Solo una pieza SIN TÍTULO se abre en el asistente: es una fila en blanco,
+                      // no hay ficha que enseñar. Que faltara el encargado también la mandaba al
+                      // formulario, y eso convertía el trabajo de otro en un cuestionario: la
+                      // pieza estaba hecha y confirmada, pero al abrirla pedía todo de nuevo.
+                      if(!(it.title||"").trim())sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
                     className="d-in"
                     style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,cursor:"pointer",fontFamily:"inherit",textAlign:"left",overflow:"hidden"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
@@ -7310,6 +7317,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{position:"relative",fontSize:12,flexShrink:0}}>💬</span>}
                     {/* Quién lo tiene: es lo primero que se busca al repasar la semana. */}
                     {prodSel.slice(0,3).map(u=><span key={u.id} style={{position:"relative",display:"inline-flex",flexShrink:0}}><Av u={u} sz={18}/></span>)}
+                    {!prodSel.length&&<span title="Nadie recibió el aviso de esta pieza" style={{position:"relative",padding:"3px 9px",borderRadius:999,background:"rgba(239,217,160,.08)",border:"1px solid rgba(239,217,160,.34)",color:"#EFD9A0",fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>sin encargado</span>}
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
                       <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:"#EFD9A0",flexShrink:0}}/>}
@@ -7326,7 +7334,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               //   · del portal en adelante     → la ficha, con el material y en qué quedó
               // Se muestra lo que hace falta en ese punto y nada más: la tarjeta de antes tenía
               // todo a la vez y, a la hora de votar, el voto quedaba enterrado entre diez campos.
-              const enAsistente=!!editandoItem[it.id]||!(it.title||"").trim()||!(it.production||[]).length;
+              // Se entra al asistente al crear la pieza, al pulsar Editar, o si la fila está
+              // en blanco. Ya NO por no tener encargado: piezas creadas sin él —desde Contenido,
+              // desde una propuesta del cliente, o con una versión vieja de la app cacheada en el
+              // teléfono— aparecían como un formulario a medio llenar para todo el equipo, y quien
+              // las abría creía que no se había guardado nada.
+              const enAsistente=!!editandoItem[it.id]||!(it.title||"").trim();
               const tarea=tasks.find(t=>String(t.itemId)===String(it.id));
               const archivo=(it.files||[])[0];
               const estado=it.state||"borrador";
@@ -7439,6 +7452,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       <div style={{position:"relative",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                           <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx5}}>{prodSel.length===1?"Encargado":"Encargados"}</span>
+                          {/* Sin encargado no es un hueco vacío: es que nadie recibió el aviso y
+                              nadie la va a mover de estado. Se dice, y se arregla desde aquí. */}
+                          {!prodSel.length&&(
+                            <button onClick={()=>sEditandoItem(m=>({...m,[it.id]:true}))}
+                              style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 13px",borderRadius:999,background:"rgba(239,217,160,.08)",border:"1px solid rgba(239,217,160,.34)",color:"#EFD9A0",fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                              Nadie · asignar
+                            </button>)}
                           {prodSel.map(u=>(
                             <span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 12px 5px 5px",borderRadius:999,background:D.panel,border:"1px solid "+D.line3,fontSize:12.5,fontWeight:600,color:D.tx2}}>
                               <Av u={u} sz={20}/>{u.name}
