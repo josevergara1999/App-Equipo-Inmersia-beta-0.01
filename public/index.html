@@ -3918,6 +3918,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   };
 
   const upT=(tid,u)=>sT(p=>p.map(t=>t.id===tid?{...t,...u}:t));
+  // Marca o desmarca la automatización de una pieza. Escribe en los DOS lados cuando la pieza
+  // viene de Org Semanal: el switch de verdad vive en `item.autoComentario` y `confirmarItem`
+  // vuelca el item sobre la tarea, así que tocando solo la tarea el cambio se deshacía solo en la
+  // siguiente sincronización. Es el mismo motivo por el que `votar()` escribe en item y tarea.
+  const marcarAuto=(t,valor)=>{
+    upT(t.id,{autoComentario:valor,autoEstado:valor?"pendiente":null});
+    if(t.itemId!=null&&sPlanners){
+      sPlanners(prev=>prev.map(pl=>({...pl,
+        items:(pl.items||[]).map(i=>String(i.id)===String(t.itemId)?{...i,autoComentario:valor}:i)})));
+    }
+  };
   const togVoto=(tid,uid)=>{
     const t=coTasks.find(x=>x.id===tid);
     const actual=(t&&t.votes||{})[uid];
@@ -4429,6 +4440,13 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                     <span style={{flexShrink:0,padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c||D.tx3,fontSize:10.5,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
                     <span style={{flex:"1 1 140px",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
                     <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>
+                    {/* Quitarla de la lista. No borra nada: solo deja de ir con automatización, y
+                        vuelve al selector de abajo por si fue un clic de más. */}
+                    <button onClick={()=>{marcarAuto(t,false);addN("«"+(t.title||"Pieza")+"» ya no va con automatización");}}
+                      title="Quitar la automatización de esta pieza"
+                      style={{flexShrink:0,width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx4,cursor:"pointer",padding:0}}>
+                      <Ic n="x" s={14}/>
+                    </button>
                   </div>))}
                 {/* Marcar una pieza que se quedó sin el switch. Vale mientras no esté publicada:
                     enviada al portal o aprobada por el cliente sigue a tiempo, porque la cadena se
@@ -4439,7 +4457,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                   <select value="" onChange={e=>{
                       const t=candidatas.find(x=>String(x.id)===e.target.value);
                       if(!t)return;
-                      upT(t.id,{autoComentario:true,autoEstado:"pendiente"});
+                      marcarAuto(t,true);
                       addN("💬 «"+(t.title||"Pieza")+"» va con automatización — prepárale la cadena aquí abajo");
                     }}
                     style={{flex:"1 1 200px",minWidth:0,padding:"8px 11px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,cursor:"pointer"}}>
