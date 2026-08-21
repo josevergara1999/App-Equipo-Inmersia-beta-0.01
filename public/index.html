@@ -618,6 +618,16 @@ const salioAlPortal=t=>!!t&&(
   ||!!t.clientApproval
   ||!!(t.revisions||[]).length);
 
+// El archivo que MANDA en una pieza. Con variantes es el que eligió el cliente al aprobar; sin
+// ellas, el primero de siempre. Todo lo que enseña o publica "la pieza" tiene que pasar por
+// aquí: publicando `files[0]` a secas saldría la versión que el cliente descartó.
+const archivoDe=t=>{
+  const fs=(t&&t.files)||[];
+  if(t&&t.varianteElegida){const e=fs.find(f=>f&&f.url===t.varianteElegida);if(e)return e;}
+  return fs[0];
+};
+const tieneVariantes=t=>!!t&&!!t.variantes&&((t.files||[]).length>1);
+
 const saldoDe=(co,tasks,y,m)=>{
   const inc=incluidoDe(co);
   const usadas=usadasEnMes(tasks,co?.id,y,m);
@@ -3992,7 +4002,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // mediodía: es preferible una hora razonable a rechazar la programación por un dato que el
   // cliente dejó a propósito en manos del equipo.
   const publicarIG=async(t,programar)=>{
-    const f=(t.files||[])[0];
+    // La elegida por el cliente, no la primera: en una pieza con variantes son cosas distintas.
+    const f=archivoDe(t);
     if(!f||!/^https?:\/\//i.test(String(f.url||""))){
       addN("❌ Esta pieza no está en el almacenamiento: Instagram necesita una URL pública del archivo.");return;
     }
@@ -4045,7 +4056,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   const card=(t,m)=>{
     const gl=CONT_GLOW[m.k];
     const tc=TT[t.type]?.c||D.tx2;
-    const f0=(t.files||[])[0];
+    // La elegida por el cliente si la pieza va con variantes; si no, la primera de siempre.
+    const f0=archivoDe(t);
     const rev=(t.revisions&&t.revisions.length)?t.revisions[t.revisions.length-1]:null;
     const v=t.votes||{};
     const aFavor=equipo.filter(u=>v[u.id]===true);
@@ -4104,6 +4116,32 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           <svg viewBox="0 0 24 24" style={{width:12,height:12}}><path d="M12 16 V 5 M 7.5 9 L 12 4.5 L 16.5 9 M 5 16 V 19 H 19 V 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Subir material
         </button>}
+
+        {/* ── Variantes ────────────────────────────────────────────────────────────
+            Dos montajes del MISMO contenido entre los que el cliente elige uno: con voz
+            y sin voz, dos portadas. Antes había que subirlas como dos piezas sueltas, y
+            eso gastaba dos cupos del plan para publicar una sola, además de dejar al
+            cliente con dos tarjetas y ninguna señal de que debía quedarse con una (podía
+            aprobar las dos). Aquí son UNA pieza con varios archivos: un cupo, una
+            decisión. Se arman subiendo el segundo archivo a esta misma pieza. */}
+        {f0&&m.k!=="aprobado"&&t.state!=="publicado"&&(()=>{
+          const n=(t.files||[]).length;
+          return(<div style={{position:"relative",display:"flex",flexDirection:"column",gap:7}}>
+            {n>1&&<label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!t.variantes} onChange={e=>upT(t.id,{variantes:e.target.checked,...(e.target.checked?{}:{varianteElegida:null})})} style={{width:14,height:14,marginTop:2,padding:0,flexShrink:0}}/>
+              <span style={{fontSize:11,lineHeight:1.45,color:t.variantes?D.peri:D.tx4}}>
+                <b>Son {n} versiones — el cliente elige una</b>
+                {t.variantes&&<span style={{display:"block",color:D.tx4}}>En su portal las verá juntas y solo podrá aprobar una. Gasta un cupo, no {n}.</span>}
+              </span>
+            </label>}
+            {n<2&&<button onClick={()=>pickFor(t.id)} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:9,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer",width:"fit-content"}}>
+              + Otra versión de esta pieza
+            </button>}
+            {t.varianteElegida&&<span style={{fontSize:11,color:D.cian,fontWeight:600}}>
+              ✓ El cliente eligió: {(t.files||[]).find(x=>x.url===t.varianteElegida)?.name||"una versión"}
+            </span>}
+          </div>);
+        })()}
 
         {m.k==="listo"&&<>
           <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",position:"relative"}}>
@@ -8191,13 +8229,20 @@ function DeckMedia({f,h=300,fit="contain",lush}){
   return wrap(<a href={src} download={f.name} style={{color:"var(--accent)",fontSize:13}}>{f.name||"Archivo"}</a>);
 }
 
-function DeckCard({t,children}){
+// `varIdx`/`onVar`: cuál de las variantes está mirando el cliente. Una pieza con variantes son
+// dos montajes del MISMO contenido —con voz y sin voz, dos portadas— entre los que hay que
+// elegir uno. Antes había que subirlas como dos piezas: gastaban dos cupos del plan, el cliente
+// veía dos tarjetas sueltas sin nada que dijera "elige una" y podía aprobar las dos.
+function DeckCard({t,children,varIdx=0,onVar}){
   // Si la pieza ya pasó por un rechazo, `revisions` guarda la versión anterior junto con
   // el motivo. El cliente puede comparar antes/después sin salir de la tarjeta.
   const rev=(t.revisions&&t.revisions.length)?t.revisions[t.revisions.length-1]:null;
   const[verAntes,sVerAntes]=useState(false);
   const shown=(verAntes&&rev)?t.revisions[t.revisions.length-1].files:t.files;
-  const f=shown&&shown[0];
+  // Mirando la versión anterior se enseña la que había, sin selector: comparar antes/después y
+  // elegir variante son dos preguntas distintas y juntas se pisan.
+  const conVariantes=!!t.variantes&&(t.files||[]).length>1&&!verAntes;
+  const f=shown&&shown[conVariantes?Math.min(varIdx,shown.length-1):0];
   return(<div style={{...PC_MARCO,borderRadius:30,boxShadow:"0 24px 60px rgba(2,3,8,.55)"}}>
     <div style={{...PC_CARD,borderRadius:24,overflow:"hidden"}}>
 
@@ -8237,6 +8282,29 @@ function DeckCard({t,children}){
             : <span style={{fontSize:13.5,lineHeight:1.55,color:PC.tx4,fontStyle:"italic"}}>El equipo no dejó notas para esta pieza.</span>}
         </div>
 
+        {/* Elegir variante. Se publica UNA: la que se toque aquí. */}
+        {conVariantes&&<div style={{display:"flex",flexDirection:"column",gap:9}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:".14em",textTransform:"uppercase",color:PC.tx4}}>
+            {shown.length} versiones — elige una
+          </span>
+          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+            {shown.map((v,i)=>{
+              const on=i===varIdx;
+              return(<button key={v.url||i} onClick={()=>onVar&&onVar(i)}
+                style={{flex:"1 1 130px",minWidth:0,display:"flex",alignItems:"center",gap:9,padding:"11px 13px",borderRadius:14,cursor:"pointer",fontFamily:"inherit",textAlign:"left",
+                  background:on?"rgba(111,231,242,.1)":"rgba(255,255,255,.02)",border:"1.5px solid "+(on?PC.cian:PC.line2)}}>
+                <span style={{width:17,height:17,borderRadius:"50%",flexShrink:0,border:"1.5px solid "+(on?PC.cian:PC.line2),display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {on&&<span style={{width:9,height:9,borderRadius:"50%",background:PC.cian}}/>}
+                </span>
+                <span style={{minWidth:0,display:"flex",flexDirection:"column",gap:1}}>
+                  <span style={{fontSize:13,fontWeight:600,color:on?PC.tx:PC.tx2}}>Versión {String.fromCharCode(65+i)}</span>
+                  <span style={{fontSize:11,color:PC.tx4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name||""}</span>
+                </span>
+              </button>);
+            })}
+          </div>
+        </div>}
+
         {children}
       </div>
     </div>
@@ -8258,7 +8326,21 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
   const top=list[0];
 
   const salir=(t,dir,cb)=>{sLeaving({id:t.id,dir});setTimeout(()=>{sDone(d=>[...d,t.id]);sLeaving(null);cb();},240);};
-  const aprobar=()=>{if(!top||leaving||busy)return;sHechas(h=>({...h,ok:h.ok+1}));salir(top,"ok",()=>onApprove(top));};
+  // Qué variante está mirando el cliente, por pieza. Se guarda por id y no como un solo número
+  // porque el mazo pasa de una pieza a la siguiente y el índice de la anterior no vale para la
+  // que entra. Sin elegir todavía es `undefined`, que es lo que distingue "no ha tocado nada".
+  const[varSel,sVarSel]=useState({});
+  const conVar=t=>!!t&&!!t.variantes&&(t.files||[]).length>1;
+  const idxDe=t=>varSel[t.id];
+  const aprobar=()=>{
+    if(!top||leaving||busy)return;
+    // Con variantes, aprobar sin elegir publicaría la primera por descarte. Se pide el toque:
+    // es justo la decisión que la pieza viene a preguntar.
+    if(conVar(top)&&idxDe(top)===undefined)return;
+    const elegida=conVar(top)?(top.files[idxDe(top)]||null):null;
+    sHechas(h=>({...h,ok:h.ok+1}));
+    salir(top,"ok",()=>onApprove(top,elegida));
+  };
   const pedirRechazo=()=>{if(!top||leaving||busy)return;sRejMsg("");sRejFor(top);};
   const confirmarRechazo=()=>{
     const msg=rejMsg.trim();if(!msg||!rejFor)return;
@@ -8291,18 +8373,27 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
     </div>
 
     <div style={{opacity:leaving?0:1,transform:leaving?(leaving.dir==="ok"?"translateY(-14px) scale(.97)":"translateY(14px) scale(.97)"):"none",transition:"opacity .24s ease, transform .24s ease"}}>
-      <DeckCard t={top}/>
+      <DeckCard t={top} varIdx={idxDe(top)||0} onVar={i=>sVarSel(v=>({...v,[top.id]:i}))}/>
     </div>
 
-    <div style={{display:"flex",justifyContent:"center",gap:14,marginTop:22,flexWrap:"wrap"}}>
-      <button onClick={pedirRechazo} disabled={busy} style={btn(PC.rojo,"rgba(255,107,107,.07)")}>
-        <Ic n="x" s={13} c={PC.rojo}/>Rechazar
-      </button>
-      <button onClick={aprobar} disabled={busy} style={btn(PC.cian,"rgba(111,231,242,.09)")}>
-        <Ic n="check" s={14} c={PC.cian}/>Aprobar
-      </button>
-    </div>
-    <p style={{margin:"14px 0 0",textAlign:"center",fontSize:12,color:PC.tx4}}>Al aprobar, la pieza queda lista para agendar en Planificar</p>
+    {(()=>{
+      const faltaElegir=conVar(top)&&idxDe(top)===undefined;
+      return(<>
+        <div style={{display:"flex",justifyContent:"center",gap:14,marginTop:22,flexWrap:"wrap"}}>
+          <button onClick={pedirRechazo} disabled={busy} style={btn(PC.rojo,"rgba(255,107,107,.07)")}>
+            <Ic n="x" s={13} c={PC.rojo}/>Rechazar
+          </button>
+          <button onClick={aprobar} disabled={busy||faltaElegir} style={{...btn(PC.cian,"rgba(111,231,242,.09)"),opacity:(busy||faltaElegir)?.45:1,cursor:(busy||faltaElegir)?"default":"pointer"}}>
+            <Ic n="check" s={14} c={PC.cian}/>{conVar(top)?"Aprobar la elegida":"Aprobar"}
+          </button>
+        </div>
+        <p style={{margin:"14px 0 0",textAlign:"center",fontSize:12,color:faltaElegir?PC.peri:PC.tx4}}>
+          {faltaElegir
+            ?"Elige arriba con cuál te quedas para poder aprobar"
+            :"Al aprobar, la pieza queda lista para agendar en Planificar"}
+        </p>
+      </>);
+    })()}
 
     {/* Rechazar siempre pide motivo: es lo que le llega al equipo */}
     {rejFor&&(<Portal><div onClick={()=>sRejFor(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(2,3,8,.72)",backdropFilter:"blur(8px)"}}>
@@ -9275,13 +9366,18 @@ function ClientView({user:cu,onLogout:ol}){
   // comprobarlo ANTES de cantar éxito y avisar al equipo: en datos móviles flojos, el cliente
   // veía «✅ Aprobado», al equipo le llegaba correo y push de aprobación, y en realidad nada se
   // había guardado — la pieza seguía en «Por aprobar» y el equipo perseguía algo que no existía.
-  const approve=async t=>{
+  // `elegida` llega solo cuando la pieza tenía variantes: es el archivo con el que se queda el
+  // cliente. Se guarda su URL (no el índice) porque el equipo puede reordenar o añadir variantes
+  // después y un número apuntaría a otra cosa. Lo que se publica sale de aquí.
+  const approve=async(t,elegida)=>{
     const planificado=t.plannedDay||t.date||null;
-    const ok=await safeSaveTask(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
+    const extra=elegida&&elegida.url?{varianteElegida:elegida.url}:{};
+    const ok=await safeSaveTask(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,...extra,clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
     if(!ok)return;
     sToast("✅ Aprobado — ya puedes agendarlo");
-    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName,date:planificado});
-    avisarEquipo("✓ "+cu.companyName+" aprobó","\""+t.title+"\" quedó aprobada. Falta que la agenden en su calendario.");
+    const cual=elegida?(" · eligió “"+(elegida.name||"una versión")+"”"):"";
+    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName+cual,date:planificado});
+    avisarEquipo("✓ "+cu.companyName+" aprobó","\""+t.title+"\" quedó aprobada"+(elegida?(", con la versión “"+(elegida.name||"elegida")+"”"):"")+". Falta que la agenden en su calendario.");
   };
   const reject=async(t,motivo)=>{
     const ok=await safeSaveTask(t.id,{state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:motivo},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:motivo}]});
