@@ -50,6 +50,31 @@ Standalone vienen de CDN.
   sitios que releen-antes-de-escribir (safeSaveTask, confirmarItem, limpiar/quitar semana): con
   el tolerante, un fallo daba `{}`, `fresh.tasks||[]` daba `[]` y se escribía un array vacío
   ENCIMA de las tareas de todas las empresas. `DB.save` devuelve si de verdad guardó.
+- **Las listas con id se guardan POR DIFERENCIA, nunca volcando el array entero.** El `dbSave` de
+  `tasks`, `companies`, `galerias` y `planners` pasa por `encolarGuardado` → `guardarDiff`: se
+  compara la copia local contra el **baseline** (la última versión que sabemos que está en el
+  servidor) y solo viajan las filas que esta pestaña cambió, aplicadas sobre una relectura fresca.
+  Hay **cola por clave**, así que dos guardados de la misma lista no vuelan a la vez.
+  - Antes se hacía POST del array completo desde memoria, sin cola, sin releer y sin comparar.
+    Dos POST concurrentes no tienen orden garantizado: ganaba **el que llegaba último aunque
+    llevara datos más viejos**. El 21-ago-2026 eso revirtió un envío al portal ya guardado: el
+    aviso "📤 Enviada al cliente" salió, la pieza se quedó en `en_proceso` con el rechazo anterior
+    pegado, al cliente no le apareció nada, y la pantalla del equipo seguía diciendo "Enviado al
+    portal" porque su memoria sí tenía el cambio. Se diagnosticó cruzando las horas de `notifs`
+    con el contenido de `app_data.tasks`: la copia que ganó traía los votos de las 21:14 pero no
+    el envío de las 21:28, así que era una copia capturada entre medias que llegó después.
+  - **El baseline se fotografía al capturar el valor, no al ejecutar la escritura.** Calculando el
+    diff contra el baseline del momento de escribir, una copia rezagada aparece llena de cambios
+    —los de otro, del revés— y los escribe como suyos. Con la foto correcta, esa copia no tiene
+    nada que escribir y la escritura se cancela entera.
+  - **Sin baseline no se escribe.** Si la lectura de arranque falló no sabemos qué cambió esta
+    pestaña, y volcar el array "por si acaso" es el fallo de arriba. Se aborta y se avisa: perder
+    un cambio propio se nota, pisar el de otro no.
+  - **Un guardado que no llega se ve.** `registrarAvisoGuardado` conecta `dbSave` —que vive fuera
+    de React— con `addN`. El portal del cliente ya comprobaba la escritura antes de cantar éxito
+    (`safeSaveTask`); esto es el mismo trato para el lado del equipo.
+  - `galerias` mantiene además su `guardarGalerias`, que relee y conserva `fav`/`favAt` del
+    servidor: el cliente escribe ese campo por una ruta aparte y el diff no lo ve.
 - **`uid()` para ids nuevos**, nunca `Date.now()+Math.random()*N|0` (ese OR truncaba a 32 bits →
   ids negativos y con choques; el id casa tareas e items en todo el flujo).
 - El objeto `API` enruta **todas** las llamadas externas por el servidor. Nunca llames a una

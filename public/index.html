@@ -176,6 +176,11 @@ const DB={
         method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
         body:JSON.stringify({value})
       });
+      // Una escritura confirmada ES lo que hay ahora en el servidor: se anota como baseline para
+      // que el siguiente diff se calcule contra ella. Va aquí y no en cada sitio que guarda
+      // porque hay varios caminos que escriben `tasks` a pelo (confirmarItem, safeSaveTask,
+      // limpiar semana); con el baseline puesto en un solo lado, ninguno se puede olvidar.
+      if(r.ok)setBaseline(key,value);
       // Devuelve si de verdad se guardó. Antes se tragaba el fallo en silencio, así que quien
       // llamaba cantaba "guardado" aunque la escritura muriera.
       return r.ok;
@@ -186,7 +191,9 @@ const DB={
       const r=await fetch("/api/data",{credentials:"same-origin"});
       if(!r.ok)return{};
       const d=await r.json();
-      return(d&&typeof d==="object"&&!Array.isArray(d))?d:{};
+      const m=(d&&typeof d==="object"&&!Array.isArray(d))?d:{};
+      baselineDesde(m);
+      return m;
     }catch(e){console.error("DB loadAll error:",e);return{};}
   },
   // Igual que loadAll pero LANZA si la lectura falla, en vez de devolver {}. Lo usan los sitios
@@ -200,6 +207,10 @@ const DB={
     if(!r.ok)throw new Error("El servidor respondió "+r.status);
     const d=await r.json();
     if(!d||typeof d!=="object"||Array.isArray(d))throw new Error("respuesta inesperada del servidor");
+    // OJO: aquí NO se toca el baseline. Los que releen antes de escribir usan esta lectura para
+    // construir lo que van a guardar; si además moviera el baseline, el diff que se está
+    // calculando en ese mismo momento se quedaría sin cambios que escribir. El baseline solo
+    // avanza con una escritura confirmada (DB.save) o con una carga de arranque (loadAll).
     return d;
   }
 };
@@ -209,11 +220,101 @@ const DB={
 // choque hace que aprobar/borrar una pieza toque otra.
 const uid=()=>Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,9);
 
+// ═══ GUARDADO POR DIFERENCIA ════════════════════════════════════
+// El guardado de una lista volcaba el ARRAY ENTERO desde la copia en memoria de la pestaña:
+// sin cola, sin releer y sin comparar. Dos POST concurrentes no tienen orden garantizado, así
+// que ganaba el que LLEGABA último aunque llevara datos más viejos. El 21-ago-2026 eso revirtió
+// un envío al portal ya guardado: el aviso "📤 Enviada al cliente" salió, la pieza se quedó en
+// `en_proceso` con el rechazo anterior pegado, y al cliente no le apareció nada. La pantalla del
+// equipo seguía diciendo "Enviado al portal" porque su memoria sí tenía el cambio.
+//
+// La regla ahora: una pestaña solo escribe LO QUE ELLA cambió. Nunca el array entero.
+//
+// `baseline` es la última copia que sabemos que está en el servidor, por clave. El diff se
+// calcula contra ESO, no contra lo que haya en el servidor en este instante: así lo que esta
+// pestaña no tocó no viaja, y por tanto no puede pisar lo que tocó otra. Una escritura que
+// llega tarde con datos viejos ya no revierte nada — simplemente no tiene nada propio que
+// escribir.
+const LISTAS_ID={tasks:"id",companies:"id",galerias:"id",planners:"weekKey"};
+const baseline={};
+const clave=(k,x)=>String(x&&x[LISTAS_ID[k]]);
+const porClave=(k,arr)=>new Map((Array.isArray(arr)?arr:[]).filter(x=>x&&x[LISTAS_ID[k]]!=null).map(x=>[clave(k,x),x]));
+function setBaseline(key,value){
+  if(!LISTAS_ID[key])return;
+  try{baseline[key]=JSON.parse(JSON.stringify(Array.isArray(value)?value:[]));}catch(_){}
+}
+// Fija el baseline de todas las listas protegidas a partir de una lectura completa. Se fijan
+// TODAS, con [] las que no vengan: una clave ausente es una lista vacía en el servidor, no una
+// lista desconocida, y hace falta distinguirlo para poder crear la primera galería o la primera
+// empresa.
+let baselineListo=false;
+function baselineDesde(d){
+  if(!d||typeof d!=="object")return;
+  Object.keys(LISTAS_ID).forEach(k=>setBaseline(k,Array.isArray(d[k])?d[k]:[]));
+  baselineListo=true;
+}
+const saveQueues={};
+// `contra` es la foto del baseline que estaba vigente cuando se capturó `local`, NO la de ahora.
+// Es la diferencia entre "esta copia trae cambios" y "esta copia es vieja": calculando el diff
+// contra el baseline actual, una copia rezagada aparece llena de cambios (los de otro, del
+// revés) y los escribe como si fueran suyos. Justo lo que se quiere impedir.
+async function guardarDiff(key,local,contra){
+  // Sin una lectura de arranque no sabemos qué cambió esta pestaña, y escribir el array entero
+  // "por si acaso" es exactamente el fallo que esto viene a quitar. Se aborta: el usuario
+  // recarga y se guarda. Perder un cambio propio se nota; pisar el de otro, no.
+  if(!contra){console.warn("Sin baseline: no se guarda "+key+" (recarga la página)");return false;}
+  const base=porClave(key,contra);
+  const mios=porClave(key,local);
+  const tocados=[];
+  mios.forEach((o,id)=>{const b=base.get(id);if(!b||JSON.stringify(b)!==JSON.stringify(o))tocados.push(o);});
+  const borrados=[...base.keys()].filter(id=>!mios.has(id));
+  // Nada propio que escribir: la escritura se cancela entera. Este es el caso de la copia que
+  // llega tarde, y es justo lo que antes revertía el trabajo de otra pestaña.
+  if(!tocados.length&&!borrados.length)return true;
+  // loadAllStrict LANZA si la lectura falla: sin saber qué hay al otro lado no se escribe a
+  // ciegas, por lo mismo que en safeSaveTask.
+  const fresh=await DB.loadAllStrict();
+  const serv=porClave(key,fresh[key]);
+  borrados.forEach(id=>serv.delete(id));
+  tocados.forEach(o=>serv.set(clave(key,o),o));
+  return DB.save(key,[...serv.values()]);
+}
+// Cola por clave: dos guardados de la misma lista nunca vuelan a la vez, así que no hay carrera
+// que resolver. Es la misma idea que `saveChain` del portal del cliente, que ya lo hacía bien.
+// El baseline se fotografía AQUÍ, al encolar, porque es el que acompañaba a `local`; para cuando
+// le llegue el turno puede haber avanzado y entonces el diff mentiría.
+// Un guardado que no llega tiene que VERSE. El 21-ago-2026 el aviso "📤 Enviada al cliente" salió
+// igual, la pantalla se quedó mostrando la pieza en el portal, y el equipo estuvo persiguiendo
+// algo que el cliente nunca recibió. El portal del cliente ya comprueba la escritura antes de
+// cantar éxito; este es el mismo trato para el lado del equipo.
+let avisarFalloGuardado=null;
+function registrarAvisoGuardado(fn){avisarFalloGuardado=fn;}
+const NOMBRE_LISTA={tasks:"las piezas",companies:"las empresas",galerias:"las sesiones de fotos",planners:"la semana"};
+function encolarGuardado(key,local,contra){
+  const base=contra||baseline[key];
+  const run=async()=>{
+    let ok=false;
+    try{ok=await guardarDiff(key,local,base);}
+    catch(e){console.error("guardarDiff "+key+":",e);ok=false;}
+    if(!ok&&avisarFalloGuardado)avisarFalloGuardado("⚠️ No se pudo guardar "+(NOMBRE_LISTA[key]||key)+" — recarga la página y compruébalo antes de seguir");
+    return ok;
+  };
+  const prev=saveQueues[key]||Promise.resolve();
+  saveQueues[key]=prev.then(run,run);
+  return saveQueues[key];
+}
+
 // Debounce helper
 const debounceTimers={};
 function dbSave(key,value){
   clearTimeout(debounceTimers[key]);
-  debounceTimers[key]=setTimeout(()=>DB.save(key,value),800);
+  // Las listas con id van por diferencia y en cola; el resto (mapas, contadores) sigue como
+  // estaba: no hay ids que fusionar y el volcado entero es su forma correcta.
+  if(!LISTAS_ID[key]){debounceTimers[key]=setTimeout(()=>DB.save(key,value),800);return;}
+  // La foto del baseline se toma junto con el valor, no 800 ms después: si en ese hueco entra
+  // una escritura de otro sitio, `value` pasa a ser una copia vieja y hay que saberlo.
+  const contra=baseline[key];
+  debounceTimers[key]=setTimeout(()=>encolarGuardado(key,value,contra),800);
 }
 
 // ═══ API CLIENT — all calls go through backend ═════════════════
@@ -1156,6 +1257,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     clearTimeout(galTimer.current);galTimer.current=setTimeout(()=>guardarGalerias(galerias),800);},[galerias,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackEx.current){initTrackEx.current=true;return;}dbSave("extras",extras);},[extras,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackM.current){initTrackM.current=true;return;}dbSave("meetings",meets);},[meets,dbLoaded]);
+  // Los guardados en diferido viven fuera de React (dbSave), así que necesitan una puerta para
+  // avisar en pantalla cuando una escritura no llega. Sin esto el fallo es mudo: la app sigue
+  // mostrando el cambio que en la base no está.
+  useEffect(()=>{registrarAvisoGuardado(m=>addN(m));return()=>registrarAvisoGuardado(null);},[]);
 
 
 
