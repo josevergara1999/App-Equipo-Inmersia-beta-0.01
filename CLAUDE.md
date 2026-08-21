@@ -639,6 +639,24 @@ servicio.
   menor:** los endpoints `/api/ig/*` y `/api/social/*` toman `companyId` del request; un cliente
   podría consultar/editar la conexión o reglas IG de otra empresa (no sus datos de negocio). Cerrar
   forzando `companyId` = su empresa en esos handlers.
+- **La cookie de sesión es UNA por navegador: entrar al portal de un cliente secuestra la del
+  equipo.** `_iauth` no distingue pestañas. Al entrar como un cliente para probar su portal, la
+  pestaña del equipo sigue pintando el panel de admin —el rol lo decide el frontend desde
+  `localStorage.userEmail`— pero **cada petición viaja como ese cliente**: el servidor solo
+  entrega su empresa (`scopeCliente`) y solo acepta su merge restringido. El 21-ago-2026 eso
+  costó una tarde: borrar una pieza la quitaba de la pantalla, se recargaba y volvía, porque el
+  merge del cliente es `actuales.map(...)` y **un map nunca elimina** — la baja se ignoraba y
+  respondía 200. Se diagnosticó pidiendo `/api/data` desde la consola de la pestaña del equipo:
+  devolvía 1 empresa y 2 tareas en vez de todas.
+  - `GET /api/auth/me` dice quién eres según el servidor, y `App` lo contrasta al arrancar:
+    si el rol no coincide o la sesión no existe, la app **se planta** (`SesionCruzada`) en vez de
+    dejar trabajar sobre datos que no se van a guardar. Un email distinto con el mismo rol solo
+    avisa por consola: entrar con el Gmail y figurar en el equipo con otro correo es normal, y
+    dejar al equipo fuera sería peor que el problema.
+  - El `POST /api/data/:key` de un cliente **rechaza con 409** el intento de dar de baja una
+    pieza. Rechazar en voz alta es la diferencia entre un permiso y un agujero negro.
+  - Para probar el portal de un cliente sin romper nada: ventana de incógnito o otro perfil de
+    Chrome. En la misma ventana, siempre cerrar sesión al volver.
 - **Los iconos se generan midiendo, no a ojo.** El recorte escrito a mano cortaba el arco
   inferior del logo.
 
