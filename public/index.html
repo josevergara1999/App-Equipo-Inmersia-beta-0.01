@@ -1028,7 +1028,17 @@ function ZoomLayer(){
     };
     window.addEventListener("keydown",k);
     const prevOv=document.body.style.overflow;document.body.style.overflow="hidden";
-    return()=>{window.removeEventListener("keydown",k);document.body.style.overflow=prevOv;};
+    // Los vídeos de debajo siguen corriendo tapados por el visor: al agrandar un reel se oían
+    // DOS pistas a la vez, la de la tarjeta y la de aquí. Se pausan mientras el visor esté
+    // abierto y se reanudan al cerrarlo, solo los que de verdad estaban en marcha — pausar y
+    // reanudar a ciegas dejaría sonando alguno que el cliente había parado a propósito.
+    // El del propio visor se excluye por `data-zoom`: se acaba de montar y ya está sonando.
+    const fuera=[...document.querySelectorAll("video:not([data-zoom])")].filter(v=>!v.paused);
+    fuera.forEach(v=>{try{v.pause();}catch(_){}});
+    return()=>{
+      window.removeEventListener("keydown",k);document.body.style.overflow=prevOv;
+      fuera.forEach(v=>{try{const p=v.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}});
+    };
   },[z]);
   if(!z)return null;
   const f=z.files[z.i],src=fSrc(f),many=z.files.length>1;
@@ -1038,7 +1048,10 @@ function ZoomLayer(){
     {many&&z.i>0&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i-1}));}} style={navBtn({left:18})}><Ic n="chev_l" s={22} c="#fff"/></button>}
     {many&&z.i<z.files.length-1&&<button onClick={e=>{e.stopPropagation();sZ(p=>({...p,i:p.i+1}));}} style={navBtn({right:18})}><Ic n="chev_r" s={22} c="#fff"/></button>}
     <div onClick={e=>e.stopPropagation()} style={{maxWidth:"100%",maxHeight:"84vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      {isVid(f)?<video src={src} controls autoPlay playsInline style={{maxWidth:"92vw",maxHeight:"84vh",borderRadius:12,display:"block",boxShadow:"0 30px 90px rgba(0,0,0,.7)"}}/>
+      {/* `key` por src: sin ella, al pasar de una versión a otra el <video> conserva el medio ya
+          cargado y se ve el anterior. `data-zoom` lo distingue de los de las tarjetas, que se
+          pausan mientras esto está abierto. */}
+      {isVid(f)?<video key={src} data-zoom="1" src={src} controls autoPlay playsInline style={{maxWidth:"92vw",maxHeight:"84vh",borderRadius:12,display:"block",boxShadow:"0 30px 90px rgba(0,0,0,.7)"}}/>
        :isImg(f)?<img src={src} alt={f.name||""} style={{maxWidth:"92vw",maxHeight:"84vh",borderRadius:12,display:"block",objectFit:"contain",boxShadow:"0 30px 90px rgba(0,0,0,.7)"}}/>
        :<a href={src} download={f.name} style={{color:"#fff",fontSize:15,padding:"14px 22px",background:"rgba(255,255,255,.1)",borderRadius:10}}>Descargar {f.name||"archivo"}</a>}
     </div>
