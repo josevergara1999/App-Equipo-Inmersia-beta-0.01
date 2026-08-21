@@ -3879,6 +3879,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         state:"no_realizado",
         votes:{},
         clientApproval:null,
+        // La corrección sustituye TODOS los archivos, así que la versión que el cliente había
+        // elegido ya no está entre ellos: dejar apuntando su URL deja el dato colgando y la
+        // tarjeta diciendo "el cliente eligió…" una versión que ya no existe.
+        varianteElegida:null,
       })));
       addN("✅ Corrección subida, lista para reenviar");
       avisarListas(1);
@@ -3997,8 +4001,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // en plannedDay como referencia. Este atajo del equipo (cuando el cliente aprueba por WhatsApp)
   // tiene que dejar la tarea con la MISMA forma que la del portal; si no, la pieza queda pinchada
   // en un día que el cliente no eligió y nunca pasa por el banco.
-  const cliAprueba=t=>{const planificado=t.plannedDay||t.date||null;upT(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,clientApproval:{status:"aprobado",by:co.name,date:new Date().toISOString()}});
-    avisarA([...encargados(t),...adminsEq()],"✓ "+co.name+" aprobó","\""+t.title+"\" quedó aprobada por el cliente.");};
+  // Atajo para cuando el cliente aprueba por WhatsApp. Con variantes hay que saber CUÁL aprobó:
+  // sin preguntarlo se publicaría la primera por descarte, que es justo lo que la pieza venía a
+  // decidir. El portal ya lo exige; este camino tenía que exigirlo igual.
+  const[aprobVar,sAprobVar]=useState(null);
+  const cerrarAprobacion=(t,urlElegida)=>{
+    const planificado=t.plannedDay||t.date||null;
+    upT(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,
+      ...(urlElegida?{varianteElegida:urlElegida}:{}),
+      clientApproval:{status:"aprobado",by:co.name,date:new Date().toISOString()}});
+    const cual=urlElegida?((t.files||[]).find(f=>f.url===urlElegida)?.name||""):"";
+    avisarA([...encargados(t),...adminsEq()],"✓ "+co.name+" aprobó",
+      "\""+t.title+"\" quedó aprobada por el cliente."+(cual?" Versión elegida: "+cual:""));
+  };
+  const cliAprueba=t=>{
+    if(tieneVariantes(t)&&!t.varianteElegida){sAprobVar(t);return;}
+    cerrarAprobacion(t,t.varianteElegida||null);
+  };
   const cliRechaza=t=>{upT(t.id,{state:"en_proceso",clientApproval:{status:"rechazado",by:co.name,date:new Date().toISOString(),comment:""}});
     avisarA([...encargados(t),...adminsEq()],"✕ "+co.name+" pidió cambios","\""+t.title+"\" volvió al equipo. Anota el motivo y sube la corrección.",true);};
   const setMotivo=(t,v)=>upT(t.id,{clientApproval:{...(t.clientApproval||{}),status:"rechazado",comment:v}});
@@ -4025,6 +4044,14 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // mediodía: es preferible una hora razonable a rechazar la programación por un dato que el
   // cliente dejó a propósito en manos del equipo.
   const publicarIG=async(t,programar)=>{
+    // Guarda única para TODOS los caminos que aprueban (portal, atajo del equipo, checkbox del
+    // Dashboard): si la pieza tiene versiones y ninguna elegida, publicar tomaría la primera por
+    // descarte y podría salir justo la que el cliente descartó. Se para aquí, que es el único
+    // sitio por el que pasan todos y el último en el que aún se puede arreglar.
+    if(tieneVariantes(t)&&!t.varianteElegida){
+      addN("⚠️ «"+(t.title||"La pieza")+"» tiene "+(t.files||[]).length+" versiones y ninguna elegida. Marca cuál aprobó el cliente antes de publicar.");
+      return;
+    }
     // La elegida por el cliente, no la primera: en una pieza con variantes son cosas distintas.
     const f=archivoDe(t);
     if(!f||!/^https?:\/\//i.test(String(f.url||""))){
@@ -4621,6 +4648,26 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <Bt v="s" onClick={()=>sNueva(false)}>Cancelar</Bt>
         <Bt v="p" onClick={crearPieza} icon="plus">Crear</Bt>
       </div>
+    </Md>
+
+    {/* Qué versión aprobó el cliente, cuando lo dice por fuera de la app. */}
+    <Md open={!!aprobVar} onClose={()=>sAprobVar(null)} title="¿Con cuál se quedó?" width={430}>
+      {aprobVar&&<div>
+        <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 14px",color:D.tx2}}>
+          «{aprobVar.title||"La pieza"}» tiene {(aprobVar.files||[]).length} versiones. Marca la que aprobó {co?.name||"el cliente"} — es la que se publicará.
+        </p>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {(aprobVar.files||[]).map((f,i)=>(
+            <button key={f.url||i} onClick={()=>{const t=aprobVar;sAprobVar(null);cerrarAprobacion(t,f.url);}}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,cursor:"pointer",textAlign:"left"}}>
+              <span style={{flexShrink:0,padding:"2px 8px",borderRadius:999,background:"rgba(111,231,242,.1)",border:"1px solid rgba(111,231,242,.4)",color:D.cian,fontSize:11,fontWeight:700}}>{String.fromCharCode(65+i)}</span>
+              <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name||"Versión "+String.fromCharCode(65+i)}</span>
+            </button>))}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
+          <Bt v="s" onClick={()=>sAprobVar(null)}>Cancelar</Bt>
+        </div>
+      </div>}
     </Md>
 
     {/* Borrar una pieza. Antes era un confirm() del navegador, que no admite casillas — y hacía
@@ -8568,7 +8615,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
     const t=items.find(x=>String(x.id)===String(id));
     if(!t)return; // publicadas ahora TAMBIÉN abren el drawer (para ver estadísticas + chat)
     sSel(null);
-    sModal({id:t.id,title:t.title,type:t.type,file:t.files&&t.files[0],files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null,state:t.state,socialPost:t.socialPost||null});
+    sModal({id:t.id,title:t.title,type:t.type,file:archivoDe(t),files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null,state:t.state,socialPost:t.socialPost||null});
   };
 
   // El id viaja en el dataTransfer, no en el estado de React: entre dragstart y drop
@@ -8605,8 +8652,8 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
     title={t.title+(t.publishTime?" · "+t.publishTime:"")}
     style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:(TT[t.type]?.c||"#999")+"14",border:"1px solid "+(TT[t.type]?.c||"#999")+"2e",borderLeft:"3px solid "+(TT[t.type]?.c||"#999"),cursor:"pointer",opacity:dragId===t.id?.4:1,overflow:"hidden"}}>
     <span style={{position:"relative",width:26,height:26,flexShrink:0,borderRadius:6,background:PC.panel,border:"1px solid rgba(255,255,255,.1)",overflow:"hidden",display:"inline-flex"}}>
-      {t.files&&t.files[0]&&isImg(t.files[0])
-        ? <img src={fSrc(t.files[0])} alt="" draggable={false} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+      {archivoDe(t)&&isImg(archivoDe(t))
+        ? <img src={fSrc(archivoDe(t))} alt="" draggable={false} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
         : <span style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12}}>{TT[t.type]?.i}</span>}
     </span>
     <span style={{fontSize:12.5,fontWeight:600,color:TT[t.type]?.c,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{t.title}</span>
@@ -8638,10 +8685,10 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
                 <button key={t.id} {...pieceProps(t)} onClick={()=>sSel(on?null:t.id)}
                   style={{display:"flex",flexDirection:"column",width:118,padding:0,borderRadius:14,overflow:"hidden",background:PC.panel,border:"1px solid "+(on?PC.cian:PC.line2),cursor:"pointer",textAlign:"left",fontFamily:"inherit",transform:on?"translateY(-2px)":"none",transition:"border-color .25s, transform .25s",opacity:dragId===t.id?.4:1,position:"relative"}}>
                   <div style={{position:"relative",height:86,background:"#0F1320",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-                    {t.files&&t.files[0]
-                      ? <DeckMedia f={t.files[0]} h={86} fit="cover"/>
+                    {archivoDe(t)
+                      ? <DeckMedia f={archivoDe(t)} h={86} fit="cover"/>
                       : <span style={{fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:".2em",textTransform:"uppercase",color:"rgba(244,242,237,.75)"}}>{TT[t.type]?.l}</span>}
-                    {t.files&&t.files[0]&&<ZoomBtn files={t.files} style={{top:5,left:"auto",right:5,width:22,height:22}}/>}
+                    {archivoDe(t)&&<ZoomBtn files={t.files} style={{top:5,left:"auto",right:5,width:22,height:22}}/>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:3,padding:"9px 11px 11px"}}>
                     <span style={{fontSize:10.5,fontWeight:600,color:TT[t.type]?.c}}>{TT[t.type]?.l}</span>
@@ -8709,7 +8756,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
 
     {/* BARRA DE SELECCIÓN (flujo táctil) */}
     {selTask&&(<Portal><div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:120,padding:"11px 16px calc(11px + env(safe-area-inset-bottom, 0px))",background:"rgba(11,14,23,.96)",backdropFilter:"blur(12px)",borderTop:"1px solid "+PC.cian,display:"flex",alignItems:"center",gap:10,boxShadow:"0 -6px 24px rgba(0,0,0,.5)"}}>
-      {selTask.files&&selTask.files[0]&&isImg(selTask.files[0])&&<img src={fSrc(selTask.files[0])} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
+      {archivoDe(selTask)&&isImg(archivoDe(selTask))&&<img src={fSrc(archivoDe(selTask))} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:12.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selTask.title}</div>
         <div style={{fontSize:11,color:PC.cian}}>Ahora toca el día donde quieres publicarlo</div>
@@ -8924,7 +8971,7 @@ function PostStatsChat({co,task}){
 
 // Para la pestaña "Resultados": preview de la pieza + el bloque de estadísticas/chat reutilizado.
 function ResultadoPost({co,task}){
-  const media=task.files&&task.files[0];
+  const media=archivoDe(task);
   return(<div style={{marginBottom:18}}>
     <div style={{display:"flex",gap:12,alignItems:"center",padding:"2px 2px"}}>
       <div style={{width:56,height:56,borderRadius:12,overflow:"hidden",flexShrink:0,background:PC.bg,border:"1px solid "+PC.line2}}>
