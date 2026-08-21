@@ -4409,20 +4409,44 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 todavía no tienen su cadena armada. Desde aquí se prepara (preset o a medida) y
                 queda atada a la pieza para activarse sola al publicarse. */}
             {(()=>{
-              const pend=(tasks||[]).filter(t=>String(t.companyId)===String(selCo)&&t.autoComentario&&!reglas.some(r=>String(r.taskId)===String(t.id))&&t.state!=="publicado");
-              if(!pend.length)return null;
+              const deLaEmpresa=t=>String(t.companyId)===String(selCo)&&!reglas.some(r=>String(r.taskId)===String(t.id))&&t.state!=="publicado";
+              const pend=(tasks||[]).filter(t=>deLaEmpresa(t)&&t.autoComentario);
+              // El switch de automatización solo vivía en la tarjeta de Org Semanal, así que una
+              // pieza creada desde Contenido —que es lo normal— no tenía forma de marcarse, y sin
+              // marcar no aparecía aquí. Quien se olvidaba del switch se quedaba sin camino dentro
+              // de la app: había que publicar y atar la cadena a mano a la publicación. Ahora se
+              // puede marcar desde aquí, que es donde uno se da cuenta de que falta.
+              const candidatas=(tasks||[]).filter(t=>deLaEmpresa(t)&&!t.autoComentario&&["reel","post"].includes(t.type));
+              if(!pend.length&&!candidatas.length)return null;
               return(<div style={{borderRadius:16,border:"1px solid rgba(155,180,255,.35)",background:"rgba(155,180,255,.05)",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:15}}>💬</span>
-                  <span style={{fontSize:13.5,fontWeight:700,color:D.peri}}>{pend.length} automatización{pend.length===1?"":"es"} pendiente{pend.length===1?"":"s"}</span>
+                  <span style={{fontSize:13.5,fontWeight:700,color:D.peri}}>{pend.length?(pend.length+" automatización"+(pend.length===1?"":"es")+" pendiente"+(pend.length===1?"":"s")):"Automatización de comentarios"}</span>
                 </div>
-                <div style={{fontSize:12,color:D.tx3,lineHeight:1.5,marginTop:-4}}>Estas piezas van con automatización (marcadas en Org Semanal). Prepárales la cadena; se activará sola cuando el contenido se publique.</div>
+                {pend.length>0&&<div style={{fontSize:12,color:D.tx3,lineHeight:1.5,marginTop:-4}}>Estas piezas van con automatización. Prepárales la cadena; se activará sola cuando el contenido se publique.</div>}
                 {pend.map(t=>(
                   <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"9px 11px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2}}>
                     <span style={{flexShrink:0,padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c||D.tx3,fontSize:10.5,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
                     <span style={{flex:"1 1 140px",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
                     <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>
                   </div>))}
+                {/* Marcar una pieza que se quedó sin el switch. Vale mientras no esté publicada:
+                    enviada al portal o aprobada por el cliente sigue a tiempo, porque la cadena se
+                    ata al publicar, no al aprobar. Una vez publicada ya no entra por aquí — se le
+                    ata a mano eligiendo su publicación en el constructor de cadenas. */}
+                {candidatas.length>0&&<div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",paddingTop:pend.length?9:0,borderTop:pend.length?"1px solid "+D.line2:"none"}}>
+                  <span style={{fontSize:12,color:D.tx3}}>{pend.length?"¿Falta alguna?":"Marca una pieza para que su cadena se arme sola al publicarse:"}</span>
+                  <select value="" onChange={e=>{
+                      const t=candidatas.find(x=>String(x.id)===e.target.value);
+                      if(!t)return;
+                      upT(t.id,{autoComentario:true,autoEstado:"pendiente"});
+                      addN("💬 «"+(t.title||"Pieza")+"» va con automatización — prepárale la cadena aquí abajo");
+                    }}
+                    style={{flex:"1 1 200px",minWidth:0,padding:"8px 11px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,cursor:"pointer"}}>
+                    <option value="">Elegir pieza…</option>
+                    {candidatas.map(t=><option key={t.id} value={t.id}>{(TT[t.type]?.l||t.type)+" · "+(t.title||"Sin título")}</option>)}
+                  </select>
+                </div>}
               </div>);
             })()}
             {reglas.length===0&&<div style={{padding:"34px 20px",textAlign:"center",borderRadius:14,border:"1px dashed "+D.line2,color:D.tx4,fontSize:13}}>Todavía no hay ninguna cadena.</div>}
