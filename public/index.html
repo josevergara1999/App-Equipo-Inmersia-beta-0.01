@@ -464,6 +464,19 @@ const API={
   async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
   async gcalSync(email,title,company,date){try{const r=await fetch("/api/gcal/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,title,company,date})});return r.json();}catch(e){console.log("gcal sync err:",e);return{ok:false};}},
   async logout(){try{await fetch("/api/auth/logout",{method:"POST"});}catch(e){}localStorage.clear();sessionStorage.clear();window.location.href="/";},
+  // Borra un archivo del bucket. Solo la llama la casilla del diálogo de borrar una pieza: la app
+  // no destruye binarios por su cuenta, para que un clic mal dado no se lleve el material de un
+  // cliente. Devuelve si de verdad se borró, porque quien lo pidió tiene que saberlo.
+  async borrarArchivo(url){
+    try{
+      const r=await fetch("/api/upload/delete",{
+        method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+        body:JSON.stringify({url})
+      });
+      if(!r.ok)console.error("borrarArchivo:",r.status,await r.text());
+      return r.ok;
+    }catch(e){console.error("borrarArchivo:",e);return false;}
+  },
   // Quién dice el SERVIDOR que eres. La cookie `_iauth` es una sola por navegador: entrar al
   // portal de un cliente para probarlo deja TODAS las pestañas hablando como ese cliente,
   // mientras la interfaz sigue mostrando el panel de admin. Sin esto no hay forma de notarlo.
@@ -3855,8 +3868,19 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       addN("↩️ «"+(t.title||"Pieza")+"» volvió a ser un cupo libre");
       return;
     }
-    const enPortal=salioAlPortal(t);
-    if(!confirm("¿Eliminar «"+(t.title||"Sin título")+"»?"+(enPortal?"\n\nOJO: ya pasó por el portal del cliente. Se pierden sus votos, archivos, correcciones y la respuesta del cliente.":"")+(t.itemId!=null?"\n\nTambién se quita de Org Semanal.":"")+"\n\nEsto no se puede deshacer."))return;
+    // El confirm() del navegador no admite una casilla, y hace falta: borrar la pieza no borraba
+    // el archivo, así que el vídeo seguía descargable por su URL pública para siempre. Se pasa a
+    // un diálogo propio donde se elige, con la casilla APAGADA por defecto: conservar el original
+    // sigue siendo lo prudente, pero ahora es una decisión y no un callejón sin salida.
+    sBorrando(t);
+  };
+  const[borrando,sBorrando]=useState(null);
+  const[borrarArchivos,sBorrarArchivos]=useState(false);
+  useEffect(()=>{if(borrando)sBorrarArchivos(false);},[borrando]);
+  const confirmarBorrado=async()=>{
+    const t=borrando;if(!t)return;
+    sBorrando(null);
+    const archivos=(t.files||[]).filter(f=>f&&f.url&&f.url.includes("/storage/v1/object/public/"));
     sT(p=>{const r=p.filter(x=>x.id!==t.id);DB.save("tasks",r);return r;});
     // Su item en el planner tiene que irse también: si no, la próxima confirmación la revive.
     if(t.itemId!=null&&sPlanners){
@@ -3865,7 +3889,14 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         DB.save("planners",np);return np;
       });
     }
-    addN("🗑 «"+(t.title||"Pieza")+"» eliminada");
+    if(!borrarArchivos||!archivos.length){addN("🗑 «"+(t.title||"Pieza")+"» eliminada");return;}
+    // Los archivos se borran DESPUÉS de quitar la pieza, y si alguno falla se dice cuál: la pieza
+    // ya no está y callarse un archivo que sigue en pie sería justo lo que se quería evitar.
+    const fallos=[];
+    for(const f of archivos){ if(!(await API.borrarArchivo(f.url))) fallos.push(f.name||"un archivo"); }
+    addN(fallos.length
+      ?"🗑 Pieza eliminada, pero no se pudo borrar "+fallos.join(", ")+" — sigue en Storage"
+      :"🗑 «"+(t.title||"Pieza")+"» eliminada, y su "+(archivos.length>1?archivos.length+" archivos":"archivo")+" también");
   };
 
   // Subir material a una pieza concreta (etapas Borrador y En producción)
@@ -4474,6 +4505,39 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <Bt v="s" onClick={()=>sNueva(false)}>Cancelar</Bt>
         <Bt v="p" onClick={crearPieza} icon="plus">Crear</Bt>
       </div>
+    </Md>
+
+    {/* Borrar una pieza. Antes era un confirm() del navegador, que no admite casillas — y hacía
+        falta una: borrar la pieza dejaba el vídeo descargable por su URL pública para siempre. */}
+    <Md open={!!borrando} onClose={()=>sBorrando(null)} title="Eliminar pieza" width={440}>
+      {borrando&&(()=>{
+        const arch=(borrando.files||[]).filter(f=>f&&f.url&&f.url.includes("/storage/v1/object/public/"));
+        return(<div>
+          <p style={{fontSize:14,lineHeight:1.55,margin:"0 0 12px"}}>
+            Vas a eliminar <b>«{borrando.title||"Sin título"}»</b>.
+          </p>
+          {salioAlPortal(borrando)&&<p style={{fontSize:12.5,lineHeight:1.5,color:D.rojo,margin:"0 0 12px"}}>
+            Ya pasó por el portal del cliente: se pierden sus votos, correcciones y la respuesta del cliente.
+          </p>}
+          {borrando.itemId!=null&&<p style={{fontSize:12.5,lineHeight:1.5,color:D.tx3,margin:"0 0 12px"}}>
+            También se quita de Org Semanal.
+          </p>}
+          {arch.length>0&&<label style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:10,background:"rgba(255,139,139,.06)",border:"1px solid rgba(255,139,139,.28)",cursor:"pointer",marginBottom:14}}>
+            <input type="checkbox" checked={borrarArchivos} onChange={e=>sBorrarArchivos(e.target.checked)} style={{width:15,height:15,marginTop:2,padding:0,flexShrink:0}}/>
+            <span style={{fontSize:12.5,lineHeight:1.5}}>
+              <b>Borrar también {arch.length>1?("los "+arch.length+" archivos"):"el archivo"} de Storage</b>
+              <span style={{display:"block",color:D.tx3,marginTop:3}}>
+                Sin marcar, {arch.length>1?"siguen":"sigue"} descargable{arch.length>1?"s":""} por su enlace aunque la pieza desaparezca. Marcado, no queda rastro — y no se recupera.
+              </span>
+            </span>
+          </label>}
+          <p style={{fontSize:12,color:D.tx4,margin:"0 0 14px"}}>Esto no se puede deshacer.</p>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Bt v="s" onClick={()=>sBorrando(null)}>Cancelar</Bt>
+            <Bt v="d" onClick={confirmarBorrado} icon="trash">Eliminar</Bt>
+          </div>
+        </div>);
+      })()}
     </Md>
 
 

@@ -2362,6 +2362,47 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
   }
 });
 
+// ── Borrar un archivo del bucket ─────────────────────────────────────────────
+// La app NO borra binarios por su cuenta: quitar una pieza quita la referencia y el original se
+// queda, para que un clic mal dado no destruya el material de un cliente. Pero cuando alguien
+// borra a propósito y quiere que no quede rastro, hasta ahora no había forma: el vídeo seguía
+// descargable por su URL pública para cualquiera que la tuviera. Esta ruta es esa forma, y por
+// eso es EXPLÍCITA —la pide una casilla del diálogo de borrar, nunca se dispara sola—.
+//
+// Solo equipo: un cliente no borra archivos ni los suyos. Y solo rutas dentro del bucket, sin
+// `..`, para que el objectPath no pueda salirse de donde debe.
+app.post("/api/upload/delete", requireAuth, async (req, res) => {
+  if (clienteDe(authInfo(req))) return res.status(403).json({ error: "un cliente no puede borrar archivos" });
+  try {
+    const url = String((req.body && req.body.url) || "");
+    if (!url) return res.status(400).json({ error: "falta url" });
+    // Se acepta la URL pública tal cual la guarda la pieza y se extrae la ruta del objeto.
+    const marca = `/storage/v1/object/public/${CONTENT_BUCKET}/`;
+    const i = url.indexOf(marca);
+    if (i < 0) return res.status(400).json({ error: "esa url no es de un archivo de la app" });
+    const objectPath = decodeURIComponent(url.slice(i + marca.length)).split("?")[0];
+    if (!objectPath || objectPath.includes("..")) return res.status(400).json({ error: "ruta no válida" });
+
+    const key = storageKey();
+    if (!key) return res.status(503).json({ error: "storage_no_configurado" });
+    const r = await fetch(`${storageUrl()}/storage/v1/object/${CONTENT_BUCKET}/${objectPath}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${key}`, apikey: key },   // el apikey hace falta: ver /api/upload
+    });
+    // Un 404 es éxito para quien llama: el archivo ya no está, que es lo que pedía.
+    if (!r.ok && r.status !== 404) {
+      const detail = await r.text();
+      console.error("Storage delete failed:", r.status, detail);
+      return res.status(502).json({ error: explicarStorage(r.status, detail) });
+    }
+    console.log("Archivo borrado del bucket:", objectPath);
+    res.json({ ok: true, borrado: objectPath });
+  } catch (err) {
+    console.error("Delete error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Permite al frontend saber si puede subir video o si tiene que limitarse a imágenes
 // pequeñas en base64 (fallback cuando el bucket todavía no está configurado).
 // Tener la llave no basta: con la llave puesta y el bucket sin crear, esto respondía
