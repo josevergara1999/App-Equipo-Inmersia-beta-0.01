@@ -4127,13 +4127,21 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         {f0&&m.k!=="aprobado"&&t.state!=="publicado"&&(()=>{
           const n=(t.files||[]).length;
           return(<div style={{position:"relative",display:"flex",flexDirection:"column",gap:7}}>
-            {n>1&&<label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
-              <input type="checkbox" checked={!!t.variantes} onChange={e=>upT(t.id,{variantes:e.target.checked,...(e.target.checked?{}:{varianteElegida:null})})} style={{width:14,height:14,marginTop:2,padding:0,flexShrink:0}}/>
-              <span style={{fontSize:11,lineHeight:1.45,color:t.variantes?D.peri:D.tx4}}>
-                <b>Son {n} versiones — el cliente elige una</b>
-                {t.variantes&&<span style={{display:"block",color:D.tx4}}>En su portal las verá juntas y solo podrá aprobar una. Gasta un cupo, no {n}.</span>}
+            {n>1&&<>
+              {/* La explicación va FUERA del <label>: dentro, tocar cualquier palabra alternaba la
+                  casilla, y un clic de más en el texto desmarcaba las variantes sin que se notara
+                  —pasó: la pieza volvió a `variantes:false` y al cliente le desapareció el
+                  selector—. El label envuelve solo la línea que se puede pulsar. */}
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",width:"fit-content"}}>
+                <input type="checkbox" checked={!!t.variantes} onChange={e=>upT(t.id,{variantes:e.target.checked,...(e.target.checked?{}:{varianteElegida:null})})} style={{width:14,height:14,padding:0,flexShrink:0}}/>
+                <b style={{fontSize:11,lineHeight:1.45,color:t.variantes?D.peri:D.tx4}}>Son {n} versiones — el cliente elige una</b>
+              </label>
+              <span style={{fontSize:10.5,lineHeight:1.45,color:t.variantes?D.tx4:D.rojo,paddingLeft:22,marginTop:-4}}>
+                {t.variantes
+                  ?"En su portal las verá juntas y solo podrá aprobar una. Gasta un cupo, no "+n+"."
+                  :"⚠ Sin marcar, al cliente solo le llega la primera y las demás no las ve."}
               </span>
-            </label>}
+            </>}
             <button onClick={()=>pickFor(t.id)} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:9,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer",width:"fit-content"}}>
               + Otra versión{n>1?" (van "+n+")":" de esta pieza"}
             </button>
