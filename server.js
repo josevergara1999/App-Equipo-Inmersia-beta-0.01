@@ -722,6 +722,19 @@ app.post("/api/data/:key", requireAuth, async (req, res) => {
       if (!cid) return res.status(403).json({ error: "empresa no resuelta" });
       const actuales = (await sbGet("tasks", [])) || [];
       const propuestas = new Map((Array.isArray(req.body.value) ? req.body.value : []).map(t => [t.id, t]));
+      // Un cliente no puede dar de baja una pieza, y hasta ahora eso se aplicaba CALLÁNDOSELO: el
+      // map de abajo conserva lo que la propuesta no trae, así que la baja se ignoraba y el
+      // servidor respondía 200. Quien la pedía veía la pieza desaparecer de su pantalla, recargaba
+      // y volvía a estar. Peor cuando el que pedía era el equipo con la cookie de un cliente
+      // (ver /api/auth/me): la app entera parecía funcionar y no guardaba nada de lo que borraba.
+      // Rechazar en voz alta es la diferencia entre un permiso y un agujero negro.
+      const suyas = actuales.filter(t => String(t.companyId) === cid);
+      const bajas = suyas.filter(t => !propuestas.has(t.id)).map(t => t.id);
+      if (bajas.length) return res.status(409).json({
+        error: "un cliente no puede eliminar piezas",
+        detalle: "La sesión activa es de cliente y pidió dar de baja " + bajas.length + " pieza(s). No se guardó nada.",
+        codigo: "baja_no_permitida",
+      });
       const nuevas = actuales.map(t =>
         (String(t.companyId) === cid && propuestas.has(t.id))
           ? { ...propuestas.get(t.id), companyId: t.companyId }  // fija la empresa: no se reasigna
@@ -1100,6 +1113,20 @@ app.post("/api/notifs/repaso", requireAuth, async (req, res) => { const d = awai
 // ===============================
 app.get("/api/test", (req, res) => {
   res.json({ ok: true, msg: "INMERSIA server running" });
+});
+
+// Quién dice el SERVIDOR que eres. Existe porque el navegador y el servidor pueden discrepar:
+// la cookie `_iauth` es una sola por navegador, así que entrar al portal de un cliente para
+// probarlo deja TODAS las pestañas —incluida la del equipo— hablando como ese cliente. La
+// interfaz seguía mostrando el panel de admin mientras el servidor solo entregaba la empresa del
+// cliente y solo aceptaba el merge restringido: se podía trabajar media hora sobre una sesión
+// ajena sin un solo aviso, y los borrados se perdían (el 21-ago-2026 pasó exactamente eso).
+// La app compara esto contra el usuario que tiene en pantalla y se planta si no coinciden.
+app.get("/api/auth/me", (req, res) => {
+  const tok = authInfo(req);
+  if (!tok || !tok.email) return res.json({ sesion: false });
+  const empresa = clienteDe(tok);
+  res.json({ sesion: true, email: tok.email, esCliente: !!empresa, empresa: empresa || null });
 });
 
 app.get("/api/health", (req, res) => {

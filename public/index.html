@@ -464,6 +464,16 @@ const API={
   async notify(data){try{await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})}catch(e){console.log("notify err:",e)}},
   async gcalSync(email,title,company,date){try{const r=await fetch("/api/gcal/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,title,company,date})});return r.json();}catch(e){console.log("gcal sync err:",e);return{ok:false};}},
   async logout(){try{await fetch("/api/auth/logout",{method:"POST"});}catch(e){}localStorage.clear();sessionStorage.clear();window.location.href="/";},
+  // Quién dice el SERVIDOR que eres. La cookie `_iauth` es una sola por navegador: entrar al
+  // portal de un cliente para probarlo deja TODAS las pestañas hablando como ese cliente,
+  // mientras la interfaz sigue mostrando el panel de admin. Sin esto no hay forma de notarlo.
+  async quienSoy(){
+    try{
+      const r=await fetch("/api/auth/me",{credentials:"same-origin"});
+      if(!r.ok)return null;
+      return await r.json();
+    }catch(e){return null;}
+  },
 };
 
 // ═══ CONFIG ═════════════════════════════════════════════════════
@@ -9344,6 +9354,27 @@ function ClientView({user:cu,onLogout:ol}){
 function App(){
   const [u,sU]=useState(null);
   const [us,sUs]=useState(INIT_USERS);
+  // Se contrasta con el servidor QUIÉN eres antes de dejarte trabajar. Solo se bloquea por un
+  // desajuste que estropea datos —te atiende como cliente y la pantalla es de equipo, o al revés,
+  // o la sesión ya no existe—; un email distinto con el mismo rol se avisa por consola y se sigue,
+  // porque quien entra con su Gmail y figura en el equipo con otro correo es un caso normal y
+  // dejar al equipo fuera de la app por eso sería peor que el problema.
+  const [sesion,sSesion]=useState(null);
+  useEffect(()=>{
+    if(!u){sSesion(null);return;}
+    let vivo=true;
+    API.quienSoy().then(d=>{
+      if(!vivo||!d)return;                      // sin respuesta no se bloquea: puede ser la red
+      if(!d.sesion){sSesion({desajuste:"caducada",servidor:d});return;}
+      const soyCliente=u.role==="cliente";
+      if(!!d.esCliente!==soyCliente){sSesion({desajuste:"rol",servidor:d});return;}
+      const mios=[u.email,u.gmail].filter(Boolean).map(e=>String(e).toLowerCase());
+      if(!mios.includes(String(d.email||"").toLowerCase()))
+        console.warn("La sesión del servidor es de "+d.email+" y la pantalla es de "+u.email);
+      sSesion(null);
+    });
+    return()=>{vivo=false;};
+  },[u&&u.email,u&&u.role]);
 
   // 🔥 LOGIN GOOGLE
 useEffect(() => {
@@ -9393,8 +9424,38 @@ useEffect(() => {
 }, []);
 
   if(!u) return <Login users={us} onLogin={x=>{localStorage.setItem("userEmail",x.email);sU(x);}}/>;
+  if(sesion&&sesion.desajuste) return <SesionCruzada info={sesion} quien={u}/>;
   if(u.role==="cliente") return <ClientView user={u} onLogout={()=>API.logout()}/>;
   return <Main user={u} users={us} onLogout={()=>API.logout()} setUsers={sUs}/>;
+}
+
+// La app se planta cuando el usuario que muestra la pantalla NO es el que el servidor tiene en la
+// sesión. Pasa con una sola cookie por navegador: al entrar al portal de un cliente para probarlo,
+// la pestaña del equipo sigue pintando el panel de admin pero cada petición viaja como ese
+// cliente. El servidor entonces solo entrega SU empresa y solo acepta el merge restringido, que
+// no borra: se podía trabajar media hora creyendo que todo iba bien y no guardarse casi nada.
+// Antes esto era invisible; ahora corta el paso, porque seguir trabajando así estropea datos.
+function SesionCruzada({info,quien}){
+  const s=info.servidor||{};
+  const caducada=info.desajuste==="caducada";
+  return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:D.bg,color:D.tx}}>
+    <div style={{maxWidth:480,textAlign:"center"}}>
+      <div style={{fontSize:42,marginBottom:14}}>{caducada?"🔒":"🔀"}</div>
+      <h2 style={{margin:"0 0 10px",fontSize:20}}>{caducada?"Tu sesión caducó":"La sesión no es la tuya"}</h2>
+      <p style={{opacity:.75,margin:"0 0 6px",lineHeight:1.55,fontSize:14}}>
+        {caducada
+          ? "El servidor ya no reconoce esta sesión. Nada de lo que hagas se guardaría."
+          : <>La pantalla te muestra como <b>{quien.name}</b>, pero el servidor te atiende como <b>{s.esCliente?("el cliente "+(s.empresa||s.email)):s.email}</b>.</>}
+      </p>
+      {!caducada&&<p style={{opacity:.55,margin:"0 0 20px",lineHeight:1.5,fontSize:12.5}}>
+        Suele pasar tras entrar al portal de un cliente para probarlo: la sesión es una sola por
+        navegador. Trabajando así, lo que borres no se borra y verás datos de esa empresa.
+      </p>}
+      <button onClick={()=>API.logout()} style={{background:PC.cian,color:D.bg,border:"none",borderRadius:10,padding:"12px 24px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        Salir y volver a entrar
+      </button>
+    </div>
+  </div>);
 }
 
 // Red de seguridad: sin esto, cualquier excepción no capturada en un render (una fila con un
