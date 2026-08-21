@@ -4536,11 +4536,22 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                   <span style={{fontSize:13.5,fontWeight:700,color:D.peri}}>{pend.length?(pend.length+" automatización"+(pend.length===1?"":"es")+" pendiente"+(pend.length===1?"":"s")):"Automatización de comentarios"}</span>
                 </div>
                 {pend.length>0&&<div style={{fontSize:12,color:D.tx3,lineHeight:1.5,marginTop:-4}}>Estas piezas van con automatización. Prepárales la cadena; se activará sola cuando el contenido se publique.</div>}
-                {pend.map(t=>(
-                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"9px 11px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2}}>
+                {pend.map(t=>{
+                  // Una pieza con varias versiones no se puede automatizar todavía: la cadena se
+                  // escribe PARA un contenido concreto —"comenta VOZ y te mando el link"— y hasta
+                  // que el cliente no elige no se sabe cuál sale. Se deja a la vista, en espera y
+                  // con el motivo, en vez de dejar escribirla a ciegas para rehacerla después.
+                  const esperando=tieneVariantes(t)&&!t.varianteElegida;
+                  return(
+                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"9px 11px",borderRadius:11,background:D.panel,border:"1px solid "+(esperando?"rgba(239,217,160,.32)":D.line2)}}>
                     <span style={{flexShrink:0,padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c||D.tx3,fontSize:10.5,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
-                    <span style={{flex:"1 1 140px",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
-                    <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>
+                    <span style={{flex:"1 1 140px",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
+                      {esperando&&<span style={{fontSize:10.5,color:"#EFD9A0",lineHeight:1.4}}>⏳ Esperando que {co?.name||"el cliente"} elija entre las {(t.files||[]).length} versiones</span>}
+                    </span>
+                    {esperando
+                      ? <span title="La cadena se escribe para el contenido que salga; primero hay que saber cuál" style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed rgba(239,217,160,.45)",color:"#EFD9A0",fontSize:12,fontWeight:600}}>En espera</span>
+                      : <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>}
                     {/* Quitarla de la lista. No borra nada: solo deja de ir con automatización, y
                         vuelve al selector de abajo por si fue un clic de más. */}
                     <button onClick={()=>{marcarAuto(t,false);addN("«"+(t.title||"Pieza")+"» ya no va con automatización");}}
@@ -4548,7 +4559,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                       style={{flexShrink:0,width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx4,cursor:"pointer",padding:0}}>
                       <Ic n="x" s={14}/>
                     </button>
-                  </div>))}
+                  </div>);})}
                 {/* Marcar una pieza que se quedó sin el switch. Vale mientras no esté publicada:
                     enviada al portal o aprobada por el cliente sigue a tiempo, porque la cadena se
                     ata al publicar, no al aprobar. Una vez publicada ya no entra por aquí — se le
