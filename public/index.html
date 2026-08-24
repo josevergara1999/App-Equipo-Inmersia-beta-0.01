@@ -7046,27 +7046,41 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
 // Los datos del alta NO se editan sueltos después: se cambian volviendo a entrar al asistente.
 // Un select de tipo y un input de título sueltos en la tarjeta eran la mitad del ruido, y se
 // tocaban sin querer sobre piezas que ya estaban en marcha.
+// Alta de una pieza. DOS pasos: qué es, y quién la hace.
+//
+// Eran tres, y los datos decían que sobraba la mitad: de siete tipos solo se usaban post, reel e
+// historia —los otros cuatro, ni una vez— y el paso del encargado no lo rellenaba nadie (0 de 8
+// piezas tenían uno). Quien no conoce la plataforma se encontraba tres pantallas y siete botones
+// para meter dos datos, y eso es lo que hacía que pareciera difícil algo que no lo es.
+//
+// Ahora: tipo y título, encargado, y crear. Lo de antes en el paso 3 —Drive, automatización,
+// referencias— no se ha perdido: vive plegado dentro del segundo paso, que es donde tiene sentido
+// mirarlo (se abre solo si hace falta) en vez de ser una pantalla más por la que pasar.
+const TIPOS_HABITUALES=["post","reel","historia"];
 function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,editando,onSubirRef,onQuitarRef,subiendoRef}){
   const equipo=users.filter(u=>u.role!=="cliente");
   const carpetas=co?.links||[];
   const tieneAuto=["reel","post"].includes(it.type);
   const PASOS=[
     {t:"¿Qué se publica?", sub:"El tipo y el título con el que lo vas a reconocer."},
-    {t:"¿Quién lo hace?",  sub:"Le llega el aviso y es quien va moviendo la pieza de estado. Se puede dejar para después."},
-    {t:"Detalles",         sub:"Todo lo de este paso es opcional."},
+    {t:"¿Quién la hace?",  sub:"Le llega el aviso. Puedes dejarlo sin asignar."},
   ];
-  // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está,
-  // y al retomar una a medias cae justo donde se dejó.
-  const[i,sI]=useState(!(it.title||"").trim()?0:!(it.production||[]).length?1:0);
+  // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está.
+  const[i,sI]=useState(!(it.title||"").trim()?0:1);
+  // Los cuatro tipos raros no se borran, se guardan: los planes contratados incluyen cupo de
+  // Video Pro y de Visita, así que tienen que poder crearse. Simplemente dejan de ocupar dos
+  // filas de botones delante de quien nueve de cada diez veces quiere un post, un reel o una
+  // historia. Si la pieza ya es de uno de esos tipos, la lista se abre sola.
+  const otrosTipos=Object.keys(TT).filter(k=>!TIPOS_HABITUALES.includes(k));
+  const[verOtros,sVerOtros]=useState(otrosTipos.includes(it.type));
+  const[verDetalles,sVerDetalles]=useState(false);
   const paso=PASOS[i];
-  // El encargado dejó de ser obligatorio para avanzar. Era un callejón sin salida: a veces la
-  // pieza se anota primero y se reparte después, y quien no elegía a nadie se quedaba trabado en
-  // el paso 2 sin poder crearla. Lo que falta se avisa —aquí y en la tarjeta— en vez de bloquear.
   const puedeSeguir=i===0?!!(it.title||"").trim():true;
   const ultimo=i===PASOS.length-1;
+  const nEnc=(it.production||[]).length;
 
   const campo={padding:"11px 13px",borderRadius:11,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:14,outline:"none",boxSizing:"border-box",width:"100%"};
-  const chip=(on,c)=>({padding:"8px 14px",borderRadius:999,background:on?(c||D.cian)+"1f":"transparent",border:"1px solid "+(on?(c||D.cian)+"8c":D.line2),color:on?(c||D.cian):D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:on?700:600,cursor:"pointer"});
+  const chip=(on,c)=>({padding:"8px 14px",borderRadius:999,background:on?(c||D.cian)+"1f":"transparent",border:"1px solid "+(on?(c||D.cian)+"8c":D.line2),color:on?(c||D.cian):D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"});
 
   return(<div style={{position:"relative",display:"flex",flexDirection:"column",gap:14}}>
     {/* Migas: cuántos pasos son y en cuál vas. Sin esto un asistente se siente infinito. */}
@@ -7078,7 +7092,7 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
       </div>
       <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4}}>Paso {i+1} de {PASOS.length}</span>
       <div style={{flex:"1 1 auto"}}/>
-      <button onClick={onCancelar} style={{padding:"6px 12px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Cancelar</button>
+      <button onClick={onCancelar} style={{padding:"6px 12px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>Cancelar</button>
     </div>
 
     <div>
@@ -7087,9 +7101,13 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
     </div>
 
     {i===0&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-        {Object.entries(TT).map(([k,v])=>(
-          <button key={k} onClick={()=>onCambio({type:k})} style={chip(it.type===k,v.c)}>{v.l}</button>))}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+        {TIPOS_HABITUALES.map(k=>(
+          <button key={k} onClick={()=>onCambio({type:k})} style={chip(it.type===k,TT[k].c)}>{TT[k].l}</button>))}
+        {!verOtros
+          ? <button onClick={()=>sVerOtros(true)} style={{padding:"8px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx5,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>Otros…</button>
+          : otrosTipos.map(k=>(
+              <button key={k} onClick={()=>onCambio({type:k})} style={chip(it.type===k,TT[k].c)}>{TT[k].l}</button>))}
       </div>
       <input autoFocus value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
         onKeyDown={e=>{if(e.key==="Enter"&&puedeSeguir)sI(1);}}
@@ -7097,82 +7115,98 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
     </div>)}
 
     {i===1&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-        {equipo.map(u=>{const on=(it.production||[]).includes(u.id);return(
-          <button key={u.id} onClick={()=>onCambio({production:on?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
-            style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on)}}>
-            <Av u={u} sz={20}/>{u.name}{on&&<Ic n="check" s={12} c={D.cian}/>}
-          </button>);})}
+      {/* Filas, no píldoras. La píldora con avatar diminuto no decía si estaba puesta o no —el
+          borde encendido es la única diferencia— y en el teléfono se tocaba de refilón. Una fila
+          por persona, con su marca a la derecha, se lee de un vistazo y se acierta con el dedo. */}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {equipo.map(u=>{
+          const on=(it.production||[]).includes(u.id);
+          return(<button key={u.id}
+            onClick={()=>onCambio({production:on?(it.production||[]).filter(x=>x!==u.id):[...(it.production||[]),u.id]})}
+            style={{display:"flex",alignItems:"center",gap:11,padding:"10px 13px",borderRadius:12,background:on?"rgba(111,231,242,.07)":D.panel,border:"1px solid "+(on?"rgba(111,231,242,.45)":D.line2),color:D.tx,fontFamily:"inherit",fontSize:13.5,fontWeight:on?600:500,textAlign:"left",cursor:"pointer",width:"100%"}}>
+            <Av u={u} sz={26}/>
+            <span style={{flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</span>
+            <span style={{flexShrink:0,width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid "+(on?D.cian:D.line2),background:on?D.cian:"transparent"}}>
+              {on&&<Ic n="check" s={12} c={D.bg}/>}
+            </span>
+          </button>);
+        })}
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Nota para quien lo hace · opcional</span>
-        <AutoTx value={it.description||""} onChange={e=>onCambio({description:e.target.value})} placeholder="La idea, el ángulo, lo que no puede faltar…"
+        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Nota para quien la hace · opcional</span>
+        <textarea value={it.strategy||""} onChange={e=>onCambio({strategy:e.target.value})}
+          placeholder="Ej: que se vea la terraza al atardecer" rows={2}
           style={{...campo,fontSize:13,lineHeight:1.55}}/>
       </div>
-    </div>)}
 
-    {i===2&&(<div style={{display:"flex",flexDirection:"column",gap:16}}>
-      {/* Drive: solo si la empresa tiene carpetas cargadas. Ofrecer "asignar carpeta" a una
-          empresa que no tiene ninguna es un callejón sin salida. */}
-      {carpetas.length>0&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Carpeta de Drive con el material</span>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {carpetas.map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
-            <button key={l.id} onClick={()=>onCambio({driveLinks:on?(it.driveLinks||[]).filter(x=>x!==l.id):[...(it.driveLinks||[]),l.id]})}
-              style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on,D.lav)}}>
-              <Ic n="companies" s={13} c={on?D.lav:D.tx3}/>{l.name}{on&&<Ic n="check" s={12} c={D.lav}/>}
-            </button>);})}
+      {/* Lo que antes era un tercer paso. Plegado: son ajustes que la mayoría de las piezas no
+          llevan, y hacer pasar a todo el mundo por una pantalla entera para no rellenar nada era
+          justo lo que alargaba el alta. */}
+      <button onClick={()=>sVerDetalles(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,alignSelf:"flex-start",padding:"7px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+        {verDetalles?"− Ocultar detalles":"+ Drive, automatización y referencias"}
+      </button>
+
+      {verDetalles&&(<div className="d-in" style={{display:"flex",flexDirection:"column",gap:16,padding:"13px 14px",borderRadius:12,background:D.panel,border:"1px solid "+D.line3}}>
+        {/* Drive: solo si la empresa tiene carpetas cargadas. Ofrecer "asignar carpeta" a una
+            empresa que no tiene ninguna es un callejón sin salida. */}
+        {carpetas.length>0&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Carpeta de Drive con el material</span>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            {carpetas.map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
+              <button key={l.id} onClick={()=>onCambio({driveLinks:on?(it.driveLinks||[]).filter(x=>x!==l.id):[...(it.driveLinks||[]),l.id]})}
+                style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on,D.lav)}}>
+                <Ic n="companies" s={13} c={on?D.lav:D.tx3}/>{l.name}{on&&<Ic n="check" s={12} c={D.lav}/>}
+              </button>);})}
+          </div>
+        </div>)}
+
+        {/* Automatización: solo reel y post, que son los tipos a los que se les puede atar una
+            cadena de comentario→DM. La cadena se arma después, en Automatizaciones. */}
+        {tieneAuto&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Automatización de comentarios</span>
+          <button onClick={()=>onCambio({autoComentario:!it.autoComentario})}
+            style={{display:"flex",alignItems:"center",gap:10,alignSelf:"flex-start",padding:"10px 14px",borderRadius:12,background:it.autoComentario?"rgba(155,180,255,.14)":D.bg,border:"1px solid "+(it.autoComentario?"rgba(155,180,255,.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            <Ic n="chat" s={15}/>Quien comente recibe un privado
+            <span style={{width:28,height:16,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
+              <span style={{position:"absolute",top:2,left:it.autoComentario?14:2,width:12,height:12,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
+            </span>
+          </button>
+          {it.autoComentario&&<span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>La cadena de mensajes se arma en <b style={{color:D.tx3}}>Automatizaciones</b> y se enciende sola al publicar.</span>}
+        </div>)}
+
+        {/* Referencias: lo que se le enseña a quien produce («que quede como esto»). */}
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Referencias</span>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+            {(it.refs||[]).map((rf,n)=>(
+              <div key={n} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:999,background:"rgba(201,191,255,.06)",border:"1px solid rgba(201,191,255,.3)"}}>
+                <Ic n="paperclip" s={12} c={D.lav}/>
+                <span onClick={()=>openZoom(it.refs,n)} title="Toca para ver" style={{fontSize:12,fontWeight:600,color:D.lav,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140,cursor:"zoom-in"}}>{rf.name||"Referencia"}</span>
+                <button onClick={()=>onQuitarRef(n)} style={{width:18,height:18,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",padding:0}}><Ic n="x" s={11}/></button>
+              </div>))}
+            <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:subiendoRef?"default":"pointer"}}>
+              {subiendoRef?"Subiendo…":"+ Anclar referencia"}
+              <input type="file" multiple accept="image/*,video/*" disabled={subiendoRef} style={{display:"none"}} onChange={onSubirRef}/>
+            </label>
+          </div>
         </div>
       </div>)}
-
-      {/* Automatización: solo reel y post, que son los tipos a los que se les puede atar una
-          cadena de comentario→DM. La cadena se arma después, en Contenido → Automatización. */}
-      {tieneAuto&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Automatización de comentarios</span>
-        <button onClick={()=>onCambio({autoComentario:!it.autoComentario})}
-          style={{display:"flex",alignItems:"center",gap:10,alignSelf:"flex-start",padding:"10px 14px",borderRadius:12,background:it.autoComentario?"rgba(155,180,255,.14)":D.panel,border:"1px solid "+(it.autoComentario?"rgba(155,180,255,.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-          💬 Quien comente recibe un privado
-          <span style={{width:28,height:16,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
-            <span style={{position:"absolute",top:2,left:it.autoComentario?14:2,width:12,height:12,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
-          </span>
-        </button>
-        {it.autoComentario&&<span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>La cadena de mensajes se arma en <b style={{color:D.tx3}}>Contenido → Automatización</b> y se enciende sola al publicar.</span>}
-      </div>)}
-
-      {/* Referencias: lo que se le enseña a quien produce («que quede como esto»). Vive en el
-          paso opcional y no en la ficha, que es de un vistazo: son archivos que se miran al
-          empezar la pieza, no cada vez que se abre la tarjeta. */}
-      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-        <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Referencias</span>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
-          {(it.refs||[]).map((rf,n)=>(
-            <div key={n} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:999,background:"rgba(201,191,255,.06)",border:"1px solid rgba(201,191,255,.3)",maxWidth:"100%"}}>
-              <Ic n="paperclip" s={12} c={D.lav}/>
-              <span onClick={()=>openZoom(it.refs,n)} title="Toca para ver" style={{fontSize:12,fontWeight:600,color:D.lav,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"zoom-in"}}>{rf.name||"Referencia"}</span>
-              <button onClick={()=>onQuitarRef(n)} style={{width:18,height:18,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",color:D.tx4,cursor:"pointer",flexShrink:0,padding:0}}>✕</button>
-            </div>))}
-          <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:subiendoRef?"default":"pointer"}}>
-            {subiendoRef?"Subiendo…":"+ Anclar referencia"}
-            <input type="file" multiple accept="image/*,video/*" disabled={subiendoRef} style={{display:"none"}} onChange={onSubirRef}/>
-          </label>
-        </div>
-      </div>
     </div>)}
 
     {/* Navegación. El botón de avanzar dice qué falta cuando no se puede seguir, en vez de
         quedarse apagado sin explicar por qué. */}
     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:12,borderTop:"1px solid "+D.line3}}>
-      {i>0&&<button onClick={()=>sI(i-1)} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>← Atrás</button>}
+      {i>0&&<button onClick={()=>sI(i-1)} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,cursor:"pointer"}}>← Atrás</button>}
       <span style={{flex:"1 1 auto",minWidth:0,fontSize:11.5,color:D.tx4,lineHeight:1.45}}>
         {i===0&&!puedeSeguir?"Ponle un título para seguir"
-          :i===1&&!(it.production||[]).length?<span style={{color:"#EFD9A0"}}>Sin encargado no le llega el aviso a nadie. Se puede asignar después.</span>
+          :i===1&&!nEnc?<span style={{color:"#EFD9A0"}}>Sin encargado no le llega el aviso a nadie. Se puede asignar después.</span>
           :""}
       </span>
       {!ultimo
         ? <button disabled={!puedeSeguir} onClick={()=>sI(i+1)}
             style={{flexShrink:0,padding:"9px 20px",borderRadius:999,background:puedeSeguir?D.cian:"transparent",border:"1px solid "+(puedeSeguir?D.cian:D.line2),color:puedeSeguir?D.bg:D.tx5,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:puedeSeguir?"pointer":"default"}}>Siguiente →</button>
         : <button disabled={trabajando} onClick={onTerminar}
-            style={{flexShrink:0,padding:"9px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:trabajando?"default":"pointer",opacity:trabajando?.5:1}}>
+            style={{flexShrink:0,padding:"9px 20px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:trabajando?.6:1}}>
             {trabajando?"Guardando…":editando?"Guardar cambios":"Crear la pieza"}</button>}
     </div>
   </div>);
@@ -7919,7 +7953,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:16,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
 
                     {enAsistente?(
-                      <AsistentePieza it={it} co={co} users={users} editando={!!editandoItem[it.id]}
+                      // "Crear la pieza" o "Guardar cambios" según si YA existe en Contenido, no
+                      // según cómo se abrió el asistente: bastaba con haber pulsado Editar para
+                      // que una pieza que aún no existía en ningún sitio ofreciera "guardar
+                      // cambios", y quien no conoce la app se queda sin saber si la creó o no.
+                      <AsistentePieza it={it} co={co} users={users}
+                        editando={tasks.some(t=>String(t.itemId)===String(it.id))}
                         trabajando={confirmando===it.id}
                         subiendoRef={subiendo===it.id}
                         onSubirRef={e=>handleFiles(it.id,"refs",e)}
