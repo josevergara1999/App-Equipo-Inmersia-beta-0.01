@@ -619,7 +619,20 @@ const TT={};
   TT[k]={l,i};
   Object.defineProperty(TT[k],"c",{get:()=>TT_COLORES[TEMA][k],enumerable:true});
 });
-const SS={no_realizado:{l:"No realizado",c:"#8886a0",b:"#1a1a2e"},en_proceso:{l:"En proceso",c:"#ffd93d",b:"#2a2520"},en_aprobacion:{l:"En aprobacion",c:"#ff6b6b",b:"#2a1a1a"},aprobado:{l:"Aprobado",c:"#4ecdc4",b:"#1a2a28"},publicado:{l:"Publicado",c:"#6bcbff",b:"#1a2030"}};
+// Estados de una pieza. Cada uno con su color de texto y su fondo, y los dos por tema: el
+// fondo oscuro de las píldoras (#1a1a2e y compañía) sobre papel se veía como un parche negro.
+// En claro el fondo es el propio color al 10%, que es como se comportan el resto de los chips.
+const SS_COLORES={
+  oscuro:{no_realizado:["#8886a0","#1a1a2e"],en_proceso:["#ffd93d","#2a2520"],en_aprobacion:["#ff6b6b","#2a1a1a"],aprobado:["#4ecdc4","#1a2a28"],publicado:["#6bcbff","#1a2030"]},
+  claro: {no_realizado:["#6E7479","rgba(110,116,121,.10)"],en_proceso:["#9A7F3F","rgba(154,127,63,.10)"],en_aprobacion:["#B5544A","rgba(181,84,74,.10)"],aprobado:["#2F7E60","rgba(47,126,96,.10)"],publicado:["#4E7A96","rgba(78,122,150,.10)"]},
+};
+const SS={};
+[["no_realizado","No realizado"],["en_proceso","En proceso"],["en_aprobacion","En aprobacion"],
+ ["aprobado","Aprobado"],["publicado","Publicado"]].forEach(([k,l])=>{
+  SS[k]={l};
+  Object.defineProperty(SS[k],"c",{get:()=>SS_COLORES[TEMA][k][0],enumerable:true});
+  Object.defineProperty(SS[k],"b",{get:()=>SS_COLORES[TEMA][k][1],enumerable:true});
+});
 
 // ═══ CUPOS DEL PLAN ═════════════════════════════════════════════
 // El cupo es un número, no una cosa. Antes cada unidad del plan se materializaba como una
@@ -1651,7 +1664,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* USER */}
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:"1px solid "+D.line3,background:D.panel}}>
-          <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+D.lav+",#8E7BE0)",color:"#14101F",fontSize:10,fontWeight:700,flexShrink:0}}>{(cu.name||"?").slice(0,2).toUpperCase()}</div>
+          <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+D.lav+",#8E7BE0)",color:PC.bg,fontSize:10,fontWeight:700,flexShrink:0}}>{(cu.name||"?").slice(0,2).toUpperCase()}</div>
           <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:1}}>
             <span style={{fontSize:12.5,fontWeight:600,lineHeight:1,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cu.name}</span>
             <span style={{fontSize:10.5,color:D.tx4,lineHeight:1}}>{cu.role}</span>
@@ -2344,7 +2357,7 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
                     let btnLabel=STAGE_BTN_LABEL[stageKey],btnTargetEtapa=stageKey,btnBg="transparent",btnBorder="var(--border)",btnColor="var(--tx3)",btnWeight=400,btnBlink=false;
                     if(stageKey==="contactado"){
                       const hasChannel=p.canales_primer_contacto?.length>0;
-                      if(hasChannel){btnLabel="⏳ Esperando";btnTargetEtapa="contactado";btnBg="var(--success)";btnBorder="var(--success)";btnColor="#08130f";btnWeight=700;btnBlink=true;}
+                      if(hasChannel){btnLabel="⏳ Esperando";btnTargetEtapa="contactado";btnBg="var(--success)";btnBorder="var(--success)";btnColor="var(--bg)";btnWeight=700;btnBlink=true;}
                       else{btnLabel="📩 Acercamiento";btnTargetEtapa="contactado";}
                     }else if(stageKey==="en_respuesta"){
                       btnLabel="💬 En conversación";btnTargetEtapa="en_respuesta";btnBg="rgba(77,199,255,.15)";btnBorder="var(--info)";btnColor="var(--info)";btnWeight=700;btnBlink=true;
@@ -3718,7 +3731,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
       return(<Portal>
         <div style={{position:"fixed",left,top,transform:cabeIzq?"translateX(-100%)":"none",
           zIndex:1050,pointerEvents:"none",width:ancho,height:alto,display:"flex",flexDirection:"column",
-          borderRadius:16,overflow:"hidden",background:PC.panel,border:"1px solid #2A3145",
+          borderRadius:16,overflow:"hidden",background:PC.panel,border:"1px solid var(--border2)",
           boxShadow:"0 26px 64px rgba(var(--rgb-velo), 0.85)",animation:"ccFadeIn 0.14s ease-out"}}>
           {p.img
             ?<img src={p.img} alt="" style={{width:ancho,height:ancho,objectFit:"cover",display:"block",flexShrink:0}}/>
@@ -4547,7 +4560,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       {vistaActual==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30,marginTop:8}}>
         {CONT_META.map(m=>(
           <div key={m.k} id={"grp-"+m.k} style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",paddingBottom:8,borderBottom:"1px solid #141928"}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",paddingBottom:8,borderBottom:"1px solid var(--border)"}}>
               <span style={{width:9,height:9,borderRadius:"50%",background:m.col,boxShadow:"0 0 10px "+m.col,alignSelf:"center"}}/>
               <span style={{fontSize:15.5,fontWeight:700,color:m.col}}>{m.est}</span>
               <span style={{fontFamily:"var(--font-mono)",fontSize:12,color:D.tx4}}>{porEtapa[m.k].length} {porEtapa[m.k].length===1?"pieza":"piezas"}</span>
@@ -7028,12 +7041,12 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:D.line15}}>
             {celdas.map((c,i)=>{
-              if(!c)return <div key={"e"+i} style={{minHeight:94,background:"#06080D"}}/>;
+              if(!c)return <div key={"e"+i} style={{minHeight:94,background:"var(--bg)"}}/>;
               const emps=porEmpresa(c.ds);
               const hayGrab=(grabaciones[c.ds]||[]).length>0&&capa==="interno";
               const esHoy=c.ds===hoyDs, sel=selDia===c.ds;
               return(<button key={c.ds} onClick={()=>sSelDia(sel?null:c.ds)}
-                style={{position:"relative",minHeight:94,minWidth:0,padding:"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"#080B12",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
+                style={{position:"relative",minHeight:94,minWidth:0,padding:"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"var(--bg2)",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
                 <span style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{width:22,height:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontSize:11.5,fontWeight:700,color:esHoy?D.bg:(emps.length?D.tx:D.tx4),background:esHoy?D.peri:"transparent",flexShrink:0}}>{c.day}</span>
                   {hayGrab&&<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:6,background:"rgba(var(--rgb-rojo2),.1)",border:"1px solid rgba(var(--rgb-rojo2),.45)",color:D.rojo,fontSize:8.5,fontWeight:700,letterSpacing:".08em"}}>GRAB</span>}
@@ -8472,7 +8485,7 @@ function PerfilModal({open,onClose,user,co,onToast}){
       <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:18,maxHeight:"84vh",overflow:"auto",boxSizing:"border-box"}}>
 
         <div style={{display:"flex",alignItems:"center",gap:13}}>
-          <div style={{width:44,height:44,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:"#14101F",fontSize:15,fontWeight:700}}>{iniciales}</div>
+          <div style={{width:44,height:44,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:PC.bg,fontSize:15,fontWeight:700}}>{iniciales}</div>
           <div style={{display:"flex",flexDirection:"column",gap:2}}>
             <span style={{fontSize:17,fontWeight:600}}>{user.companyName||user.name}</span>
             <span style={{fontSize:12,color:PC.tx4}}>Tu perfil</span>
@@ -8612,7 +8625,7 @@ function DeckCard({t,children,varIdx=0,onVar}){
 
         {rev&&<div onClick={ev=>ev.stopPropagation()} style={{position:"absolute",top:14,left:14,display:"flex",gap:3,padding:3,borderRadius:999,background:"rgba(var(--rgb-bg),.75)",border:"1px solid "+PC.line2,backdropFilter:"blur(6px)"}}>
           {[["Antes",true],["Ahora",false]].map(([l,v])=>(
-            <button key={l} onClick={()=>sVerAntes(v)} style={{padding:"6px 14px",borderRadius:999,border:"none",background:verAntes===v?PC.tx:"transparent",color:verAntes===v?"#14101F":"rgba(244,242,237,.72)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>{l}</button>))}
+            <button key={l} onClick={()=>sVerAntes(v)} style={{padding:"6px 14px",borderRadius:999,border:"none",background:verAntes===v?PC.tx:"transparent",color:verAntes===v?PC.bg:"rgba(var(--rgb-tinta),.72)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>{l}</button>))}
         </div>}
       </div>
 
@@ -8979,7 +8992,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
         {wkDays.map(wd=>{const list=byDay[wd.ds]||[];const hot=overDay===wd.ds;return(
           <div key={wd.ds} {...dayProps(wd.ds)}
             style={{display:"flex",alignItems:"stretch",borderRadius:16,overflow:"hidden",background:"linear-gradient(170deg, rgba(var(--rgb-panel),.92), rgba(var(--rgb-bg),.96))",border:"1px solid "+(hot?PC.cian:wd.isToday?"rgba(var(--rgb-peri),.45)":PC.line),cursor:sel!=null?"copy":"default",transition:"border-color .25s"}}>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,width:isMob?62:74,flexShrink:0,padding:"14px 0",borderRight:"1px solid #141928"}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,width:isMob?62:74,flexShrink:0,padding:"14px 0",borderRight:"1px solid var(--border)"}}>
               <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".18em",color:PC.tx4}}>{wd.short}</span>
               <span style={{fontFamily:"var(--font-mono)",fontSize:21,fontWeight:600,color:wd.isToday?PC.cian:PC.tx}}>{wd.day}</span>
               <span style={{fontSize:10,color:PC.tx4}}>{wd.name}</span>
@@ -9811,7 +9824,7 @@ function ClientView({user:cu,onLogout:ol}){
         {!isMob&&<div style={{width:1,height:22,background:PC.line3}}/>}
         {/* El chip abre el perfil: correo, contraseña y carpetas de Drive */}
         <button onClick={()=>sPerfil(true)} title="Tu perfil" style={{display:"flex",alignItems:"center",gap:10,padding:"4px 12px 4px 4px",margin:"-4px 0",borderRadius:999,background:"transparent",border:"1px solid transparent",cursor:"pointer",fontFamily:"inherit",textAlign:"left",minWidth:0}}>
-          <div style={{width:30,height:30,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:"#14101F",fontSize:11,fontWeight:700,flexShrink:0}}>{iniciales}</div>
+          <div style={{width:30,height:30,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:PC.bg,fontSize:11,fontWeight:700,flexShrink:0}}>{iniciales}</div>
           <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
             <span style={{fontSize:14,fontWeight:600,lineHeight:1,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cu.companyName||cu.name}</span>
             <span style={{fontSize:11,color:PC.tx4,lineHeight:1}}>Portal cliente</span>
@@ -10021,12 +10034,12 @@ class ErrorBoundary extends React.Component{
   componentDidCatch(err,info){console.error("ErrorBoundary atrapó:",err,info);}
   render(){
     if(this.state.err){
-      return React.createElement("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",fontFamily:"system-ui,sans-serif",background:"#0f1115",color:"#e8e8ea",textAlign:"center"}},
+      return React.createElement("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",fontFamily:"system-ui,sans-serif",background:"var(--bg)",color:"var(--tx)",textAlign:"center"}},
         React.createElement("div",{style:{maxWidth:"420px"}},
           React.createElement("div",{style:{fontSize:"40px",marginBottom:"12px"}},"⚠️"),
           React.createElement("h2",{style:{margin:"0 0 8px"}},"Algo se cargó mal"),
           React.createElement("p",{style:{opacity:.7,margin:"0 0 20px",lineHeight:1.5}},"Recarga la página para volver. Si insiste, avísale al equipo."),
-          React.createElement("button",{onClick:()=>window.location.reload(),style:{background:"#4ecdc4",color:"#08252a",border:"none",borderRadius:"10px",padding:"12px 22px",fontSize:"15px",fontWeight:700,cursor:"pointer"}},"Recargar")
+          React.createElement("button",{onClick:()=>window.location.reload(),style:{background:"var(--accent)",color:"var(--bg)",border:"none",borderRadius:"10px",padding:"12px 22px",fontSize:"15px",fontWeight:700,cursor:"pointer"}},"Recargar")
         )
       );
     }
@@ -10059,7 +10072,7 @@ if('serviceWorker' in navigator){
     caja.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);' +
       'bottom:calc(env(safe-area-inset-bottom, 0px) + 84px);z-index:99999;' +
       'display:flex;align-items:center;gap:10px;padding:10px 10px 10px 16px;' +
-      'border-radius:14px;background:#0C0F17;border:1px solid #2A3145;' +
+      'border-radius:14px;background:var(--bg3);border:1px solid var(--border2);' +
       'box-shadow:0 8px 32px -8px rgba(var(--rgb-sombra),.75);max-width:calc(100vw - 32px);' +
       'font:500 13px/1.4 "DM Sans",system-ui,sans-serif;color:#E7EAF3';
 
