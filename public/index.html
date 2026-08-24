@@ -733,6 +733,13 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
     settings:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></>,
     alert:<><path d="M12 3 2 21h20L12 3Z"/><path d="M12 10v5M12 18v.01"/></>,
     more_h:<><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></>,
+    // Los tres siguientes nacieron para la barra del teléfono, que iba con emojis: 💬 📑 🧹.
+    // Un emoji lo dibuja el sistema operativo —a todo color, con su propio grosor y su propia
+    // idea del tamaño—, así que junto a los iconos de trazo de la app se veía como pegado de
+    // otra aplicación. Mismo lienzo de 24, mismo trazo, sin relleno.
+    chat:<><path d="M20 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3v4l5-4h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1Z"/><path d="M8 10v.01M12 10v.01M16 10v.01"/></>,
+    report:<><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z"/><path d="M14 3v6h6"/><path d="M9 17v-3M12 17v-5M15 17v-2"/></>,
+    broom:<><path d="M9.1 11.9 17.1 3.9a2.85 2.85 0 1 1 4 4l-8 8.1"/><path d="M7.1 14.9c-1.7 0-3 1.4-3 3 0 1.3-2.5 1.5-2 2 1.1 1.1 2.5 2 4 2 2.2 0 4-1.8 4-4a3 3 0 0 0-3-3Z"/></>,
     grip:<><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></>,
     eye:<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></>,
     copy:<><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></>,
@@ -924,8 +931,10 @@ function PushBtn({user,tile}){
   };
 
   const fila=(color,icono,texto,onClick,corto)=>(tile
-    ? <button onClick={onClick} disabled={!onClick} style={{background:"var(--bg3)",border:"1px solid "+(st==="on"?"var(--success)":st==="denegado"?"rgba(255,68,68,.3)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color,fontSize:10,fontFamily:"inherit",cursor:onClick?"pointer":"default",width:"100%"}}>
-        <span style={{fontSize:22}}>🔔</span>{corto||texto}
+    ? <button onClick={onClick} disabled={!onClick} style={{background:"var(--bg3)",border:"1px solid "+(st==="on"?"var(--success)":st==="denegado"?"rgba(255,68,68,.3)":"var(--border)"),borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color,fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:onClick?"pointer":"default",width:"100%"}}>
+        {/* El mismo icono de trazo que la versión de escritorio, no un 🔔 del sistema: la
+            baldosa vive al lado de las demás y el emoji se veía de otra familia. */}
+        <Ic n={icono||"bell"} s={21}/>{corto||texto}
       </button>
     : <button onClick={onClick} disabled={!onClick} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 12px",borderRadius:8,background:"transparent",color,fontSize:14,fontWeight:500,textAlign:"left",border:"none",cursor:onClick?"pointer":"default",fontFamily:"inherit",width:"100%"}}>
         <Ic n={icono} s={18}/>{texto}
@@ -1183,6 +1192,41 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
   const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
+  // Pestaña de Contenido pedida desde el menú. `n` es lo que hace que pulsar dos veces la misma
+  // entrada vuelva a llevar allí: el valor no cambiaría y el efecto no se enteraría.
+  const[contVista,sContVista]=useState(null);
+  const irA=(k,vista)=>{sPg(k);if(vista)sContVista({v:vista,n:Date.now()});};
+  // El menú en tres bloques. Arriba lo que se usa todos los días; en medio lo que no toca todo
+  // el mundo ni a diario; abajo la trastienda. Antes eran diez entradas seguidas sin jerarquía y
+  // había que leerlas todas para encontrar una.
+  //
+  // "Automatizaciones" y "Programar publicaciones" NO son páginas: son las pestañas Automatización
+  // y Publicar de Contenido. Ahí dentro es buen sitio para trabajar —la empresa ya está elegida—
+  // y mal sitio para encontrarlas, así que tienen entrada propia y entran directo a su pestaña.
+  //
+  // "Facturación" ya no está: hacía `sPg("payments")`, o sea era el mismo botón que Pagos con
+  // otro nombre, y se leía como dos sitios distintos.
+  // UNA sola definición para los dos menús, el de la barra lateral y el del teléfono. Antes el
+  // teléfono llevaba su propia lista a mano —seis baldosas de las trece pantallas— y por eso
+  // faltaban cosas ahí que sí estaban en el escritorio.
+  const NAV=[
+    ["Básicas",[{k:"dashboard",ic:"dashboard"},{k:"planner",ic:"planner"},{k:"contenido",ic:"paperclip"}]],
+    ["Pro",[
+      {k:"guionado",ic:"edit"},
+      {k:"contenido",vista:"automatizacion",l:"Automatizaciones",ic:"chat"},
+      {k:"informe",ic:"report"},
+      {k:"fidelizacion",ic:"loyalty"},
+      {k:"contenido",vista:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
+      {k:"metricas",ic:"trend_up"},
+    ]],
+    ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin",ver:canProspectos}]],
+  ];
+  // Si estás en esta entrada. Una entrada de pestaña solo cuenta si además estás en su pestaña;
+  // si no, "Contenido", "Automatizaciones" y "Programar publicaciones" se encenderían las tres a
+  // la vez y no se sabría en cuál estás.
+  const navActiva=it=>pg===it.k&&(it.vista
+    ? contVista?.v===it.vista
+    : (it.k!=="contenido"||!contVista||["produccion","fotos"].includes(contVista.v)));
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
@@ -1482,18 +1526,22 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>
 
         <div style={{flex:1,display:"flex",flexDirection:"column",gap:4,overflowY:"auto"}}>
-          {Object.entries(visP).map(([k,[l,emoji,icName]])=>{const on=pg===k;return(
-            <button key={k} onClick={()=>sPg(k)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:on?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(on?"rgba(111,231,242,.35)":"transparent"),color:on?D.tx:D.tx3,fontSize:13,fontWeight:on?600:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:on?D.cian:D.line2,flexShrink:0}}/>
-              {l}
-            </button>);})}
-
-          {canProspectos&&<button onClick={()=>sPg("prospectos")} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:pg==="prospectos"?"rgba(201,191,255,.08)":"transparent",border:"1px solid "+(pg==="prospectos"?"rgba(201,191,255,.35)":"transparent"),color:pg==="prospectos"?D.lav:D.tx3,fontSize:13,fontWeight:pg==="prospectos"?600:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:D.lav,flexShrink:0}}/>Prospectos
-          </button>}
-          {isA&&<button onClick={()=>sPg("payments")} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:"transparent",border:"1px solid transparent",color:D.lav,fontSize:13,fontWeight:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:D.lav,flexShrink:0}}/>Facturación
-          </button>}
+          {NAV.map(([titulo,items],gi)=>{
+            const visibles=items.filter(it=>it.ver!==false);
+            if(!visibles.length)return null;
+            return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:4,marginTop:gi?14:0}}>
+              <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".18em",textTransform:"uppercase",color:D.tx5,padding:"0 12px 3px"}}>{titulo}</span>
+              {visibles.map(it=>{
+                const on=navActiva(it);
+                const l=it.l||visP[it.k]?.[0]||it.k;
+                return(<button key={it.k+(it.vista||"")} onClick={()=>irA(it.k,it.vista)}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:on?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(on?"rgba(111,231,242,.35)":"transparent"),color:on?D.tx:D.tx3,fontSize:13,fontWeight:on?600:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
+                  <Ic n={it.ic||"dashboard"} s={16} c={on?D.cian:D.tx4}/>
+                  {l}
+                </button>);
+              })}
+            </div>);
+          })}
 
           <div style={{height:1,background:D.line,margin:"8px 2px"}}/>
 
@@ -1701,7 +1749,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
         {pg==="informe"&&<InformePg cos={cos}/>}
         {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
-        {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal}/>}
+        {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} pedido={contVista}/>}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
@@ -1788,40 +1836,64 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:998,backdropFilter:"blur(3px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(56px + env(safe-area-inset-bottom, 0px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["companies","🏢","Empresas"],["guionado","📝","Guionado"],["contenido","🎨","Contenido"],["payments","💰","Pagos"],["team","👥","Equipo"],["metricas","📈","Métricas"]].map(([k,ic,l])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:pg===k?"rgba(168,226,107,.15)":"var(--bg3)",border:"1px solid "+(pg===k?"var(--accent2)":"var(--border)"),borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:pg===k?"var(--accent)":"var(--tx2)",fontSize:10,fontFamily:"inherit",fontWeight:pg===k?700:400}}>
-                <span style={{fontSize:22}}>{ic}</span>{l}
-              </button>))}
-              {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
-                  donde de verdad hace falta el botón. El calendario ya no lleva baldosa:
-                  viene con el inicio de sesión de Google. */}
-              <PushBtn user={cu} tile/>
-              {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(239,217,160,.08)",border:"1px solid rgba(239,217,160,.3)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"#EFD9A0",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>📅</span>Reconectar
-              </button>}
-              {isA&&<button onClick={()=>{sPg("payments");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>💰</span>Facturación
-              </button>}
-              {canProspectos&&<button onClick={()=>{sPg("prospectos");sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--gold)",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>📍</span>Prospectos
-              </button>}
-              {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--tx3)",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>🧹</span>Mantención
-              </button>}
-              <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:"var(--danger)",fontSize:10,fontFamily:"inherit"}}>
-                <span style={{fontSize:22}}>🚪</span>Salir
-              </button>
+            {/* El menú del teléfono es AHORA el mismo que el de la barra lateral: los tres
+                grupos y todas las pantallas. Antes era una lista aparte escrita a mano con seis
+                baldosas de las trece, con emojis del sistema —a todo color y con su propio
+                grosor, como pegados de otra aplicación— y sin forma de llegar a Fidelización,
+                Informe ni a las pestañas de Contenido. Sale de NAV, así que no puede volver a
+                quedarse corto. */}
+            <div style={{maxHeight:"58vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
+              {NAV.map(([titulo,items])=>{
+                const visibles=items.filter(it=>it.ver!==false);
+                if(!visibles.length)return null;
+                return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:7}}>
+                  <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)",padding:"0 2px"}}>{titulo}</span>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                    {visibles.map(it=>{
+                      const on=navActiva(it);
+                      return(<button key={it.k+(it.vista||"")} onClick={()=>{irA(it.k,it.vista);sMobMenu(false);}}
+                        style={{background:on?"rgba(111,231,242,.1)":"var(--bg3)",border:"1px solid "+(on?"rgba(111,231,242,.4)":"var(--border)"),borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:on?"var(--accent)":"var(--tx2)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",fontWeight:on?700:500,cursor:"pointer"}}>
+                        <Ic n={it.ic||"dashboard"} s={21}/>
+                        {it.lCorta||it.l||visP[it.k]?.[0]||it.k}
+                      </button>);
+                    })}
+                  </div>
+                </div>);
+              })}
+
+              {/* Lo que no es una pantalla: ajustes del aparato y salir. Van al final y separados
+                  para que no compitan con las herramientas. */}
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)",padding:"0 2px"}}>Este dispositivo</span>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                  {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
+                      donde de verdad hace falta el botón. */}
+                  <PushBtn user={cu} tile/>
+                  {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(239,217,160,.08)",border:"1px solid rgba(239,217,160,.3)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"#EFD9A0",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
+                    <Ic n="calendar" s={21}/>Reconectar
+                  </button>}
+                  {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--tx3)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
+                    <Ic n="broom" s={21}/>Mantención
+                  </button>}
+                  <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--danger)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
+                    <Ic n="logout" s={21}/>Salir
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>}
         <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
-          {[["dashboard","dashboard"],["planner","planner"],["contenido","paperclip"],["guionado","edit"],["metricas","trend_up"]].map(([k,icn])=>(<button key={k} onClick={()=>{sPg(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
+          {/* Solo las básicas, que son las de todos los días; el resto vive en el menú completo.
+              Antes había cinco y las etiquetas se cortaban a cinco letras ("Org S", "Conte");
+              con cuatro caben enteras. */}
+          {[["dashboard","dashboard","Inicio"],["planner","planner","Semana"],["contenido","paperclip","Contenido"]].map(([k,icn,l])=>(<button key={k} onClick={()=>{irA(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9.5,fontFamily:"inherit",cursor:"pointer"}}>
             <Ic n={icn} s={20}/>
-            <span style={{fontWeight:pg===k?700:400}}>{visP[k]?.[0]?.slice(0,5)}</span>
+            <span style={{fontWeight:pg===k?700:400}}>{l}</span>
           </button>))}
-          <button onClick={()=>sMobMenu(!mobMenu)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px",color:mobMenu?"var(--accent)":"var(--tx3)",fontSize:9,fontFamily:"inherit"}}>
-            <span style={{fontSize:18}}>⋯</span>
-            <span style={{fontWeight:mobMenu?700:400}}>Más</span>
+          <button onClick={()=>sMobMenu(!mobMenu)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 8px",color:mobMenu?"var(--accent)":"var(--tx3)",fontSize:9.5,fontFamily:"inherit",cursor:"pointer"}}>
+            <Ic n="more_h" s={20}/>
+            <span style={{fontWeight:mobMenu?700:400}}>Herramientas</span>
           </button>
         </nav>
       </>,document.body)}
@@ -3578,7 +3650,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   return movil?<Portal>{cuerpo}</Portal>:cuerpo;
 }
 
-function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners,galerias,sGal}){
+function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners,galerias,sGal,pedido}){
   const [selCo,sSelCo]=useState(()=>cos[0]?.id||0);
   useEffect(()=>{if(cos.length&&!cos.find(c=>String(c.id)===String(selCo)))sSelCo(cos[0].id);},[cos]);
   const co=cos.find(c=>String(c.id)===String(selCo));
@@ -3612,7 +3684,12 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // Producción, publicación y automatización son tres trabajos distintos y se pisaban en la
   // misma pantalla. Publicar no es una etapa más del ciclo: pasa DESPUÉS de que el cliente
   // aprueba, y mezclarlo con las cinco etapas obligaba a rebuscar entre piezas a medio hacer.
-  const [vista,sVista]=useState("produccion");
+  // El menú lateral puede entrar directo a una pestaña —"Automatizaciones" y "Programar
+  // publicaciones" son entradas suyas, no páginas aparte—, así que la vista puede venir de fuera.
+  // Se reacciona al contador y no al valor: pulsando dos veces la misma entrada del menú el valor
+  // no cambia, y sin el contador la segunda vez no volvería a su pestaña.
+  const [vista,sVista]=useState(pedido?.v||"produccion");
+  useEffect(()=>{if(pedido&&pedido.v)sVista(pedido.v);},[pedido&&pedido.n]);
 
   // Automatización comentario → DM. Va por Meta directo, no por Zernio: la respuesta privada
   // es la única forma de escribirle a alguien que no te ha escrito, y Zernio no la expone.
