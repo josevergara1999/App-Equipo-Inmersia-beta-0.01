@@ -1192,10 +1192,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
   const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
-  // Pestaña de Contenido pedida desde el menú. `n` es lo que hace que pulsar dos veces la misma
-  // entrada vuelva a llevar allí: el valor no cambiaría y el efecto no se enteraría.
-  const[contVista,sContVista]=useState(null);
-  const irA=(k,vista)=>{sPg(k);if(vista)sContVista({v:vista,n:Date.now()});};
+  const irA=k=>sPg(k);
   // El menú en tres bloques. Arriba lo que se usa todos los días; en medio lo que no toca todo
   // el mundo ni a diario; abajo la trastienda. Antes eran diez entradas seguidas sin jerarquía y
   // había que leerlas todas para encontrar una.
@@ -1210,23 +1207,20 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // teléfono llevaba su propia lista a mano —seis baldosas de las trece pantallas— y por eso
   // faltaban cosas ahí que sí estaban en el escritorio.
   const NAV=[
-    ["Básicas",[{k:"dashboard",ic:"dashboard"},{k:"planner",ic:"planner"},{k:"contenido",ic:"paperclip"}]],
+    ["Básicas",[{k:"dashboard",ic:"dashboard"},{k:"planner",ic:"planner"},{k:"contenido",ic:"paperclip"},{k:"guionado",ic:"edit"}]],
     ["Pro",[
-      {k:"guionado",ic:"edit"},
-      {k:"contenido",vista:"automatizacion",l:"Automatizaciones",ic:"chat"},
+      {k:"automatizaciones",l:"Automatizaciones",ic:"chat",lCorta:"Automatiz."},
       {k:"informe",ic:"report"},
       {k:"fidelizacion",ic:"loyalty"},
-      {k:"contenido",vista:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
+      {k:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
       {k:"metricas",ic:"trend_up"},
     ]],
     ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin",ver:canProspectos}]],
   ];
-  // Si estás en esta entrada. Una entrada de pestaña solo cuenta si además estás en su pestaña;
-  // si no, "Contenido", "Automatizaciones" y "Programar publicaciones" se encenderían las tres a
-  // la vez y no se sabría en cuál estás.
-  const navActiva=it=>pg===it.k&&(it.vista
-    ? contVista?.v===it.vista
-    : (it.k!=="contenido"||!contVista||["produccion","fotos"].includes(contVista.v)));
+  // Cada entrada es su propia página, así que basta comparar. Cuando Automatizaciones y
+  // Programar eran pestañas de Contenido había que mirar además en cuál estabas, y las tres se
+  // encendían a la vez.
+  const navActiva=it=>pg===it.k;
   const[cos,sCos]=useState([]);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
@@ -1529,12 +1523,12 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           {NAV.map(([titulo,items],gi)=>{
             const visibles=items.filter(it=>it.ver!==false);
             if(!visibles.length)return null;
-            return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:4,marginTop:gi?14:0}}>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".18em",textTransform:"uppercase",color:D.tx5,padding:"0 12px 3px"}}>{titulo}</span>
+            return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:4,marginTop:gi?16:0,paddingTop:gi?14:0,borderTop:gi?"1px solid "+D.line:"none"}}>
+              <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,fontWeight:700,letterSpacing:".2em",textTransform:"uppercase",color:D.cian,padding:"0 12px 5px"}}>{titulo}</span>
               {visibles.map(it=>{
                 const on=navActiva(it);
                 const l=it.l||visP[it.k]?.[0]||it.k;
-                return(<button key={it.k+(it.vista||"")} onClick={()=>irA(it.k,it.vista)}
+                return(<button key={it.k} onClick={()=>irA(it.k)}
                   style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:on?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(on?"rgba(111,231,242,.35)":"transparent"),color:on?D.tx:D.tx3,fontSize:13,fontWeight:on?600:500,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
                   <Ic n={it.ic||"dashboard"} s={16} c={on?D.cian:D.tx4}/>
                   {l}
@@ -1749,7 +1743,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
         {pg==="informe"&&<InformePg cos={cos}/>}
         {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
-        {pg==="contenido"&&<ContenidoPg cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} pedido={contVista}/>}
+        {["contenido","automatizaciones","publicar"].includes(pg)&&<ContenidoPg key={pg} cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} modo={pg}/>}
 
         {/* TEAM */}
         {pg==="team"&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
@@ -1847,11 +1841,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                 const visibles=items.filter(it=>it.ver!==false);
                 if(!visibles.length)return null;
                 return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)",padding:"0 2px"}}>{titulo}</span>
+                  <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,fontWeight:700,letterSpacing:".2em",textTransform:"uppercase",color:"var(--accent)",padding:"0 2px"}}>{titulo}</span>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                     {visibles.map(it=>{
                       const on=navActiva(it);
-                      return(<button key={it.k+(it.vista||"")} onClick={()=>{irA(it.k,it.vista);sMobMenu(false);}}
+                      return(<button key={it.k} onClick={()=>{irA(it.k);sMobMenu(false);}}
                         style={{background:on?"rgba(111,231,242,.1)":"var(--bg3)",border:"1px solid "+(on?"rgba(111,231,242,.4)":"var(--border)"),borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:on?"var(--accent)":"var(--tx2)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",fontWeight:on?700:500,cursor:"pointer"}}>
                         <Ic n={it.ic||"dashboard"} s={21}/>
                         {it.lCorta||it.l||visP[it.k]?.[0]||it.k}
@@ -1864,7 +1858,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               {/* Lo que no es una pantalla: ajustes del aparato y salir. Van al final y separados
                   para que no compitan con las herramientas. */}
               <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)",padding:"0 2px"}}>Este dispositivo</span>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,fontWeight:700,letterSpacing:".2em",textTransform:"uppercase",color:"var(--accent)",padding:"0 2px"}}>Este dispositivo</span>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                   {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
                       donde de verdad hace falta el botón. */}
@@ -3650,7 +3644,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
   return movil?<Portal>{cuerpo}</Portal>:cuerpo;
 }
 
-function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners,galerias,sGal,pedido}){
+function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlanners,galerias,sGal,modo}){
   const [selCo,sSelCo]=useState(()=>cos[0]?.id||0);
   useEffect(()=>{if(cos.length&&!cos.find(c=>String(c.id)===String(selCo)))sSelCo(cos[0].id);},[cos]);
   const co=cos.find(c=>String(c.id)===String(selCo));
@@ -3684,12 +3678,15 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // Producción, publicación y automatización son tres trabajos distintos y se pisaban en la
   // misma pantalla. Publicar no es una etapa más del ciclo: pasa DESPUÉS de que el cliente
   // aprueba, y mezclarlo con las cinco etapas obligaba a rebuscar entre piezas a medio hacer.
-  // El menú lateral puede entrar directo a una pestaña —"Automatizaciones" y "Programar
-  // publicaciones" son entradas suyas, no páginas aparte—, así que la vista puede venir de fuera.
-  // Se reacciona al contador y no al valor: pulsando dos veces la misma entrada del menú el valor
-  // no cambia, y sin el contador la segunda vez no volvería a su pestaña.
-  const [vista,sVista]=useState(pedido?.v||"produccion");
-  useEffect(()=>{if(pedido&&pedido.v)sVista(pedido.v);},[pedido&&pedido.n]);
+  // Esta pantalla sirve a TRES entradas del menú, y cuál es lo dice `modo`. Automatizaciones y
+  // Programar publicaciones eran pestañas de aquí dentro, y al ser pestañas la última quedaba
+  // pegada: se entraba a Automatizaciones, se pulsaba Contenido y seguía abierta la
+  // automatización, porque "Contenido" no decía qué pestaña quería. Ahora cada entrada es su
+  // propia página y no hay estado que arrastrar. Solo Contenido tiene pestañas —Producción y
+  // Fotos—, que sí son dos caras del mismo material de la misma empresa.
+  const soloUna={automatizaciones:"automatizacion",publicar:"publicar"}[modo];
+  const [vista,sVista]=useState("produccion");
+  const vistaActual=soloUna||vista;
 
   // Automatización comentario → DM. Va por Meta directo, no por Zernio: la respuesta privada
   // es la única forma de escribirle a alguien que no te ha escrito, y Zernio no la expone.
@@ -3705,7 +3702,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     sReglas((d.reglas||[]).map(r=>(Array.isArray(r.pasos)&&r.pasos.length)?r
       :{...r,pasos:[{id:"p1",tipo:"mensaje",texto:r.mensaje||"",botones:[]}]}));
   });
-  useEffect(()=>{if(vista==="automatizacion")cargarAuto();},[vista,selCo]);
+  useEffect(()=>{if(vistaActual==="automatizacion")cargarAuto();},[vista,selCo]);
   // Las publicaciones reales de Instagram, para poder atar una regla a una en concreto.
   useEffect(()=>{
     if(vista!=="automatizacion"){sPubs(null);return;}
@@ -4334,8 +4331,19 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     {/* ENCABEZADO */}
     <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginBottom:18}}>
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
-        <span style={{fontSize:26,fontWeight:700,letterSpacing:"-.01em"}}>Contenido</span>
-        <span style={{fontSize:12.5,color:D.tx3}}>Conectado en vivo con <span style={{color:D.tx2,fontWeight:600}}>Org Semanal</span> y el <span style={{color:D.tx2,fontWeight:600}}>portal del cliente</span> — lo que cambia aquí, cambia allá.</span>
+        {/* El encabezado dice en qué pantalla estás. Sirviendo tres entradas del menú desde el
+            mismo componente, un "Contenido" fijo dejaba a Automatizaciones y a Programar
+            publicaciones con el título de otra página. */}
+        <span style={{fontSize:26,fontWeight:700,letterSpacing:"-.01em"}}>
+          {modo==="automatizaciones"?"Automatizaciones":modo==="publicar"?"Programar publicaciones":"Contenido"}
+        </span>
+        <span style={{fontSize:12.5,color:D.tx3}}>
+          {modo==="automatizaciones"
+            ? <>Cadenas de <span style={{color:D.tx2,fontWeight:600}}>comentario → mensaje privado</span> para las publicaciones de esta empresa.</>
+            : modo==="publicar"
+            ? <>Las piezas que <span style={{color:D.tx2,fontWeight:600}}>ya aprobó el cliente</span> — publícalas ahora o déjalas agendadas.</>
+            : <>Conectado en vivo con <span style={{color:D.tx2,fontWeight:600}}>Org Semanal</span> y el <span style={{color:D.tx2,fontWeight:600}}>portal del cliente</span> — lo que cambia aquí, cambia allá.</>}
+        </span>
       </div>
       {/* En la fila del título quedan SOLO las acciones. El selector de empresa se fue de aquí:
           elegir de qué empresa estás viendo el contenido no es una acción, y con la misma
@@ -4344,7 +4352,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         {/* Subir y crear piezas solo tiene sentido en producción. En las otras dos vistas
             estorbaba y confundía sobre qué se está haciendo. */}
-        {vista==="produccion"&&<>
+        {vistaActual==="produccion"&&<>
           <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
           <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(111,231,242,.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(111,231,242,.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
         </>}
@@ -4368,18 +4376,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>
     </div>
 
-    {/* Las cuatro vistas. Producción es el ciclo de siempre; las demás empiezan donde ese
-        ciclo termina, y por eso no son etapas suyas sino pantallas aparte.
+    {/* Dos pestañas, no cuatro. Producción y Fotos son dos caras del mismo material de la misma
+        empresa —se elige la empresa una vez y se mira todo lo que se le entrega en el mismo
+        sitio—, así que siguen juntas. Publicar y Automatización se fueron a su propia entrada del
+        menú: eran pestañas y por eso la última quedaba pegada, y volver a "Contenido" te dejaba
+        donde estabas antes en vez de en Producción.
         Son pestañas subrayadas, no píldoras: encima está el selector de empresa, que sí es un
         grupo de píldoras, y con la misma forma las dos filas parecían el mismo control repetido.
-        Cambiar de empresa y cambiar de pantalla no son la misma clase de gesto.
-        Fotos es material de la misma empresa y por eso está aquí y no en una página propia: se
-        elige la empresa una sola vez y todo lo que se le entrega se mira en el mismo sitio. */}
-    <div style={{display:"flex",gap:26,marginBottom:20,borderBottom:"1px solid "+D.line3,flexWrap:"wrap"}}>
+        Cambiar de empresa y cambiar de pantalla no son la misma clase de gesto. */}
+    {!soloUna&&<div style={{display:"flex",gap:26,marginBottom:20,borderBottom:"1px solid "+D.line3,flexWrap:"wrap"}}>
       {[["produccion","Producción",porEtapa.produccion.length+porEtapa.listo.length+porEtapa.enviado.length+porEtapa.rechazado.length],
-        ["publicar","Publicar",porEtapa.aprobado.length],
-        ["fotos","Fotos",(galerias||[]).filter(g=>String(g.companyId)===String(selCo)).length],
-        ["automatizacion","Automatización",(igEst?.reglas||reglas||[]).filter(r=>r.activa!==false).length]].map(([k,l,n])=>{
+        ["fotos","Fotos",(galerias||[]).filter(g=>String(g.companyId)===String(selCo)).length]].map(([k,l,n])=>{
         const on=vista===k;
         return(<button key={k} onClick={()=>sVista(k)}
           style={{display:"inline-flex",alignItems:"center",gap:8,padding:"0 2px 11px",background:"transparent",border:"none",
@@ -4388,15 +4395,15 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           {l}
           {n>0&&<span style={{fontFamily:"var(--font-mono)",fontSize:10.5,padding:"1px 7px",borderRadius:999,background:on?"rgba(111,231,242,.12)":"rgba(200,210,228,.05)",color:on?D.cian:D.tx5}}>{n}</span>}
         </button>);})}
-    </div>
+    </div>}
 
-    {vista==="produccion"&&<Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>}
+    {vistaActual==="produccion"&&<Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>}
 
-    {vista==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+    {vistaActual==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
       <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
     </div>}
 
-    {vista==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+    {vistaActual==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
       <span style={{flex:"1 1 220px",minWidth:0}}>
         <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Org Semanal.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
       </span>
@@ -4410,7 +4417,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <input ref={perRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handlePer(e.target.files)}/>
 
       {/* SUBIDA POR LOTE — plegada, para cargar varios archivos de una */}
-      {vista==="produccion"&&dzOpen&&<div className="d-in" style={{...D_CARD,marginBottom:18}}>
+      {vistaActual==="produccion"&&dzOpen&&<div className="d-in" style={{...D_CARD,marginBottom:18}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
           {Object.entries(TT).map(([k,vv])=>{const n=slotCounts[k]||0;const on=upType===k;return(
             <button key={k} onClick={()=>sUpType(k)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:999,fontSize:12,fontWeight:on?700:600,cursor:"pointer",fontFamily:"inherit",border:"1px solid "+(on?vv.c:D.line2),background:on?vv.c+"1f":"transparent",color:on?vv.c:D.tx3}}>
@@ -4440,7 +4447,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           periodos distintos, que es la peor clase de número junto a otro número. */}
 
       {/* GRUPOS */}
-      {vista==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30,marginTop:8}}>
+      {vistaActual==="produccion"&&<div style={{display:"flex",flexDirection:"column",gap:30,marginTop:8}}>
         {CONT_META.map(m=>(
           <div key={m.k} id={"grp-"+m.k} style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",paddingBottom:8,borderBottom:"1px solid #141928"}}>
@@ -4481,7 +4488,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
       {/* ── PUBLICAR ── Solo lo que el cliente ya aprobó. Se muestran el día y la hora que él
           eligió en su portal, porque es él quien decide cuándo sale. */}
-      {vista==="publicar"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {vistaActual==="publicar"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
         {!ig&&<div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
           <b>{co.name} no tiene Instagram conectado.</b> Conéctalo con el botón de arriba para poder publicar desde aquí.
         </div>}
@@ -4551,11 +4558,11 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       </div>}
 
       {/* ── FOTOS ── Sesiones de fotos entregadas por el portal del cliente. */}
-      {vista==="fotos"&&<FotosSeccion co={co} galerias={galerias} sGal={sGal} cu={cu} users={users}
+      {vistaActual==="fotos"&&<FotosSeccion co={co} galerias={galerias} sGal={sGal} cu={cu} users={users}
         addN={addN} avisar={avisar} correosDe={correosDe} stReady={stReady} stMotivo={stMotivo}/>}
 
       {/* ── AUTOMATIZACIÓN ── */}
-      {vista==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:abierta==null?820:"none"}}>
+      {vistaActual==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:abierta==null?820:"none"}}>
         {!igEst?<div style={{color:D.tx3,fontSize:13,padding:"20px 2px"}}>Cargando…</div>
         :!igEst.configurado?(
           <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(239,217,160,.07)",border:"1px solid rgba(239,217,160,.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
