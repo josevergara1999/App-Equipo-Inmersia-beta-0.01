@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="INMERSIA">
-<meta name="theme-color" content=PC.bg>
+<meta name="theme-color" content={PC.bg}>
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-180.png?v=2">
@@ -34,7 +34,7 @@ body{
   --tx:#F4F2ED;--tx2:#C9CFDC;--tx3:#8E93A6;
   --accent:#6FE7F2;--accent2:#8FEFF7;--accent3:#4FC7D2;
   --gold:#C9BFFF;--gold2:#9BB4FF;
-  --danger:#FF8B8B;--success:#6FE7F2;--warn:#FFC97A;--info:#9BB4FF;
+  --danger:#FF8B8B;--success:#6FE7F2;--warn:var(--warn);--info:#9BB4FF;
   /* Compuestos de las tarjetas. Viven aquí y no en el JS porque allí los objetos de estilo se
      evalúan UNA vez al cargar y se quedarían con el tema de arranque. */
   --card-bg:linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99));
@@ -202,6 +202,7 @@ const PALETAS={
     line:"#E3E0D5", line15:"#E6E3D9", line2:"#D2CFC2", line3:"#DBD8CC",
     tx:"#1E1E1E", tx2:"#3E4347", tx3:"#5C666C", tx4:"#7B8187", tx5:"#A9A79D",
     cian:"#143D4A", cianHov:"#1E5568", peri:"#4E7A96", lav:"#6B7FA6", rojo:"#B5544A",
+    ambar:"#8A6E2F", verde:"#256B50", rosa:"#9A5C74",
     sombra:"0 10px 30px rgba(30,30,30,.08)", velo:"rgba(30,30,30,.35)",
   },
 };
@@ -574,7 +575,7 @@ const INIT_USERS=[
   // `companyName` tiene que calzar con el nombre de la empresa en `companies` (la búsqueda
   // ignora mayúsculas). El servidor no necesita saber de los clientes: no están en TEAM y el
   // login acepta la de fábrica mientras no se haya guardado otra en `user_creds`.
-  {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:"#8FF2C2",pass:"1234",companyName:"valle aventura"},
+  {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:PC.verde,pass:"1234",companyName:"valle aventura"},
 ];
 
 // Espejo del tope que valida `/api/social/publish` en el servidor. Vale la pena contarlo aquí
@@ -1643,8 +1644,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           {/* El calendario ya viene con el inicio de sesión de Google. Este botón queda solo
               como reparación: aparece cuando la cuenta no quedó conectada (entró con clave,
               revocó el permiso, o inició sesión antes de este cambio). */}
-          <button onClick={gcalOk?()=>sShGcal(true):connectGCal} title={gcalOk?"Tu calendario está conectado":"Vuelve a dar el permiso de Google Calendar"} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:gcalOk?"transparent":"rgba(var(--rgb-ambar),.06)",border:"1px solid "+(gcalOk?"transparent":"rgba(var(--rgb-ambar),.3)"),color:gcalOk?D.cian:"#EFD9A0",fontSize:13,fontWeight:gcalOk?500:600,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:gcalOk?D.cian:"#EFD9A0",flexShrink:0}}/>{gcalOk?"Calendario conectado":"Reconectar calendario"}
+          <button onClick={gcalOk?()=>sShGcal(true):connectGCal} title={gcalOk?"Tu calendario está conectado":"Vuelve a dar el permiso de Google Calendar"} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,background:gcalOk?"transparent":"rgba(var(--rgb-ambar),.06)",border:"1px solid "+(gcalOk?"transparent":"rgba(var(--rgb-ambar),.3)"),color:gcalOk?D.cian:PC.ambar,fontSize:13,fontWeight:gcalOk?500:600,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:gcalOk?D.cian:PC.ambar,flexShrink:0}}/>{gcalOk?"Calendario conectado":"Reconectar calendario"}
           </button>
           <PushBtn user={cu}/>
 
@@ -1967,7 +1968,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
                       donde de verdad hace falta el botón. */}
                   <PushBtn user={cu} tile/>
-                  {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.3)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"#EFD9A0",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
+                  {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.3)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:PC.ambar,fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
                     <Ic n="calendar" s={21}/>Reconectar
                   </button>}
                   {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--tx3)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
@@ -2855,7 +2856,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                   </label>
                   <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>
                     {gcalSt&&!gcalSt.conectado
-                      ? <b style={{color:"#EFD9A0"}}>⚠️ Falta el calendario de {gcalSt.organizador||"inmersiatours@gmail.com"}. Basta con que alguien inicie sesión una vez con esa cuenta usando “Entrar con Google” y acepte el permiso; hasta entonces la reunión se guarda pero no salen las invitaciones.</b>
+                      ? <b style={{color:PC.ambar}}>⚠️ Falta el calendario de {gcalSt.organizador||"inmersiatours@gmail.com"}. Basta con que alguien inicie sesión una vez con esa cuenta usando “Entrar con Google” y acepte el permiso; hasta entonces la reunión se guarda pero no salen las invitaciones.</b>
                       : <>La invitación le llega a cada uno al correo, desde el calendario de <b style={{color:D.tx2}}>{gcalSt?.organizador||"inmersiatours@gmail.com"}</b>, con el enlace de Meet y el recordatorio de Google.</>}
                   </span>
                 </div>
@@ -2894,7 +2895,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                       {asis.map(u=>(
                         <span key={u.id} title={u.name} style={{width:22,height:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:u.color||D.peri,color:D.bg,fontSize:8.5,fontWeight:700,border:"2px solid "+D.panel,marginLeft:-6}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>))}
                     </div>
-                    {r.meetLink&&<a href={r.meetLink} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 11px",borderRadius:999,background:esHoy?"rgba(var(--rgb-verde),.12)":"rgba(var(--rgb-peri),.08)",border:"1px solid "+(esHoy?"rgba(var(--rgb-verde),.45)":"rgba(var(--rgb-peri),.3)"),color:esHoy?"#8FF2C2":D.peri,fontSize:11,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>📹 {esHoy?"Entrar a Meet":"Meet"}</a>}
+                    {r.meetLink&&<a href={r.meetLink} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 11px",borderRadius:999,background:esHoy?"rgba(var(--rgb-verde),.12)":"rgba(var(--rgb-peri),.08)",border:"1px solid "+(esHoy?"rgba(var(--rgb-verde),.45)":"rgba(var(--rgb-peri),.3)"),color:esHoy?PC.verde:D.peri,fontSize:11,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>📹 {esHoy?"Entrar a Meet":"Meet"}</a>}
                     <span style={{fontSize:11,color:D.tx4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{asis.map(u=>u.name).join(", ")}</span>
                   </div>
                 </div>
@@ -2914,11 +2915,11 @@ const CONT_META=[
   // No hay etapa "Borrador": los huecos vacíos que genera el plan no se muestran, aparecen
   // recién cuando tienen material. Se siguen usando por debajo para repartir los archivos
   // que se suben en lote y para contar los cupos del plan.
-  {k:"produccion",est:"En producción",         col:"#EFD9A0", desc:"En manos del equipo, todavía sin material."},
+  {k:"produccion",est:"En producción",         col:PC.ambar, desc:"En manos del equipo, todavía sin material."},
   {k:"listo",     est:"Listo",                 col:PC.cian, desc:"Esperando la votación del equipo."},
   {k:"enviado",   est:"Enviado al portal",     col:PC.peri, desc:"En la bandeja del cliente, sin respuesta aún."},
   {k:"rechazado", est:"Rechazado por cliente", col:PC.rojo, desc:"El cliente pidió cambios — sube la corrección."},
-  {k:"aprobado",  est:"Aprobado por cliente",  col:"#8FF2C2", desc:"Cerradas — el cliente ya las aprobó."},
+  {k:"aprobado",  est:"Aprobado por cliente",  col:PC.verde, desc:"Cerradas — el cliente ya las aprobó."},
 ];
 const CONT_GLOW={
   listo:    {rgb:"rgba(var(--rgb-acento),", late:true},
@@ -3443,7 +3444,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                   sin más, y la pregunta obvia era si estaba bien o no. */}
               {n.id!==TRIG&&!conEntrada.has(n.id)&&
                 <span title="Nada lleva a este bloque, así que no se ejecutará"
-                  style={{position:"absolute",top:-11,right:10,padding:"2px 9px",borderRadius:999,background:PC.panel,border:"1px dashed rgba(var(--rgb-ambar), 0.5)",color:"#EFD9A0",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>sin conectar</span>}
+                  style={{position:"absolute",top:-11,right:10,padding:"2px 9px",borderRadius:999,background:PC.panel,border:"1px dashed rgba(var(--rgb-ambar), 0.5)",color:PC.ambar,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>sin conectar</span>}
             </div>);})}
         </div>
         {/* En el teléfono se cae: caería justo detrás de la tira de bloques. */}
@@ -3499,7 +3500,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                 guardar. Se avisa aquí y no solo al pulsar Guardar: con una plantilla de diez
                 bloques ya montados, enterarse al final es enterarse tarde. */}
             {!String(flujo.palabra||"").trim()&&
-              <div style={{padding:"9px 11px",borderRadius:10,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.3)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+              <div style={{padding:"9px 11px",borderRadius:10,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.3)",fontSize:11.5,color:PC.ambar,lineHeight:1.5}}>
                 Escribe la palabra o <b>esta cadena no se guardará</b>, por muy armada que esté.
               </div>}
           </div>
@@ -3654,7 +3655,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
             </span>
           </div>
           {!!nSel.esperaMin&&que==="respondio"&&
-            <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.28)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+            <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.28)",fontSize:11.5,color:PC.ambar,lineHeight:1.5}}>
               Si la espera pasa de <b>24 h</b> desde la última acción de la persona, el mensaje de la rama que toque no se podrá enviar. Es la ventana de Instagram.
             </div>}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
@@ -3681,7 +3682,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
             </div>
             <span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.5}}>{tSel.hint}</span>
           </div>
-          <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.28)",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>
+          <div style={{padding:"10px 12px",borderRadius:11,background:"rgba(var(--rgb-ambar), 0.06)",border:"1px solid rgba(var(--rgb-ambar), 0.28)",fontSize:11.5,color:PC.ambar,lineHeight:1.5}}>
             Instagram solo deja escribir dentro de las <b>24 h</b> desde la última acción de la persona. Una espera más larga que eso fallará salvo que vuelva a interactuar. Además el reloj se revisa cada 10 minutos, así que la espera real puede pasarse un poco.
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
@@ -4398,7 +4399,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
         {m.k==="enviado"&&<div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginTop:"auto",position:"relative"}}>
           <span style={{fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".14em",textTransform:"uppercase",color:D.peri}}>Portal cliente</span>
-          <button onClick={()=>cliAprueba(t)} style={{padding:"5px 11px",borderRadius:999,background:"rgba(var(--rgb-verde),.07)",border:"1px solid rgba(var(--rgb-verde),.35)",color:"#8FF2C2",fontFamily:"inherit",fontSize:10.5,fontWeight:600,cursor:"pointer"}}>✓ Aprobó</button>
+          <button onClick={()=>cliAprueba(t)} style={{padding:"5px 11px",borderRadius:999,background:"rgba(var(--rgb-verde),.07)",border:"1px solid rgba(var(--rgb-verde),.35)",color:PC.verde,fontFamily:"inherit",fontSize:10.5,fontWeight:600,cursor:"pointer"}}>✓ Aprobó</button>
           <button onClick={()=>cliRechaza(t)} style={{padding:"5px 11px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.06)",border:"1px solid rgba(var(--rgb-rojo2),.3)",color:D.rojo,fontFamily:"inherit",fontSize:10.5,fontWeight:600,cursor:"pointer"}}>✕ Pidió cambios</button>
         </div>}
 
@@ -4408,7 +4409,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           <button onClick={()=>pickCorrection(t.id)} disabled={busy} style={{padding:8,borderRadius:999,background:"rgba(var(--rgb-rojo2),.08)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:D.rojo,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>⇪ Subir corrección</button>
         </div>}
 
-        {m.k==="aprobado"&&<span style={{fontSize:11.5,fontWeight:600,color:"#8FF2C2",marginTop:"auto",position:"relative"}}>
+        {m.k==="aprobado"&&<span style={{fontSize:11.5,fontWeight:600,color:PC.verde,marginTop:"auto",position:"relative"}}>
           {t.date?"✓ Agendada para "+t.date+(t.publishTime?" · "+t.publishTime:""):"✓ Cerrada — falta que el cliente la agende"}
         </span>}
 
@@ -4506,15 +4507,15 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
     {vistaActual==="produccion"&&<Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>}
 
-    {vistaActual==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+    {vistaActual==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
       <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
     </div>}
 
-    {vistaActual==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+    {vistaActual==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
       <span style={{flex:"1 1 220px",minWidth:0}}>
         <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Org Semanal.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
       </span>
-      <button onClick={limpiarHuerfanas} style={{flexShrink:0,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-ambar),.5)",color:"#EFD9A0",fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>Eliminarlas</button>
+      <button onClick={limpiarHuerfanas} style={{flexShrink:0,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-ambar),.5)",color:PC.ambar,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>Eliminarlas</button>
     </div>}
 
     {!co?<div style={{textAlign:"center",padding:48,color:D.tx3}}>No hay empresas cargadas.</div>:(<>
@@ -4533,7 +4534,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </div>
         {dz}
         {leftover.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.06)",border:"1px solid rgba(var(--rgb-ambar),.28)"}}>
-          <div style={{fontSize:13,fontWeight:600,color:"#EFD9A0",marginBottom:6}}>Sobran {leftover.length} archivo(s)</div>
+          <div style={{fontSize:13,fontWeight:600,color:PC.ambar,marginBottom:6}}>Sobran {leftover.length} archivo(s)</div>
           <div style={{fontSize:12,color:D.tx2,marginBottom:10,lineHeight:1.5}}>
             El plan {PLANS[co.plan]?.name||co.plan} de {co.name} no tiene más slots de {TT[upType]?.l} este mes. Si los creas igual, quedan marcados como piezas adicionales fuera del plan.
           </div>
@@ -4596,7 +4597,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       {/* ── PUBLICAR ── Solo lo que el cliente ya aprobó. Se muestran el día y la hora que él
           eligió en su portal, porque es él quien decide cuándo sale. */}
       {vistaActual==="publicar"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
-        {!ig&&<div style={{padding:"14px 16px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+        {!ig&&<div style={{padding:"14px 16px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
           <b>{co.name} no tiene Instagram conectado.</b> Conéctalo con el botón de arriba para poder publicar desde aquí.
         </div>}
         {porEtapa.aprobado.length===0
@@ -4636,7 +4637,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                      📸 Publicada{t.socialPost?.at?" · "+new Date(t.socialPost.at).toLocaleDateString("es-CL"):""}
                    </span>
                   :programada
-                  ?<span style={{padding:"9px 14px",borderRadius:999,textAlign:"center",fontSize:12,fontWeight:700,color:"#EFD9A0",background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.35)"}}>
+                  ?<span style={{padding:"9px 14px",borderRadius:999,textAlign:"center",fontSize:12,fontWeight:700,color:PC.ambar,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.35)"}}>
                      🕐 Programada · {String(t.socialPost.programadaPara).replace("T"," ").slice(0,16)}
                    </span>
                   :<>
@@ -4657,7 +4658,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                         </button>
                         {pasado&&<span style={{fontSize:11,color:D.tx5,lineHeight:1.45}}>Su día ya pasó. Publica ahora, o pide al cliente que la reagende.</span>}
                       </>);})()}
-                    {sinUrl&&<span style={{fontSize:11,color:"#EFD9A0",lineHeight:1.45}}>El archivo no está en el almacenamiento: Instagram necesita una URL pública.</span>}
+                    {sinUrl&&<span style={{fontSize:11,color:PC.ambar,lineHeight:1.45}}>El archivo no está en el almacenamiento: Instagram necesita una URL pública.</span>}
                   </>}
               </div>
             </div>);
@@ -4672,7 +4673,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       {vistaActual==="automatizacion"&&<div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:abierta==null?820:"none"}}>
         {!igEst?<div style={{color:D.tx3,fontSize:13,padding:"20px 2px"}}>Cargando…</div>
         :!igEst.configurado?(
-          <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.55}}>
+          <div style={{padding:"14px 16px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.55}}>
             <b>Falta configurar la app de Meta en el servidor.</b> {igEst.motivo||""}
           </div>
         ):(<>
@@ -4684,9 +4685,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           <div style={{display:"flex",alignItems:"center",gap:11,flexWrap:"wrap",padding:"13px 15px",borderRadius:12,
             background:igEst.conectada?"rgba(var(--rgb-verde),.05)":D.panel,
             border:"1px solid "+(igEst.conectada?"rgba(var(--rgb-verde),.3)":D.line2)}}>
-            <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:igEst.conectada?"#8FF2C2":D.tx4,boxShadow:igEst.conectada?"0 0 9px #8FF2C2":"none"}}/>
+            <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:igEst.conectada?PC.verde:D.tx4,boxShadow:igEst.conectada?"0 0 9px var(--success)":"none"}}/>
             <div style={{minWidth:0,flex:"1 1 260px"}}>
-              <div style={{fontSize:13.5,fontWeight:700,color:igEst.conectada?"#8FF2C2":D.tx}}>
+              <div style={{fontSize:13.5,fontWeight:700,color:igEst.conectada?PC.verde:D.tx}}>
                 {igEst.conectada?("Disponible · @"+igEst.username):("Falta que "+(co?.name||"el cliente")+" lo autorice")}
               </div>
               <div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5,marginTop:2}}>
@@ -4738,10 +4739,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                     <span style={{flexShrink:0,padding:"2px 9px",borderRadius:999,border:"1px solid "+(TT[t.type]?.c||D.tx3)+"55",color:TT[t.type]?.c||D.tx3,fontSize:10.5,fontWeight:700}}>{TT[t.type]?.l||t.type}</span>
                     <span style={{flex:"1 1 140px",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
                       <span style={{fontSize:13,fontWeight:600,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title||"Sin título"}</span>
-                      {esperando&&<span style={{fontSize:10.5,color:"#EFD9A0",lineHeight:1.4}}>⏳ Esperando que {co?.name||"el cliente"} elija entre las {(t.files||[]).length} versiones</span>}
+                      {esperando&&<span style={{fontSize:10.5,color:PC.ambar,lineHeight:1.4}}>⏳ Esperando que {co?.name||"el cliente"} elija entre las {(t.files||[]).length} versiones</span>}
                     </span>
                     {esperando
-                      ? <span title="La cadena se escribe para el contenido que salga; primero hay que saber cuál" style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed rgba(var(--rgb-ambar),.45)",color:"#EFD9A0",fontSize:12,fontWeight:600}}>En espera</span>
+                      ? <span title="La cadena se escribe para el contenido que salga; primero hay que saber cuál" style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed rgba(var(--rgb-ambar),.45)",color:PC.ambar,fontSize:12,fontWeight:600}}>En espera</span>
                       : <button onClick={()=>{sTaskParaCadena(t.id);sPreset(true);}} style={{flexShrink:0,padding:"8px 14px",borderRadius:999,background:D.peri,border:"1px solid "+D.peri,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Preparar cadena →</button>}
                     {/* Quitarla de la lista. No borra nada: solo deja de ir con automatización, y
                         vuelve al selector de abajo por si fue un clic de más. */}
@@ -4777,7 +4778,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
               // ¿Está atada a una pieza y esperando que se publique para armarse sola?
               const tareaVinc=r.taskId?(tasks||[]).find(t=>String(t.id)===String(r.taskId)):null;
               const espera=!!r.pendienteMedia;
-              const puntoColor=espera?"#EFD9A0":(r.activa!==false?PC.cian:D.tx5);
+              const puntoColor=espera?PC.ambar:(r.activa!==false?PC.cian:D.tx5);
               // La fila deja de ser un solo <button>: la papelera es otro botón y uno no puede
               // ir dentro del otro. El contenedor es un <div> y cada acción tiene el suyo.
               return(<div key={r.id} style={{display:"flex",alignItems:"stretch",gap:8}}>
@@ -4792,7 +4793,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                     </span>
                   </span>
                   {pub&&pub.img&&<img src={pub.img} alt="" onError={e=>{e.target.style.display="none";}} style={{width:38,height:38,borderRadius:9,objectFit:"cover",flexShrink:0}}/>}
-                  <span style={{flexShrink:0,fontSize:11.5,color:espera?"#EFD9A0":(r.activa!==false?PC.cian:D.tx5),fontWeight:600}}>{espera?"Esperando publicación":(r.activa!==false?"Activa":"Pausada")}</span>
+                  <span style={{flexShrink:0,fontSize:11.5,color:espera?PC.ambar:(r.activa!==false?PC.cian:D.tx5),fontWeight:600}}>{espera?"Esperando publicación":(r.activa!==false?"Activa":"Pausada")}</span>
                   <span style={{flexShrink:0,color:D.tx4,fontSize:15}}>›</span>
                 </button>
                 <button onClick={()=>borrarRegla(i)} disabled={guardando} title="Eliminar esta cadena"
@@ -5795,12 +5796,12 @@ function InformePg({cos}){
     </div>
 
     <div style={{padding:"15px 18px",borderRadius:14,background:"linear-gradient(160deg, rgba(var(--rgb-verde),.10), rgba(var(--rgb-verde),.02))",border:"1px solid rgba(var(--rgb-verde),.35)",marginBottom:20}}>
-      <div style={{fontSize:14.5,fontWeight:700,color:"#8FF2C2",marginBottom:5}}>Más resultados, gastando menos</div>
+      <div style={{fontSize:14.5,fontWeight:700,color:PC.verde,marginBottom:5}}>Más resultados, gastando menos</div>
       <div style={{fontSize:13,color:PC.tx2,lineHeight:1.6}}>
         La campaña actual consiguió <b style={{color:PC.tx}}>{nInf(a.visitas-b.visitas)} visitas más</b> que la
         de verano <b style={{color:PC.tx}}>gastando {$Inf(b.gasto-a.gasto)} menos</b>. Al precio por visita
         que tenía verano, estas mismas visitas habrían costado {$Inf(a.visitas*b.coste)}:
-        el ahorro real es de <b style={{color:"#8FF2C2"}}>{$Inf(ahorro)}</b>.
+        el ahorro real es de <b style={{color:PC.verde}}>{$Inf(ahorro)}</b>.
       </div>
     </div>
 
@@ -5829,7 +5830,7 @@ function InformePg({cos}){
       <div style={{marginTop:15,paddingTop:13,borderTop:"1px solid "+PC.line,fontSize:13.5,color:PC.tx2,lineHeight:1.65}}>
         La campaña de junio ya superó el resultado de <b style={{color:PC.tx}}>toda la temporada de verano</b> en
         el <b style={{color:PC.cian}}>{Math.round(a.dias/b.dias*100)}% del tiempo</b> — {a.dias} días frente
-        a {b.dias} — y <b style={{color:"#8FF2C2"}}>sigue activa</b>, sumando {nInf(a.ritmo)} visitas cada día.
+        a {b.dias} — y <b style={{color:PC.verde}}>sigue activa</b>, sumando {nInf(a.ritmo)} visitas cada día.
       </div>
     </div>
 
@@ -5839,7 +5840,7 @@ function InformePg({cos}){
         <span key={cp.corto} style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:12,fontWeight:600,color:PC.tx2}}>
           <span style={{width:11,height:11,borderRadius:3,background:c,flexShrink:0}}/>
           {cp.n}
-          <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:999,background:cp.estado==="Activa"?"rgba(var(--rgb-verde),.14)":"rgba(var(--rgb-luz),.05)",color:cp.estado==="Activa"?"#8FF2C2":PC.tx4}}>{cp.estado}</span>
+          <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:999,background:cp.estado==="Activa"?"rgba(var(--rgb-verde),.14)":"rgba(var(--rgb-luz),.05)",color:cp.estado==="Activa"?PC.verde:PC.tx4}}>{cp.estado}</span>
         </span>))}
     </div>
 
@@ -5894,9 +5895,9 @@ function InformePg({cos}){
       </div>
     </Bloque>
 
-    <Bloque titulo="A qué prestar atención" color="#EFD9A0">
+    <Bloque titulo="A qué prestar atención" color={PC.ambar}>
       <div style={{fontSize:13,color:PC.tx2,lineHeight:1.65}}>
-        <b style={{color:"#EFD9A0"}}>La audiencia es pequeña y puede saturarse.</b> El conjunto de anuncios
+        <b style={{color:PC.ambar}}>La audiencia es pequeña y puede saturarse.</b> El conjunto de anuncios
         del 1% apunta a unas 17.600–20.800 personas. Con un CTR tan alto no es un problema hoy, pero si el
         coste por visita empieza a subir de forma sostenida por encima de los ${a.coste}, será el momento
         de activar <b style={{color:PC.tx}}>Advantage+ Audience</b> para ampliar el alcance sin perder la
@@ -5904,9 +5905,9 @@ function InformePg({cos}){
       </div>
     </Bloque>
 
-    <Bloque titulo="Recomendación" color="#8FF2C2">
+    <Bloque titulo="Recomendación" color={PC.verde}>
       <div style={{fontSize:13.5,color:PC.tx2,lineHeight:1.7}}>
-        <b style={{color:"#8FF2C2"}}>Subir el presupuesto diario de la campaña actual.</b> Hoy está en
+        <b style={{color:PC.verde}}>Subir el presupuesto diario de la campaña actual.</b> Hoy está en
         $5.000 diarios y rinde mejor que nunca: cada peso extra entra a ${a.coste} por visita en vez de
         los ${b.coste} que costaba en verano. Es el momento de acelerar, porque el margen de rentabilidad
         es el más alto que ha tenido la cuenta.
@@ -6255,8 +6256,8 @@ function GInput({value,onChange,placeholder}){
 }
 // ═══ GUIONADO — modelo y tokens del diseño ══════════════════════
 const MOV_PRESETS=["Plano Fijo","Orbital","Zoom In","Zoom Out","Seguimiento","Paneo Der","Paneo Izq","Speed Ramp","Dron"];
-const G_EST={"Borrador":{col:PC.tx3,bor:PC.line2},"En revisión":{col:"#EFD9A0",bor:"rgba(var(--rgb-ambar),.4)"},"Aprobado":{col:"#8FF2C2",bor:"rgba(var(--rgb-verde),.45)"}};
-const BLOQUE_TINT={Setup:PC.tx2,Escena:PC.cian,Break:"#EFD9A0",Traslado:"#F2A8C4",Otro:PC.lav};
+const G_EST={"Borrador":{col:PC.tx3,bor:PC.line2},"En revisión":{col:PC.ambar,bor:"rgba(var(--rgb-ambar),.4)"},"Aprobado":{col:PC.verde,bor:"rgba(var(--rgb-verde),.45)"}};
+const BLOQUE_TINT={Setup:PC.tx2,Escena:PC.cian,Break:PC.ambar,Traslado:PC.rosa,Otro:PC.lav};
 const BLOQUE_TIPOS=["Escena","Setup","Break","Traslado","Otro"];
 const G_EST_OLD={borrador:"Borrador",en_revision:"En revisión",revision:"En revisión",aprobado:"Aprobado",grabado:"Aprobado"};
 const G_TIPO_OLD={scene:"Escena",setup:"Setup",break_:"Break",travel:"Traslado",custom:"Otro"};
@@ -7342,7 +7343,7 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
       {i>0&&<button onClick={()=>sI(i-1)} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,cursor:"pointer"}}>← Atrás</button>}
       <span style={{flex:"1 1 auto",minWidth:0,fontSize:11.5,color:D.tx4,lineHeight:1.45}}>
         {i===0&&!puedeSeguir?"Ponle un título para seguir"
-          :i===1&&!nEnc?<span style={{color:"#EFD9A0"}}>Sin encargado no le llega el aviso a nadie. Se puede asignar después.</span>
+          :i===1&&!nEnc?<span style={{color:PC.ambar}}>Sin encargado no le llega el aviso a nadie. Se puede asignar después.</span>
           :""}
       </span>
       {!ultimo
@@ -7613,8 +7614,8 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   //                                      de espera/cierre, no urgencias
   const STATES={
     borrador:     {l:"Borrador",              c:PC.tx3, bor:PC.line2},
-    en_proceso:   {l:"En producción",         c:"#EFD9A0", bor:"rgba(var(--rgb-ambar),.4)"},
-    listo:        {l:"Listo",                 c:"#8FF2C2", bor:"rgba(var(--rgb-verde),.4)",
+    en_proceso:   {l:"En producción",         c:PC.ambar, bor:"rgba(var(--rgb-ambar),.4)"},
+    listo:        {l:"Listo",                 c:PC.verde, bor:"rgba(var(--rgb-verde),.4)",
                    glow:"linear-gradient(270deg, rgba(var(--rgb-acento),.2), rgba(var(--rgb-acento),.05) 50%, transparent)",
                    marco:"linear-gradient(160deg, rgba(var(--rgb-tinta),.35), rgba(var(--rgb-tinta),.08) 45%, rgba(var(--rgb-peri),.25))", late:true},
     en_aprobacion:{l:"Enviado al portal",     c:PC.peri, bor:"rgba(var(--rgb-peri),.45)",
@@ -7623,7 +7624,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     rechazado:    {l:"Rechazado por cliente", c:PC.rojo, bor:"rgba(var(--rgb-rojo2),.4)",
                    glow:"linear-gradient(270deg, rgba(var(--rgb-rojo2),.2), rgba(var(--rgb-rojo2),.05) 50%, transparent)",
                    marco:"linear-gradient(160deg, rgba(var(--rgb-rojo),.45), rgba(var(--rgb-rojo),.1) 45%, rgba(var(--rgb-rojo2),.3))", late:true},
-    aprobado:     {l:"Aprobado por cliente",  c:"#8FF2C2", bor:"rgba(var(--rgb-verde),.45)",
+    aprobado:     {l:"Aprobado por cliente",  c:PC.verde, bor:"rgba(var(--rgb-verde),.45)",
                    glow:"linear-gradient(270deg, rgba(var(--rgb-verde),.2), rgba(var(--rgb-verde),.05) 50%, transparent)",
                    marco:"linear-gradient(160deg, rgba(var(--rgb-verde),.4), rgba(var(--rgb-verde),.1) 45%, rgba(var(--rgb-acento),.25))"},
     publicado:    {l:"Publicado",             c:PC.peri, bor:"rgba(var(--rgb-peri),.4)"},
@@ -7869,14 +7870,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               {(()=>{
                 const conTexto=items.filter(it=>(it.title||"").trim()||(it.description||"").trim());
                 const pend=conTexto.filter(it=>!confirmada(it)).length;
-                if(pend)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.32)",color:"#EFD9A0",fontSize:12.5,fontWeight:600}}>{pend} sin confirmar</span>;
+                if(pend)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.32)",color:PC.ambar,fontSize:12.5,fontWeight:600}}>{pend} sin confirmar</span>;
                 if(conTexto.length)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(168,226,107,.06)",border:"1px solid "+STATES.listo.c+"4d",color:STATES.listo.c,fontSize:12.5,fontWeight:600}}>Todo confirmado ✓</span>;
                 return null;
               })()}
             </div>
           </div>
 
-          {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:"#EFD9A0",lineHeight:1.5}}>
+          {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
             <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
           </div>}
 
@@ -8038,10 +8039,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{position:"relative",fontSize:12,flexShrink:0}}>💬</span>}
                     {/* Quién lo tiene: es lo primero que se busca al repasar la semana. */}
                     {prodSel.slice(0,3).map(u=><span key={u.id} style={{position:"relative",display:"inline-flex",flexShrink:0}}><Av u={u} sz={18}/></span>)}
-                    {!prodSel.length&&<span title="Nadie recibió el aviso de esta pieza" style={{position:"relative",padding:"3px 9px",borderRadius:999,background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.34)",color:"#EFD9A0",fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>sin encargado</span>}
+                    {!prodSel.length&&<span title="Nadie recibió el aviso de esta pieza" style={{position:"relative",padding:"3px 9px",borderRadius:999,background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.34)",color:PC.ambar,fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>sin encargado</span>}
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
-                      <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:"#EFD9A0",flexShrink:0}}/>}
+                      <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:PC.ambar,flexShrink:0}}/>}
                     <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
@@ -8127,7 +8128,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       </div>
 
                       {!archivo?(<>
-                        {!stReady&&<div style={{position:"relative",fontSize:11.5,color:"#EFD9A0",lineHeight:1.5}}>⚠️ No se pueden subir archivos ahora mismo{stMotivo?": "+stMotivo:""}.</div>}
+                        {!stReady&&<div style={{position:"relative",fontSize:11.5,color:PC.ambar,lineHeight:1.5}}>⚠️ No se pueden subir archivos ahora mismo{stMotivo?": "+stMotivo:""}.</div>}
                         <label style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"38px 20px",borderRadius:16,border:"1px dashed "+(subiendo===it.id?D.cian:D.line2),background:subiendo===it.id?"rgba(var(--rgb-acento),.05)":"transparent",color:subiendo===it.id?D.cian:D.tx3,cursor:stReady&&subiendo!==it.id?"pointer":"default",textAlign:"center"}}>
                           <input type="file" accept="image/*,video/*" disabled={!stReady||subiendo===it.id} style={{display:"none"}} onChange={e=>handleFiles(it.id,"files",e)}/>
                           <Ic n="inbox" s={26} c={subiendo===it.id?D.cian:D.tx4}/>
@@ -8185,7 +8186,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                               nadie la va a mover de estado. Se dice, y se arregla desde aquí. */}
                           {!prodSel.length&&(
                             <button onClick={()=>sEditandoItem(m=>({...m,[it.id]:true}))}
-                              style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 13px",borderRadius:999,background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.34)",color:"#EFD9A0",fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                              style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 13px",borderRadius:999,background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.34)",color:PC.ambar,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                               Nadie · asignar
                             </button>)}
                           {prodSel.map(u=>(
@@ -9098,7 +9099,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
                 contenido lleva una y en qué punto va. Se activa sola al publicarse. */}
             {modal.autoComentario&&(()=>{
               const arm=modal.autoEstado==="armada", lista=modal.autoEstado==="lista";
-              const col=arm?"#8FF2C2":lista?PC.cian:"#EFD9A0";
+              const col=arm?PC.verde:lista?PC.cian:PC.ambar;
               const txt=arm
                 ? "🟢 Automatización de comentarios activa — quien comente recibe tu mensaje por privado."
                 : lista
@@ -9175,7 +9176,7 @@ function PostStatsChat({co,task}){
   const t=st&&st.target;
   const esReel=st&&st.esReel;
   const tipoTxt=esReel?"reels":"posts";
-  const cMult=m=>m==null?PC.tx4:m>=1.3?"#8FF2C2":m>=0.85?PC.cian:PC.rojo;
+  const cMult=m=>m==null?PC.tx4:m>=1.3?PC.verde:m>=0.85?PC.cian:PC.rojo;
   const sugerencias=["¿Cómo le fue?","¿Qué puedo mejorar?","¿Por qué esos comentarios?"];
   const hayDatos=st&&st.ok&&t;
 
@@ -9542,7 +9543,7 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-            <Bg color={g.visible?"#8FF2C2":D.tx4}>{g.visible?"● Visible para el cliente":"○ Solo el equipo"}</Bg>
+            <Bg color={g.visible?PC.verde:D.tx4}>{g.visible?"● Visible para el cliente":"○ Solo el equipo"}</Bg>
             <button onClick={()=>publicar(g,!g.visible)} disabled={!g.visible&&(!fotos.length||faltanMini(g)>0)}
               title={!g.visible&&!fotos.length?"Súbele fotos antes de publicarla"
                 :!g.visible&&faltanMini(g)>0?"Faltan "+faltanMini(g)+" miniaturas — sin ellas la galería le recarga el teléfono al cliente"
@@ -9898,7 +9899,7 @@ function ClientView({user:cu,onLogout:ol}){
             </div>))}
           {ig&&ig.conectada&&(
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:16,fontSize:12,color:PC.tx3}}>
-              <span style={{width:7,height:7,borderRadius:"50%",background:"#8FF2C2",flexShrink:0}}/>
+              <span style={{width:7,height:7,borderRadius:"50%",background:PC.verde,flexShrink:0}}/>
               Instagram conectado como <b style={{color:PC.tx2}}>@{ig.username}</b>
             </div>)}
           {/* El @ real de la cuenta. Primero la de comentario→DM (`/api/ig/status`), pero esa
