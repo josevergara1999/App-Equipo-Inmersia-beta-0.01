@@ -1191,7 +1191,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const canProspectos=isA||cu.role==="Sales";
   const[pg,sPg]=useState("dashboard");
   const[planVista,sPlanVista]=useState("semana");
-  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],informe:["Informe Mensual","📑","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
+  const visP={dashboard:["Dashboard","📊","dashboard"],planner:["Org Semanal","📋","planner"],companies:["Empresas","🏢","companies"],guionado:["Guionado","📝","edit"],contenido:["Contenido","🎨","paperclip"],team:["Equipo","👥","team"],payments:["Pagos","💰","payments"],metricas:["Métricas","📈","trend_up"],fidelizacion:["Fidelización","💳","loyalty"]};
   const irA=k=>sPg(k);
   // El menú en tres bloques. Arriba lo que se usa todos los días; en medio lo que no toca todo
   // el mundo ni a diario; abajo la trastienda. Antes eran diez entradas seguidas sin jerarquía y
@@ -1210,7 +1210,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     ["Básicas",[{k:"dashboard",ic:"dashboard"},{k:"planner",ic:"planner"},{k:"contenido",ic:"paperclip"},{k:"guionado",ic:"edit"}]],
     ["Pro",[
       {k:"automatizaciones",l:"Automatizaciones",ic:"chat",lCorta:"Automatiz."},
-      {k:"informe",ic:"report"},
       {k:"fidelizacion",ic:"loyalty"},
       {k:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
       {k:"metricas",ic:"trend_up"},
@@ -1741,7 +1740,6 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         {/* MÉTRICAS */}
         {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
-        {pg==="informe"&&<InformePg cos={cos}/>}
         {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
         {["contenido","automatizaciones","publicar"].includes(pg)&&<ContenidoPg key={pg} cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} modo={pg}/>}
 
