@@ -18,6 +18,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+/* El hueco de la barra de scroll se reserva SIEMPRE. Sin esto, una pantalla con mucho contenido
+   saca la barra y otra con poco la quita, y la página entera se ensancha ~15px de golpe: la
+   cabecera, las cajas y todo lo demás dan un salto lateral al cambiar de vista. Es lo que hacía
+   que Org Semanal pareciera cambiar de tamaño al pasar de Semana a Mes. */
+html{scrollbar-gutter:stable}
 html,body{min-height:100%}
 body{font-family:'DM Sans',system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
