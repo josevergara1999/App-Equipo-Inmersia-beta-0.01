@@ -6994,44 +6994,44 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa,conmutador}){
 
   return(<div>
     {/* Cabecera de controles */}
-    <div style={{...D_MARCO,marginBottom:24}}>
-      <div style={D_CARD}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            {/* En vista Mes el conmutador va AQUÍ y no en una fila suelta: la cabecera de arriba
-                se queda casi vacía y, entre las dos cajas, flotaba solo en mitad del hueco. */}
-            {conmutador}
-            <button onClick={()=>irMes(-1)} style={dNav()}>‹</button>
-            <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>{MO[cM]} {cY}</span>
-            <button onClick={()=>irMes(1)} style={dNav()}>›</button>
-            <button onClick={()=>{sCM(hoy.getMonth());sCY(hoy.getFullYear());sSelDia(null);}} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>
-          </div>
-          <div style={dGrupo}>
-            {capaChip("cliente","Cliente",D.cian)}
-            {capaChip("interno","Interno",D.lav)}
-          </div>
-        </div>
-
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:16,minHeight:26}}>
-          <button onClick={()=>sFiltroCo("all")} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:filtroCo==="all"?"rgba(var(--rgb-acento),.1)":"transparent",border:"1px solid "+(filtroCo==="all"?"rgba(var(--rgb-acento),.45)":D.line2),color:filtroCo==="all"?D.cian:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-            Todas<span style={{fontFamily:"var(--font-mono)",fontSize:10.5}}>{totalMes}</span>
-          </button>
-          {cos.map(c=>{const on=String(filtroCo)===String(c.id);const n=conteoCo(c.id);return(
-            <button key={c.id} onClick={()=>sFiltroCo(on?"all":String(c.id))} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:on?c.color+"1a":"transparent",border:"1px solid "+(on?c.color+"73":D.line2),color:on?c.color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-              <span style={{width:7,height:7,borderRadius:"50%",background:c.color}}/>{c.name}
-              <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:on?c.color:D.tx4}}>{n}</span>
-            </button>);})}
-          <span style={{marginLeft:"auto",fontSize:12,color:D.tx3}}>
-            {totalMes===0?"Nada agendado este mes":`${totalMes} ${totalMes===1?"publicación":"publicaciones"} · capa ${capa==="cliente"?"del cliente":"interna"}`}
-          </span>
-        </div>
-      </div>
-    </div>
-
     <div style={{display:"flex",gap:18,alignItems:"flex-start",flexWrap:"wrap"}}>
       {/* Rejilla del mes */}
       <div style={{flex:"1 1 560px",minWidth:0,...D_MARCO,borderRadius:20,padding:5}}>
         <div style={{borderRadius:16,background:D.panel3,border:"1px solid rgba(var(--rgb-tinta),.08)",overflow:"hidden"}}>
+            {/* Los controles del mes viven DENTRO de la caja del calendario: en dos cajas
+                separadas parecían dos cosas distintas, y son la misma —qué mes miras y el mes
+                mismo—. La cabecera de arriba se queda igual que en vista semana. */}
+            <div style={{padding:"14px 16px",borderBottom:"1px solid "+D.line15,display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              {/* En vista Mes el conmutador va AQUÍ y no en una fila suelta: la cabecera de arriba
+                  se queda casi vacía y, entre las dos cajas, flotaba solo en mitad del hueco. */}
+              {conmutador}
+              <button onClick={()=>irMes(-1)} style={dNav()}>‹</button>
+              <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>{MO[cM]} {cY}</span>
+              <button onClick={()=>irMes(1)} style={dNav()}>›</button>
+              <button onClick={()=>{sCM(hoy.getMonth());sCY(hoy.getFullYear());sSelDia(null);}} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>
+            </div>
+            <div style={dGrupo}>
+              {capaChip("cliente","Cliente",D.cian)}
+              {capaChip("interno","Interno",D.lav)}
+            </div>
+          </div>
+  
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:16,minHeight:26}}>
+            <button onClick={()=>sFiltroCo("all")} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:filtroCo==="all"?"rgba(var(--rgb-acento),.1)":"transparent",border:"1px solid "+(filtroCo==="all"?"rgba(var(--rgb-acento),.45)":D.line2),color:filtroCo==="all"?D.cian:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              Todas<span style={{fontFamily:"var(--font-mono)",fontSize:10.5}}>{totalMes}</span>
+            </button>
+            {cos.map(c=>{const on=String(filtroCo)===String(c.id);const n=conteoCo(c.id);return(
+              <button key={c.id} onClick={()=>sFiltroCo(on?"all":String(c.id))} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:on?c.color+"1a":"transparent",border:"1px solid "+(on?c.color+"73":D.line2),color:on?c.color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:c.color}}/>{c.name}
+                <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:on?c.color:D.tx4}}>{n}</span>
+              </button>);})}
+            <span style={{marginLeft:"auto",fontSize:12,color:D.tx3}}>
+              {totalMes===0?"Nada agendado este mes":`${totalMes} ${totalMes===1?"publicación":"publicaciones"} · capa ${capa==="cliente"?"del cliente":"interna"}`}
+            </span>
+          </div>
+            </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
             {["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"].map(d=>(
               <span key={d} style={{padding:"11px 0 9px",textAlign:"center",fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",color:D.tx4,borderBottom:"1px solid "+D.line15}}>{d}</span>))}
