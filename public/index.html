@@ -7057,34 +7057,31 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
 // referencias— no se ha perdido: vive plegado dentro del segundo paso, que es donde tiene sentido
 // mirarlo (se abre solo si hace falta) en vez de ser una pantalla más por la que pasar.
 const TIPOS_HABITUALES=["post","reel","historia"];
-// El formato dibujado a tamaño real, para elegir mirando en vez de leyendo. Las proporciones son
-// las de Instagram y las mismas que usa el preview de la pieza: 1:1 el post del feed, 9:16 el reel
-// y la historia. Como reel e historia comparten proporción, lo que los separa es lo de dentro —el
-// play del reel y los tramos de arriba de la historia—, que es exactamente lo que uno reconoce sin
-// pensar. Tres palabras sueltas en tres píldoras iguales no dicen nada a quien empieza.
-const LienzoTipo=({k,c,on})=>{
-  const vert=k!=="post";
-  const b=on?c:D.tx5;
-  return(<div style={{width:vert?26:46,height:46,borderRadius:vert?5:4,border:"1.5px solid "+b,
-    background:on?c+"14":"transparent",position:"relative",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",transition:"border-color .15s"}}>
-    {k==="historia"&&<>
-      <span style={{position:"absolute",top:3,left:3,right:3,display:"flex",gap:2}}>
-        {[0,1,2].map(i=><span key={i} style={{flex:1,height:1.5,borderRadius:1,background:b,opacity:i===0?1:.35}}/>)}
-      </span>
-      <span style={{position:"absolute",top:8.5,left:4,width:6,height:6,borderRadius:"50%",border:"1px solid "+b}}/>
-    </>}
-    {k==="reel"&&<svg viewBox="0 0 24 24" style={{width:13,height:13,color:b}}><path d="M9 6.5v11l9-5.5-9-5.5Z" fill="currentColor"/></svg>}
-    {k==="post"&&<svg viewBox="0 0 24 24" style={{width:17,height:17,color:b}} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8.5" cy="8.5" r="1.6"/><path d="m3 17 5-5 4 4 3-3 6 6"/>
-    </svg>}
-  </div>);
+// Un icono por tipo, para elegir mirando en vez de leyendo: tres palabras en tres píldoras
+// iguales no le dicen nada a quien empieza. Los tres símbolos son los que cualquiera reconoce de
+// Instagram — el marco con la foto, la cinta con el play, el aro del perfil.
+const IconoTipo=({k,c,on})=>{
+  const b=on?c:D.tx4;
+  const p={width:30,height:30,viewBox:"0 0 24 24",fill:"none",stroke:b,strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"round"};
+  if(k==="reel")return(<svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="3.5"/><path d="M3 8.5h18"/>
+    <path d="M10.5 11v3.4l3-1.7-3-1.7Z" fill={b} stroke="none"/>
+  </svg>);
+  if(k==="historia")return(<svg {...p}>
+    <circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="2.4"/>
+    <path d="M7.8 17.6a4.7 4.7 0 0 1 8.4 0"/>
+  </svg>);
+  return(<svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="3.5"/>
+    <circle cx="8.6" cy="9.4" r="1.5"/><path d="m4.5 17.5 4-4 3 3 2.5-2.5 5.5 5.5"/>
+  </svg>);
 };
 function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,editando,onSubirRef,onQuitarRef,subiendoRef}){
   const equipo=users.filter(u=>u.role!=="cliente");
   const carpetas=co?.links||[];
   const tieneAuto=["reel","post"].includes(it.type);
   const PASOS=[
-    {t:"¿Qué se publica?", sub:"El tipo y el título con el que lo vas a reconocer."},
+    {t:"¿Qué se publica?", sub:"Primero el título con el que lo vas a reconocer, después el tipo."},
     {t:"¿Quién la hace?",  sub:"Le llega el aviso. Puedes dejarlo sin asignar."},
   ];
   // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está.
@@ -7123,27 +7120,32 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
     </div>
 
     {i===0&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div style={{display:"flex",gap:9,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <input autoFocus value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
+        onKeyDown={e=>{if(e.key==="Enter"&&puedeSeguir)sI(1);}}
+        placeholder="Título" style={campo}/>
+      {/* Las tres del mismo ancho (`flex:1 1 0`): con el ancho según el texto, "Historia" salía
+          más grande que "Post" y parecía la opción principal. */}
+      <div style={{display:"flex",gap:10}}>
         {TIPOS_HABITUALES.map(k=>{
           const on=it.type===k, c=TT[k].c;
           return(<button key={k} onClick={()=>onCambio({type:k})}
-            style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"11px 14px 9px",borderRadius:14,
-              background:on?c+"12":"transparent",border:"1px solid "+(on?c+"8c":D.line2),
-              color:on?c:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:on?700:600,cursor:"pointer",minWidth:70}}>
-            <LienzoTipo k={k} c={c} on={on}/>
+            style={{flex:"1 1 0",minWidth:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:9,padding:"16px 8px 13px",borderRadius:16,
+              background:on?c+"12":D.panel,border:"1px solid "+(on?c+"8c":D.line2),
+              boxShadow:on?"0 0 0 1px "+c+"33":"none",
+              color:on?c:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:on?700:600,cursor:"pointer",transition:"border-color .15s, background .15s"}}>
+            <IconoTipo k={k} c={c} on={on}/>
             {TT[k].l}
           </button>);
         })}
-        {/* Los cuatro raros no llevan dibujo: no tienen un formato que reconocer y, con marco,
-            pesarían lo mismo que los tres de todos los días. */}
-        {!verOtros
-          ? <button onClick={()=>sVerOtros(true)} style={{alignSelf:"center",padding:"8px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx5,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>Otros…</button>
-          : otrosTipos.map(k=>(
-              <button key={k} onClick={()=>onCambio({type:k})} style={{alignSelf:"center",...chip(it.type===k,TT[k].c)}}>{TT[k].l}</button>))}
       </div>
-      <input autoFocus value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
-        onKeyDown={e=>{if(e.key==="Enter"&&puedeSeguir)sI(1);}}
-        placeholder="Título — ej. «Receta de la hamburguesa nueva»" style={campo}/>
+      {/* Los cuatro raros no llevan icono: no tienen un formato que reconocer y con tarjeta
+          pesarían lo mismo que los tres de todos los días. */}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        {!verOtros
+          ? <button onClick={()=>sVerOtros(true)} style={{padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx5,fontFamily:"inherit",fontSize:12,cursor:"pointer"}}>Otros…</button>
+          : otrosTipos.map(k=>(
+              <button key={k} onClick={()=>onCambio({type:k})} style={chip(it.type===k,TT[k].c)}>{TT[k].l}</button>))}
+      </div>
     </div>)}
 
     {i===1&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
