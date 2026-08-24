@@ -1327,7 +1327,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // condicionados — bastaba abrir y guardar una empresa para dejarla sin links.
   const[linksDirty,sLinksDirty]=useState(false);
   const[cM,sCM]=useState(new Date().getMonth());const[cY,sCY]=useState(new Date().getFullYear());const[wkOff,sWkOff]=useState(0);
-  const[drag,sDr]=useState(null);const[fCo,sFCo]=useState("all");const[calDirty,sCalDirty]=useState(false);
+  const[drag,sDr]=useState(null);const fCo="all";const[calDirty,sCalDirty]=useState(false);
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
   const[metaExpWarn,sMetaExpWarn]=useState(false);const[metaDaysLeft,sMetaDaysLeft]=useState(0);
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
@@ -1670,13 +1670,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       <main className="main-col" style={{flex:1,minWidth:0,display:"flex",flexDirection:"column"}}>
         <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:isMob?"calc(12px + env(safe-area-inset-top, 0px)) 16px 12px":"14px 28px",borderBottom:"1px solid "+D.line,position:"sticky",top:0,zIndex:40,background:"rgba(var(--rgb-bg),.92)",backdropFilter:"blur(12px)"}}>
           <div style={{display:"flex",alignItems:"center",gap:14,flex:1,maxWidth:520,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 15px",background:D.panel,border:"1px solid "+D.line3,borderRadius:999,flex:1,minWidth:0}}>
-              <Ic n="search" s={15} c={D.tx4}/>
-              <input placeholder="Buscar tareas, empresas…" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:0,fontSize:13,color:D.tx,boxShadow:"none"}}/>
-            </div>
+            <div style={{flex:1,minWidth:0}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-            <select value={fCo} onChange={e=>sFCo(e.target.value)} style={{fontSize:12.5,padding:"8px 13px",width:"auto",borderRadius:999,background:D.panel,border:"1px solid "+D.line3,color:D.tx2}}><option value="all">Todas</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
             <button onClick={cambiarTema} title={esClaro()?"Cambiar al modo oscuro":"Cambiar al modo claro"}
               style={{background:"transparent",border:"1px solid "+D.line2,borderRadius:"50%",width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:D.tx2,cursor:"pointer",flexShrink:0}}>
               <Ic n={esClaro()?"luna":"sol"} s={16} c={D.tx2}/>
@@ -7830,16 +7826,19 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
             <div style={dGrupo}>
               {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),c.color)}>{c.name}</button>)}
             </div>
-            <div style={dGrupo}>
-              {[["semana","Semana"],["mes","Mes"]].map(([k,l])=>(
-                <button key={k} onClick={()=>sVista(k)} style={dPill(vista===k)}>{l}</button>))}
-            </div>
+          </div>
+        </div>
+
+        <div style={{display:"flex",marginTop:18}}>
+          <div style={dGrupo}>
+            {[["semana","Semana"],["mes","Mes"]].map(([k,l])=>(
+              <button key={k} onClick={()=>sVista(k)} style={dPill(vista===k)}>{l}</button>))}
           </div>
         </div>
 
         {vista==="semana"?(<>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginTop:18}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginTop:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <button onClick={()=>sWkOff(w=>w-1)} style={dNav()}>‹</button>
               <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>
                 SEMANA {weekDays[0]?.day} {weekDays[0]?.month?.slice(0,3).toUpperCase()} — {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()} {weekDays[0]?.date?.getFullYear()}
