@@ -6878,7 +6878,7 @@ function AutoTx({value,onChange,placeholder,style,...props}){
 //   · "cliente"  → publicaciones que el cliente agendó desde su portal (tasks con fecha)
 //   · "interno"  → la planificación del equipo (ítems de Org Semanal + días de grabación)
 // Se consulta, no se edita: el cliente agenda en su portal y aquí el equipo mira.
-function MesPlanner({tasks,cos,planners,addN,soloEmpresa,conmutador}){
+function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
   const hoy=new Date();
   const[cM,sCM]=useState(hoy.getMonth());
   const[cY,sCY]=useState(hoy.getFullYear());
@@ -7004,9 +7004,6 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa,conmutador}){
             <div style={{padding:"14px 16px",borderBottom:"1px solid "+D.line15,display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              {/* En vista Mes el conmutador va AQUÍ y no en una fila suelta: la cabecera de arriba
-                  se queda casi vacía y, entre las dos cajas, flotaba solo en mitad del hueco. */}
-              {conmutador}
               <button onClick={()=>irMes(-1)} style={dNav()}>‹</button>
               <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>{MO[cM]} {cY}</span>
               <button onClick={()=>irMes(1)} style={dNav()}>›</button>
@@ -7816,8 +7813,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   const unlinkGrab=(day,entryId)=>guardarGrabs({...grabs,[weekKey]:(grabs[weekKey]||[]).filter(e=>e.id!==entryId)});
   const dayGrabEntries=(day)=>(grabs[weekKey]||[]).filter(e=>e.day===day).map(e=>({...e,guion:e.guionId?guiones.find(g=>String(g.id)===String(e.guionId)):null}));
 
-  // Un solo conmutador para las dos vistas: en semana va en su fila, encima de los días; en mes
-  // viaja dentro de la caja del calendario, junto a la navegación del mes.
+  // Un solo conmutador, en su fila y fuera de toda caja, igual en las dos vistas: es lo que
+  // ELIGE la vista, así que no puede vivir dentro de una de ellas. Debajo va lo que cambia —los
+  // días o el calendario—, y ahí sí los controles del mes viajan pegados a su rejilla.
   const conmutadorVista=(
     <div style={dGrupo}>
       {[["semana","Semana"],["mes","Mes"]].map(([k,l])=>(
@@ -7934,9 +7932,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     </div>))}
 
     {/* VERTICAL DAY LIST */}
-    {vista==="semana"&&<div style={{display:"flex",marginBottom:14}}>{conmutadorVista}</div>}
+    <div style={{display:"flex",marginBottom:14}}>{conmutadorVista}</div>
 
-    {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo} conmutador={conmutadorVista}/>}
+    {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo}/>}
     {vista==="semana"&&<div style={{display:"flex",flexDirection:"column",gap:34}}>
     {weekDays.map(wd=>{
       const di=dayItems(wd.ds);
