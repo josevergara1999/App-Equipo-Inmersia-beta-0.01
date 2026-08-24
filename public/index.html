@@ -7839,44 +7839,6 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         </div>
 
         {vista==="semana"?(<>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginTop:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <button onClick={()=>sWkOff(w=>w-1)} style={dNav()}>‹</button>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>
-                SEMANA {weekDays[0]?.day} {weekDays[0]?.month?.slice(0,3).toUpperCase()} — {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()} {weekDays[0]?.date?.getFullYear()}
-              </span>
-              <button onClick={()=>sWkOff(w=>w+1)} style={dNav()}>›</button>
-              {wkOff!==0&&<button onClick={()=>sWkOff(0)} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>}
-            </div>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-              <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
-              <div style={{position:"relative"}}>
-                <button onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-                  <Ic n="companies" s={13} c={D.tx2}/>Drive<span style={{fontSize:9}}>▾</span>
-                </button>
-                {driveOpen&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:210,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
-                  {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"8px 10px"}}>Esta empresa no tiene carpetas.</span>}
-                  {(co?.links||[]).map(l=>(
-                    <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,color:D.tx2,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
-                      <span style={{width:24,height:24,borderRadius:7,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(var(--rgb-lav),.12)",flexShrink:0}}><Ic n="companies" s={12} c={D.lav}/></span>
-                      {l.name}
-                    </a>))}
-                </div>}
-              </div>
-              <button onClick={dupWeek} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Duplicar →</button>
-              {items.length>0&&<button onClick={clearWeek} style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.07)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:D.rojo,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Limpiar</button>}
-              {/* Donde estaba "Guardar y sincronizar" ahora solo se informa cómo va la
-                  semana: guardar dejó de ser algo que haya que pedir, y quién sale al
-                  calendario lo decide cada tarjeta. */}
-              {(()=>{
-                const conTexto=items.filter(it=>(it.title||"").trim()||(it.description||"").trim());
-                const pend=conTexto.filter(it=>!confirmada(it)).length;
-                if(pend)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.32)",color:PC.ambar,fontSize:12.5,fontWeight:600}}>{pend} sin confirmar</span>;
-                if(conTexto.length)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(168,226,107,.06)",border:"1px solid "+STATES.listo.c+"4d",color:STATES.listo.c,fontSize:12.5,fontWeight:600}}>Todo confirmado ✓</span>;
-                return null;
-              })()}
-            </div>
-          </div>
 
           {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
             <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
@@ -7933,6 +7895,52 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
     {/* VERTICAL DAY LIST */}
     <div style={{display:"flex",marginBottom:14}}>{conmutadorVista}</div>
+    {/* Los controles de la semana en su propia caja, en la misma posición que los del
+        mes. Estaban dentro de la cabecera, así que al cambiar de vista la cabecera
+        encogía y todo lo de abajo daba un salto. Con la misma estructura en las dos
+        vistas, cambiar de una a otra ya no mueve nada. */}
+    {vista==="semana"&&<div style={{...D_MARCO,marginBottom:18}}>
+      <div style={{...D_CARD,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap",marginTop:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <button onClick={()=>sWkOff(w=>w-1)} style={dNav()}>‹</button>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:D.tx}}>
+                  SEMANA {weekDays[0]?.day} {weekDays[0]?.month?.slice(0,3).toUpperCase()} — {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()} {weekDays[0]?.date?.getFullYear()}
+                </span>
+                <button onClick={()=>sWkOff(w=>w+1)} style={dNav()}>›</button>
+                {wkOff!==0&&<button onClick={()=>sWkOff(0)} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>}
+              </div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
+                <div style={{position:"relative"}}>
+                  <button onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                    <Ic n="companies" s={13} c={D.tx2}/>Drive<span style={{fontSize:9}}>▾</span>
+                  </button>
+                  {driveOpen&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:210,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+                    {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"8px 10px"}}>Esta empresa no tiene carpetas.</span>}
+                    {(co?.links||[]).map(l=>(
+                      <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,color:D.tx2,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
+                        <span style={{width:24,height:24,borderRadius:7,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(var(--rgb-lav),.12)",flexShrink:0}}><Ic n="companies" s={12} c={D.lav}/></span>
+                        {l.name}
+                      </a>))}
+                  </div>}
+                </div>
+                <button onClick={dupWeek} style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Duplicar →</button>
+                {items.length>0&&<button onClick={clearWeek} style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.07)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:D.rojo,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Limpiar</button>}
+                {/* Donde estaba "Guardar y sincronizar" ahora solo se informa cómo va la
+                    semana: guardar dejó de ser algo que haya que pedir, y quién sale al
+                    calendario lo decide cada tarjeta. */}
+                {(()=>{
+                  const conTexto=items.filter(it=>(it.title||"").trim()||(it.description||"").trim());
+                  const pend=conTexto.filter(it=>!confirmada(it)).length;
+                  if(pend)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.32)",color:PC.ambar,fontSize:12.5,fontWeight:600}}>{pend} sin confirmar</span>;
+                  if(conTexto.length)return<span style={{padding:"9px 16px",borderRadius:999,background:"rgba(168,226,107,.06)",border:"1px solid "+STATES.listo.c+"4d",color:STATES.listo.c,fontSize:12.5,fontWeight:600}}>Todo confirmado ✓</span>;
+                  return null;
+                })()}
+              </div>
+            </div>
+      </div>
+    </div>}
 
     {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo}/>}
     {vista==="semana"&&<div style={{display:"flex",flexDirection:"column",gap:34}}>
