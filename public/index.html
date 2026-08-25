@@ -4767,11 +4767,19 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
               hacer algo. Un permiso que caduca en silencio es lo caro.
               Sin conectar es al revés, y ahí la explicación SÍ es el contenido: no hay cuenta que
               nombrar y hay que decir a quién le toca autorizarla. */}
+          {/* La cápsula de la cuenta ya está arriba, en la fila del título. Repetir aquí
+              "@la_cuenta" con la misma forma dejaba dos pastillas idénticas pegadas que además
+              NO dicen lo mismo: la de arriba es la conexión de Zernio, la de publicar, y esta es
+              la de Meta directo, la que hace posible el comentario → privado. Con el mismo
+              aspecto, dos cosas distintas parecían un error de repetición. Esta se queda con lo
+              único que no está dicho en ninguna otra parte: si la automatización responde o no.
+              La cuenta y el vencimiento siguen en el title, que es donde se van a buscar. */}
           {igEst.conectada?(
             <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <span title={"Cuenta autorizada en Meta · el permiso se renueva solo"+(igEst.expiraEn!=null?" · vence en "+igEst.expiraEn+" días":"")}
-                style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-lav),.07)",border:"1px solid rgba(var(--rgb-lav),.35)",color:D.lav,fontSize:12.5,fontWeight:600}}>
-                <Ic n="instagram" s={14} c={D.lav}/>@{igEst.username}
+              <span title={"Autorizada en Meta como @"+igEst.username+" · el permiso se renueva solo"+(igEst.expiraEn!=null?" · vence en "+igEst.expiraEn+" días":"")}
+                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-verde),.06)",border:"1px solid rgba(var(--rgb-verde),.35)",color:PC.verde,fontSize:12.5,fontWeight:600}}>
+                <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:PC.verde,boxShadow:"0 0 9px var(--success)"}}/>
+                Automatización disponible
               </span>
               {igEst.expiraEn!=null&&igEst.expiraEn<=10&&<span style={{fontSize:11.5,fontWeight:600,color:PC.ambar}}>El permiso vence en {igEst.expiraEn} días — reconecta.</span>}
               <button onClick={conectarIGMeta} title="Volver a pedir el permiso — solo para cuentas propias de Inmersia"
