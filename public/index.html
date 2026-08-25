@@ -120,6 +120,10 @@ button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
    la hoja que sube ocupa su lugar. Salen del export de Claude Design tal cual. */
 @keyframes bubblePop{0%{transform:scale(.7)}60%{transform:scale(1.08)}100%{transform:scale(1)}}
 @keyframes bubbleLaunch{0%{transform:none;opacity:1}100%{transform:translateY(-70px) scale(.35);opacity:0}}
+/* El riel de Herramientas no aparece: crece desde donde estaba la burbuja. El origen abajo
+   (50% 105%) y la escala desde 0.08 son lo que hace que se lea como "salió de ahí" y no como
+   "apareció encima". Del export de Claude Design. */
+@keyframes railIn{0%{transform:scale(.08);opacity:.85}100%{transform:scale(1);opacity:1}}
 @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rec{0%,100%{box-shadow:0 0 0 0 rgba(255,90,78,.4)}50%{box-shadow:0 0 0 10px transparent}}
 @keyframes slowBlink{0%,100%{opacity:1}50%{opacity:.35}}
@@ -1480,6 +1484,13 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const[notifs,sNo]=useState([]);const[shNo,sShNo]=useState(false);
   const[metaExpWarn,sMetaExpWarn]=useState(false);const[metaDaysLeft,sMetaDaysLeft]=useState(0);
   const[isMob,sIsMob]=useState(window.innerWidth<768);const[mobMenu,sMobMenu]=useState(false);
+  // Dónde está la burbuja del riel. `null` = donde esté la página actual, que es lo que hay que
+  // ver al abrirlo; en cuanto se toca algo manda lo tocado.
+  const[railSel,sRailSel]=useState(null);
+  // Y al cerrar vuelve a null pase lo que pase. Tocar una entrada ya lo hacía, pero cerrar
+  // tocando fuera o el propio botón de Herramientas no: la próxima vez el riel abría con la
+  // burbuja sobre lo último que se tocó, en vez de sobre donde estás.
+  useEffect(()=>{if(!mobMenu)sRailSel(null);},[mobMenu]);
   const[theme,sTheme]=useState(()=>localStorage.getItem("inm_theme")||"A");
   // El rediseño define un único look, así que se fija la variante base. Las variantes B y C
   // (Night & Coral / Light Linen) quedaron obsoletas; si alguien tenía una guardada en el
@@ -2076,60 +2087,95 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           position:fixed en relativo a ese ancestro: la barra terminaba flotando a media
           pantalla en vez de quedar abajo. Desde el body no depende de nadie. */}
       {isMob&&ReactDOM.createPortal(<>
-        {/* Slide-up menu */}
-        {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-sombra),.6)",zIndex:998,backdropFilter:"blur(3px)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(64px + env(safe-area-inset-bottom, 16px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
-            <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
-            {/* El menú del teléfono es AHORA el mismo que el de la barra lateral: los tres
-                grupos y todas las pantallas. Antes era una lista aparte escrita a mano con seis
-                baldosas de las trece, con emojis del sistema —a todo color y con su propio
-                grosor, como pegados de otra aplicación— y sin forma de llegar a Fidelización,
-                Informe ni a las pestañas de Contenido. Sale de NAV, así que no puede volver a
-                quedarse corto. */}
-            <div style={{maxHeight:"58vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
-              {NAV.map(([titulo,items])=>{
-                const visibles=items.filter(it=>it.ver!==false);
-                if(!visibles.length)return null;
-                return(<div key={titulo} style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,fontWeight:700,letterSpacing:".2em",textTransform:"uppercase",color:"var(--accent)",padding:"0 2px"}}>{titulo}</span>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-                    {visibles.map(it=>{
-                      const on=navActiva(it);
-                      return(<button key={it.k} onClick={()=>{irA(it.k);sMobMenu(false);}}
-                        style={{background:on?"rgba(var(--rgb-acento),.1)":"var(--bg3)",border:"1px solid "+(on?"rgba(var(--rgb-acento),.4)":"var(--border)"),borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:on?"var(--accent)":"var(--tx2)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",fontWeight:on?700:500,cursor:"pointer"}}>
-                        <Ic n={it.ic||"dashboard"} s={21}/>
-                        {it.lCorta||it.l||visP[it.k]?.[0]||it.k}
-                      </button>);
-                    })}
-                  </div>
-                </div>);
-              })}
+        {/* ── HERRAMIENTAS: EL RIEL ──────────────────────────────────────────────────────
+            Del mismo export que la barra. Antes esto era una hoja que subía desde abajo con
+            baldosas etiquetadas; ahora es la columna del diseño, que sale de la burbuja de
+            Herramientas y usa su misma mecánica girada 90°: una muesca recortada en el canto,
+            una burbuja que viaja y se lleva el icono, y el nombre en una etiqueta a un lado.
 
-              {/* Lo que no es una pantalla: ajustes del aparato y salir. Van al final y separados
-                  para que no compitan con las herramientas. */}
-              <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,fontWeight:700,letterSpacing:".2em",textTransform:"uppercase",color:"var(--accent)",padding:"0 2px"}}>Este dispositivo</span>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-                  {/* Las notificaciones se activan desde el teléfono, así que este es el sitio
-                      donde de verdad hace falta el botón. */}
-                  <PushBtn user={cu} tile/>
-                  {!gcalOk&&<button onClick={()=>{connectGCal();sMobMenu(false);}} style={{background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.3)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:PC.ambar,fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
-                    <Ic n="calendar" s={21}/>Reconectar
-                  </button>}
-                  {isA&&<button onClick={()=>{sLimpiarTxt("");sLimpiarUI(true);sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--tx3)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
-                    <Ic n="broom" s={21}/>Mantención
-                  </button>}
-                  <button onClick={cambiarTema} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--tx2)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
-                    <Ic n={esClaro()?"luna":"sol"} s={21}/>{esClaro()?"M. oscuro":"M. claro"}
-                  </button>
-                  <button onClick={()=>{ol();sMobMenu(false);}} style={{background:"var(--bg3)",border:"1px solid rgba(255,68,68,.2)",borderRadius:12,padding:"13px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,color:"var(--danger)",fontSize:10,lineHeight:1.25,textAlign:"center",fontFamily:"inherit",cursor:"pointer"}}>
-                    <Ic n="logout" s={21}/>Salir
-                  </button>
-                </div>
-              </div>
+            Con iconos solos hace falta que el nombre esté SIEMPRE a la vista de lo que tienes
+            elegido —por eso la etiqueta— y que se sepa de qué grupo es cada cosa, que es lo que
+            hacen las líneas entre bloques y el rótulo pequeño de la etiqueta.
+
+            Tres detalles que cuestan si se tocan:
+            · La muesca lleva DOS rellenos: el fondo de la página y encima el mismo velo del
+              scrim. Es un agujero al fondo oscurecido; con el fondo a secas se ve un parche
+              claro flotando sobre el velo.
+            · Al tocar, la burbuja viaja y recién después se navega (240ms). Sin esa pausa el
+              riel se desmonta antes de que el ojo vea a dónde fue, y el viaje no existe.
+            · La altura de cada fila se calcula con la pantalla: con doce entradas en un iPhone
+              chico, 50px fijos se salen por arriba. Nunca menos de 38.
+
+            Lo que era "Este dispositivo" no se pierde: notificaciones ya vive en la campanita
+            y el tema en la barra de arriba —los dos estaban duplicados aquí—, y lo que quedaba
+            (reconectar el calendario, mantención y salir) es el último grupo del riel. */}
+        {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-sombra),.35)",zIndex:998,animation:"fadeIn .25s ease both"}}/>}
+        {mobMenu&&(()=>{
+          const CURVA="M0 0 C 0 30, 29 24, 29 55 C 29 86, 0 80, 0 110";
+          const enLaBarra={dashboard:1,planner:1,contenido:1};
+          const COLOR={"Básicas":PC.cian,"Pro":PC.peri,"Administrativas":PC.lav};
+          const grupos=NAV.map(([titulo,items])=>({
+            titulo,
+            col:COLOR[titulo]||PC.cian,
+            items:items.filter(it=>it.ver!==false&&!enLaBarra[it.k])
+                       .map(it=>({ic:it.ic||"dashboard",l:it.lCorta||it.l||visP[it.k]?.[0]||it.k,fn:()=>irA(it.k),act:navActiva(it)})),
+          })).filter(g=>g.items.length);
+          // Lo que no es una pantalla, al final y en gris: son acciones, no sitios donde estar.
+          const aparato=[
+            ...(!gcalOk?[{ic:"calendar",l:"Reconectar",fn:connectGCal,act:false}]:[]),
+            ...(isA?[{ic:"broom",l:"Mantención",fn:()=>{sLimpiarTxt("");sLimpiarUI(true);},act:false}]:[]),
+            {ic:"logout",l:"Salir",fn:ol,act:false},
+          ];
+          grupos.push({titulo:"Dispositivo",col:PC.tx3,items:aparato});
+
+          const PAD=6,SEP=13;
+          const nItems=grupos.reduce((a,g)=>a+g.items.length,0),nSeps=grupos.length-1;
+          const disponible=Math.max(260,window.innerHeight-210);
+          const ITEM=Math.max(38,Math.min(50,Math.floor((disponible-nSeps*SEP-PAD*2)/Math.max(1,nItems))));
+
+          const filas=[];let y=PAD;
+          grupos.forEach((g,gi)=>{
+            if(gi){filas.push({sep:true,top:y});y+=SEP;}
+            g.items.forEach(it=>{filas.push({...it,grupo:g.titulo,col:g.col,top:y});y+=ITEM;});
+          });
+          const items=filas.filter(f=>!f.sep);
+          const porDefecto=Math.max(0,items.findIndex(it=>it.act));
+          const i=railSel==null?porDefecto:Math.min(railSel,items.length-1);
+          const sel=items[i]||items[0];
+          if(!sel)return null;
+          const salto="top .5s cubic-bezier(.34,1.45,.64,1), background .35s ease, color .35s ease";
+          const rgba=(h,a)=>{const n=parseInt(String(h).slice(1),16);return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"};
+
+          return(<div style={{position:"fixed",right:14,bottom:"calc(86px + env(safe-area-inset-bottom, 16px))",zIndex:999,width:60,padding:PAD+"px 0",borderRadius:999,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 18px 40px rgba(var(--rgb-sombra),.35)",animation:"railIn .45s cubic-bezier(.3,.8,.3,1) both",transformOrigin:"50% 105%"}}>
+
+            <svg viewBox="0 0 34 110" style={{position:"absolute",left:-1.5,top:sel.top+ITEM/2-55,width:34,height:110,transition:salto,pointerEvents:"none",zIndex:1}}>
+              <path d={CURVA+" Z"} fill="var(--bg)"/>
+              <path d={CURVA+" Z"} fill="rgba(var(--rgb-sombra),.35)"/>
+              <path d={CURVA} fill="none" stroke="var(--border)" strokeWidth="1.5"/>
+            </svg>
+
+            <div style={{position:"absolute",left:-23,top:sel.top+(ITEM-46)/2,width:46,height:46,borderRadius:"50%",background:sel.col,boxShadow:"0 8px 18px "+rgba(sel.col,.35)+", 0 2px 6px rgba(var(--rgb-sombra),.15)",transition:salto,display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,pointerEvents:"none"}}>
+              <span key={i} style={{display:"flex",animation:"bubblePop .4s ease"}}><Ic n={sel.ic} s={20} c="var(--bg)"/></span>
             </div>
-          </div>
-        </div>}
+
+            <div style={{position:"absolute",right:74,top:sel.top+(ITEM-40)/2,display:"flex",flexDirection:"column",gap:1,padding:"7px 14px",borderRadius:14,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 6px 16px rgba(var(--rgb-sombra),.25)",whiteSpace:"nowrap",transition:salto,animation:"fadeIn .3s ease .2s both"}}>
+              <span style={{fontFamily:"var(--font-mono)",fontSize:8.5,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)"}}>{sel.grupo}</span>
+              <span style={{fontSize:12.5,fontWeight:700,color:sel.col}}>{sel.l}</span>
+            </div>
+
+            <div style={{display:"flex",flexDirection:"column",animation:"fadeIn .3s ease .18s both"}}>
+              {filas.map((f,n)=>f.sep
+                ?<span key={"s"+n} style={{height:SEP,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{width:18,height:1,background:"var(--border)"}}/></span>
+                :(()=>{const k=items.indexOf(f),on=k===i;
+                  return(<button key={f.l} title={f.l} onClick={()=>{sRailSel(k);setTimeout(()=>{f.fn();sMobMenu(false);sRailSel(null);},240);}}
+                    style={{width:60,height:ITEM,display:"flex",alignItems:"center",justifyContent:"center",background:"none",border:"none",cursor:"pointer",padding:0}}>
+                    <Ic n={f.ic} s={20} c="var(--tx3)" style={{opacity:on?0:1,transform:on?"translateX(-10px) scale(.5)":"none",transition:"opacity .25s, transform .25s"}}/>
+                  </button>);})()
+              )}
+            </div>
+          </div>);
+        })()}
+
         {/* ── BARRA DEL TELÉFONO ─────────────────────────────────────────────────────────
             Del export de Claude Design "Inmersia Dashboard Móvil". La pestaña activa no se
             pinta: su icono sube y se desvanece, y en su lugar aterriza una burbuja que viaja
