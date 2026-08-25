@@ -22,7 +22,12 @@
    saca la barra y otra con poco la quita, y la página entera se ensancha ~15px de golpe: la
    cabecera, las cajas y todo lo demás dan un salto lateral al cambiar de vista. Es lo que hacía
    que Org Semanal pareciera cambiar de tamaño al pasar de Semana a Mes. */
-html{scrollbar-gutter:stable}
+/* La barra de scroll SIEMPRE presente, aunque no haga falta. `scrollbar-gutter` solo no basta
+   aquí: el body lleva overflow-x:hidden y eso lo convierte en el contenedor de scroll, así que
+   el hueco reservado en <html> no se aplicaba. Con overflow-y:scroll la barra está fija y el
+   ancho de la página no cambia nunca — que era lo que hacía saltar la cabecera al pasar de una
+   vista larga a una corta. */
+html{scrollbar-gutter:stable;overflow-y:scroll}
 html,body{min-height:100%}
 body{font-family:'DM Sans',system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
