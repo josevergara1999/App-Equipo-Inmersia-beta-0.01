@@ -115,6 +115,11 @@ select option{background:var(--bg3);color:var(--tx)}
 button{cursor:pointer;border:none;font-family:inherit;transition:all .15s ease}
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+/* La burbuja de la barra del teléfono. `bubblePop` es el rebote al aterrizar en una pestaña;
+   `bubbleLaunch` es lo que hace al abrir Herramientas: se va hacia arriba y se apaga, porque
+   la hoja que sube ocupa su lugar. Salen del export de Claude Design tal cual. */
+@keyframes bubblePop{0%{transform:scale(.7)}60%{transform:scale(1.08)}100%{transform:scale(1)}}
+@keyframes bubbleLaunch{0%{transform:none;opacity:1}100%{transform:translateY(-70px) scale(.35);opacity:0}}
 @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rec{0%,100%{box-shadow:0 0 0 0 rgba(255,90,78,.4)}50%{box-shadow:0 0 0 10px transparent}}
 @keyframes slowBlink{0%,100%{opacity:1}50%{opacity:.35}}
@@ -1851,7 +1856,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             <button onClick={()=>sNTk(true)} style={{padding:isMob?"9px 14px":"11px 22px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>+ Nueva tarea</button>
           </div>
         </header>
-        <div style={{flex:1,width:"100%",maxWidth:1120,boxSizing:"border-box",padding:isMob?"22px 16px 80px":"28px 32px 80px"}}>
+        <div style={{flex:1,width:"100%",maxWidth:1120,boxSizing:"border-box",padding:isMob?"22px 16px calc(96px + env(safe-area-inset-bottom, 0px))":"28px 32px 80px"}}>
 
         {/* DASHBOARD */}
         {pg==="dashboard"&&<DashboardPg cu={cu} isA={isA} tasks={tasks} sT={sT} cos={cos} users={users} stats={stats} myTd={myTd} pDrafts={pDrafts} sPg={sPg} sMd2={sMd2} addN={addN} avisar={avisar} correosDe={correosDe}/>}
@@ -2020,7 +2025,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
 
         </div>
       {/* FLOATING SAVE BUTTON */}
-      {calDirty&&<div style={{position:"fixed",bottom:isMob?"calc(70px + env(safe-area-inset-bottom, 0px))":20,right:20,zIndex:998,display:"flex",gap:8,animation:"slideUp .3s ease"}}>
+      {calDirty&&<div style={{position:"fixed",bottom:isMob?"calc(100px + env(safe-area-inset-bottom, 0px))":20,right:20,zIndex:998,display:"flex",gap:8,animation:"slideUp .3s ease"}}>
         <button onClick={()=>{sT(tasks);sCalDirty(false);addN("Cambios descartados");window.location.reload();}} style={{padding:"12px 18px",background:"var(--bg4)",color:"var(--tx2)",borderRadius:12,fontSize:12,fontWeight:600,border:"1px solid var(--border)",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(var(--rgb-sombra),.4)"}}>✕ Descartar</button>
         <button onClick={()=>{DB.save("tasks",tasks);DB.save("extras",extras);sCalDirty(false);addN("✅ Calendario guardado");}} style={{padding:"12px 24px",background:"var(--accent)",color:"#fff",borderRadius:12,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(168,226,107,.4)",display:"flex",alignItems:"center",gap:6}}>💾 Guardar cambios</button>
       </div>}
@@ -2073,7 +2078,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {isMob&&ReactDOM.createPortal(<>
         {/* Slide-up menu */}
         {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-sombra),.6)",zIndex:998,backdropFilter:"blur(3px)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(56px + env(safe-area-inset-bottom, 0px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
+          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:"calc(64px + env(safe-area-inset-bottom, 16px))",left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",borderRadius:"16px 16px 0 0",padding:"12px 16px 16px",animation:"slideUp .25s ease"}}>
             <div style={{width:36,height:4,background:"var(--bg4)",borderRadius:2,margin:"0 auto 12px"}}/>
             {/* El menú del teléfono es AHORA el mismo que el de la barra lateral: los tres
                 grupos y todas las pantallas. Antes era una lista aparte escrita a mano con seis
@@ -2125,19 +2130,67 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             </div>
           </div>
         </div>}
-        <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-around",padding:"6px 0 env(safe-area-inset-bottom,6px)",zIndex:999}}>
-          {/* Solo las básicas, que son las de todos los días; el resto vive en el menú completo.
-              Antes había cinco y las etiquetas se cortaban a cinco letras ("Org S", "Conte");
-              con cuatro caben enteras. */}
-          {[["dashboard","dashboard","Inicio"],["planner","planner","Semana"],["contenido","paperclip","Contenido"]].map(([k,icn,l])=>(<button key={k} onClick={()=>{irA(k);sMobMenu(false);}} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 8px",color:pg===k?"var(--accent)":"var(--tx3)",fontSize:9.5,fontFamily:"inherit",cursor:"pointer"}}>
-            <Ic n={icn} s={20}/>
-            <span style={{fontWeight:pg===k?700:400}}>{l}</span>
-          </button>))}
-          <button onClick={()=>sMobMenu(!mobMenu)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 8px",color:mobMenu?"var(--accent)":"var(--tx3)",fontSize:9.5,fontFamily:"inherit",cursor:"pointer"}}>
-            <Ic n="more_h" s={20}/>
-            <span style={{fontWeight:mobMenu?700:400}}>Herramientas</span>
-          </button>
-        </nav>
+        {/* ── BARRA DEL TELÉFONO ─────────────────────────────────────────────────────────
+            Del export de Claude Design "Inmersia Dashboard Móvil". La pestaña activa no se
+            pinta: su icono sube y se desvanece, y en su lugar aterriza una burbuja que viaja
+            por la barra y se lleva el icono consigo, dentro de una muesca recortada en el
+            borde. Así el sitio donde estás se ve desde el otro lado de la mesa, en vez de
+            depender de que un icono de 20px esté un poco más claro que sus vecinos.
+
+            Cuatro cosas que hay que respetar si se toca:
+            · La muesca se rellena con el fondo de la PÁGINA (--bg), no con el de la barra:
+              es un agujero, no un adorno. Con --bg2 se ve un bulto gris.
+            · Burbuja y muesca se posicionan en porcentaje del ancho (12.5 / 37.5 / 62.5 /
+              87.5 = los centros de cuatro columnas) menos su media anchura. Nada de píxeles
+              fijos: la barra mide distinto en cada teléfono.
+            · La curva viene con la barra pegada arriba (`top:-1.5px`) para tapar el borde
+              propio de la barra; si no, queda una línea recta cruzando la muesca.
+            · La burbuja sobresale 25px por encima de la barra, así que ningún ancestro puede
+              recortar. La barra ya vive en el <body> por el Portal.
+
+            Diferencia con el diseño, a propósito: allá las pestañas eran las cuatro pantallas
+            y punto. Aquí, si estás en una herramienta —Métricas, Pagos…— la burbuja se queda
+            sobre Herramientas en vez de desaparecer: es de donde saliste. */}
+        {(()=>{
+          const TABS=[["dashboard","dashboard","Inicio"],["planner","planner","Semana"],["contenido","paperclip","Contenido"],[null,"more_h","Herramientas"]];
+          // El color lo pone la sección, como en el diseño (teal → azul → peri → violeta),
+          // pero leído de la paleta para que sirva en los dos temas.
+          const COLS=[PC.cian,PC.peri,PC.lav,PC.rosa];
+          const CENTROS=[12.5,37.5,62.5,87.5];
+          const idx=pg==="dashboard"?0:pg==="planner"?1:pg==="contenido"?2:3;
+          const act=mobMenu?3:idx;                       // con la hoja abierta manda Herramientas
+          const col=COLS[act];
+          const rgba=(h,a)=>{const n=parseInt(String(h).slice(1),16);return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"};
+          const salto="left .5s cubic-bezier(.34,1.45,.64,1), background .35s ease";
+          return(<nav style={{position:"fixed",bottom:0,left:0,right:0,zIndex:999}}>
+            <div style={{position:"relative",background:"var(--bg2)",borderTop:"1px solid var(--border)",padding:"12px 0 calc(10px + env(safe-area-inset-bottom, 16px))"}}>
+
+              <svg viewBox="0 0 110 34" style={{position:"absolute",top:-1.5,left:"calc("+CENTROS[act]+"% - 55px)",width:110,height:34,transition:salto,pointerEvents:"none"}}>
+                <path d="M0 0 C 30 0, 24 29, 55 29 C 86 29, 80 0, 110 0 Z" fill="var(--bg)"/>
+                <path d="M0 0 C 30 0, 24 29, 55 29 C 86 29, 80 0, 110 0" fill="none" stroke="var(--border)" strokeWidth="1.5"/>
+              </svg>
+
+              <div style={{position:"absolute",top:-25,left:"calc("+CENTROS[act]+"% - 26px)",width:52,height:52,borderRadius:"50%",background:col,boxShadow:"0 8px 18px "+rgba(col,.35)+", 0 2px 6px rgba(var(--rgb-sombra),.15)",transition:salto,display:"flex",alignItems:"center",justifyContent:"center",animation:mobMenu?"bubbleLaunch .35s ease both":"bubblePop .4s ease",pointerEvents:"none"}}>
+                {/* La `key` remonta el icono al cambiar de pestaña, y con eso se repite el
+                    rebote. Sin ella React reusa el nodo y la burbuja llega muda. */}
+                <span key={act} style={{display:"flex",animation:"bubblePop .4s ease"}}>
+                  <Ic n={TABS[act][1]} s={22} c="var(--bg)"/>
+                </span>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",position:"relative"}}>
+                {TABS.map(([k,icn,l],i)=>{
+                  const on=act===i;
+                  return(<button key={l} onClick={()=>{if(k){irA(k);sMobMenu(false);}else sMobMenu(o=>!o);}}
+                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"4px 0",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>
+                    <Ic n={icn} s={21} c="var(--tx3)" style={{opacity:on?0:1,transform:on?"translateY(-10px) scale(.5)":"none",transition:"opacity .25s, transform .25s"}}/>
+                    <span style={{fontSize:10.5,fontWeight:on?700:500,color:on?col:"var(--tx3)",transition:"color .3s"}}>{l}</span>
+                  </button>);
+                })}
+              </div>
+            </div>
+          </nav>);
+        })()}
       </>,document.body)}
 
       {/* META TOKEN EXPIRY WARNING */}
