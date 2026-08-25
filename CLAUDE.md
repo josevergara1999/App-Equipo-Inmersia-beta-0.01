@@ -168,7 +168,11 @@ post; ese descuento es provisional y se ve aparte (`aprobadas` vs `enCurso`).
   - El resto va por su `date`; y **sin fecha, al mes en curso** (trabajo pendiente de agendar).
 - `co.ajuste[mes]`: lo que ya venía consumido de fuera de la app, que es como se lleva el
   registro real. Se mete a mano al empezar el mes y de ahí en adelante baja solo.
-- `<Cupos>` muestra el saldo en Contenido y Org Semanal, con el tipo agotado en rojo.
+- `<Cupos>` muestra el saldo en Contenido y Org Semanal, con el tipo agotado en rojo. En las
+  dos va **plegado** (`compact`), como un botón "Cupo <mes> ▾" al lado de las acciones que
+  gastan cupo: es un dato que se consulta justo antes de crear una pieza, no un titular que se
+  coma el ancho entero cada vez que se abre la pantalla. Desplegado se ve igual que la franja.
+  El panel sale por `useMenuFlotante` — ver *Trampas conocidas*.
 
 **El cupo avisa, no bloquea.** Producir de más se factura como adicional (`extraSlot`), y esa
 es una decisión del equipo, no de la app.
@@ -199,7 +203,13 @@ La página **Contenido** muestra cinco etapas apiladas, no un tablero de columna
 1. **En producción** — sin material todavía.
 2. **Listo** — tiene archivo. Aquí se abre la votación: **solo cuando los cuatro votantes
    aprobaron** aparece el botón para enviar al portal.
-3. **Enviado al portal** — en la bandeja del cliente.
+3. **Enviado al portal** — en la bandeja del cliente. **Es la única puerta de un solo sentido
+   del flujo**, así que las dos que llevan a ella —el botón de Contenido y el de la tarjeta de
+   Org Semanal— preguntan antes con el mismo aviso: una vez enviada no se le hacen cambios,
+   solo se elimina, y corregir es cosa del rechazo del cliente. Desde aquí la tarjeta del equipo
+   es de solo lectura: se queda con tipo, título, vista previa, cuántas versiones van y los
+   atajos del portal; se van el encargado, el nombre del archivo, "+ Otra versión" y la casilla
+   de material adjunto, porque todos cambiarían lo que el cliente ya tiene delante.
 4. **Rechazado por cliente** — vuelve con el motivo; se sube la corrección y la versión
    anterior se guarda en `revisions` para que el cliente vea el antes y el después.
 5. **Aprobado por cliente** — cerrada.

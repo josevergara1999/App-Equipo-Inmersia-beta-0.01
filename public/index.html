@@ -4229,6 +4229,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // sin preguntarlo se publicaría la primera por descarte, que es justo lo que la pieza venía a
   // decidir. El portal ya lo exige; este camino tenía que exigirlo igual.
   const[aprobVar,sAprobVar]=useState(null);
+  // Enviar al portal es la única puerta de un solo sentido del flujo: desde ahí manda el cliente
+  // (`salioAlPortal`) y la pieza deja de poder tocarse. Se pregunta antes.
+  const[envConf,sEnvConf]=useState(null);
   const cerrarAprobacion=(t,urlElegida)=>{
     const planificado=t.plannedDay||t.date||null;
     upT(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,
@@ -4343,7 +4346,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
     let acc=null;
     if(m.k==="produccion")acc={label:"↑ Sube el contenido para dejarlo listo",fn:()=>pickFor(t.id),bg:"transparent",bor:D.line2,col:D.tx4};
-    else if(m.k==="listo"&&unanime)acc={label:"Enviar al portal de "+(co?.name||"")+" →",fn:()=>enviarAlPortal(t),bg:D.cian,bor:D.cian,col:D.bg};
+    else if(m.k==="listo"&&unanime)acc={label:"Enviar al portal de "+(co?.name||"")+" →",fn:()=>sEnvConf(t),bg:D.cian,bor:D.cian,col:D.bg};
 
     return(<div key={t.id} style={{borderRadius:15,padding:gl?2:0,background:gl?"linear-gradient(160deg, "+m.col+"50, "+m.col+"14 45%, "+m.col+"35)":"transparent"}}>
       <div style={{position:"relative",height:"100%",boxSizing:"border-box",borderRadius:13,background:D.panel,border:"1px solid "+m.col+"45",borderLeft:"3px solid "+tc,padding:"13px 15px",display:"flex",flexDirection:"column",gap:9}}>
@@ -4361,8 +4364,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         <span style={{fontSize:13.5,fontWeight:600,lineHeight:1.35,position:"relative"}}>{t.title||"Sin título…"}</span>
 
         {/* De quién es y quién la tiene. La tarjeta mostraba solo tipo, fecha y título, así
-            que había que abrirla para saber a quién le tocaba. */}
-        {(()=>{
+            que había que abrirla para saber a quién le tocaba. Enviada al portal deja de venir
+            al caso: ahí ya no hay nada que repartir ni nadie a quien reclamarle, y la tarjeta se
+            queda con lo único que hay que reconocer de un vistazo — qué pieza es y cómo se ve. */}
+        {m.k!=="enviado"&&(()=>{
           const enc=(t.responsable||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
           return(
             <div style={{position:"relative",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:10.5,color:D.tx4}}>
@@ -4382,7 +4387,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           <MiniVid src={fSrc(f0)} h={130}/>
         </div>}
 
-        {f0&&<button onClick={()=>openZoom(t.files,Math.max(0,(t.files||[]).indexOf(f0)))} title="Toca para ver" style={{position:"relative",display:"flex",alignItems:"center",gap:8,padding:"7px 11px",borderRadius:9,background:"rgba(var(--rgb-acento),.04)",border:"1px solid rgba(var(--rgb-acento),.25)",cursor:"zoom-in",fontFamily:"inherit",textAlign:"left",maxWidth:"100%"}}>
+        {/* El nombre del archivo tampoco: la vista previa de arriba ya es el archivo, y se abre
+            tocándola igual que este botón. */}
+        {f0&&m.k!=="enviado"&&<button onClick={()=>openZoom(t.files,Math.max(0,(t.files||[]).indexOf(f0)))} title="Toca para ver" style={{position:"relative",display:"flex",alignItems:"center",gap:8,padding:"7px 11px",borderRadius:9,background:"rgba(var(--rgb-acento),.04)",border:"1px solid rgba(var(--rgb-acento),.25)",cursor:"zoom-in",fontFamily:"inherit",textAlign:"left",maxWidth:"100%"}}>
           <svg viewBox="0 0 24 24" style={{width:12,height:12,color:D.cian,flexShrink:0}}><path d="M4.5 12.5 L 9.5 17.5 L 19.5 6.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           <span style={{fontSize:11.5,fontWeight:600,color:D.tx2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{f0.name||"Archivo"}</span>
         </button>}
@@ -4401,6 +4408,10 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         {f0&&m.k!=="aprobado"&&t.state!=="publicado"&&(()=>{
           const n=(t.files||[]).length;
           const esVar=tieneVariantes(t);
+          // Enviada al portal, la pieza es de solo lectura: agregar una versión o cambiar de
+          // idea sobre si son versiones o adjuntos sería cambiarle al cliente lo que ya tiene
+          // delante, después de haberle avisado. Se corrige por el camino del rechazo.
+          const enviada=m.k==="enviado";
           return(<div style={{position:"relative",display:"flex",flexDirection:"column",gap:7}}>
             {/* Con varios archivos el cliente elige, y punto: no hay casilla que encender. Lo que
                 queda es la salida de emergencia por si alguna vez se adjunta material que NO es
@@ -4408,21 +4419,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 cualquier palabra alternaba la casilla y apagaba las variantes sin que se notara. */}
             {n>1&&<>
               <div style={{display:"flex",alignItems:"center",gap:7,fontSize:11,fontWeight:700,color:esVar?D.peri:D.tx4}}>
-                <span>{esVar?"⇄ "+n+" versiones — el cliente elige una":"Material adjunto ("+n+" archivos)"}</span>
+                <span>{esVar?"⇄ "+n+" versiones"+(enviada?" · esperando aprobación":""):"Material adjunto ("+n+" archivos)"}</span>
               </div>
-              <span style={{fontSize:10.5,lineHeight:1.45,color:D.tx4,marginTop:-4}}>
-                {esVar
-                  ?"En su portal las ve juntas y solo puede aprobar una. Gasta un cupo, no "+n+"."
-                  :"⚠ Al cliente solo le llega el primero; los demás no los ve."}
-              </span>
-              <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",width:"fit-content",fontSize:10.5,color:D.tx5}}>
+              {/* Explicar cómo las ve el cliente en su portal sobraba: quien mira esta tarjeta ya
+                  lo sabe, y eran tres renglones en una tarjeta que solo tiene que decir qué pieza
+                  es y cómo va. El aviso del material adjunto sí se queda — ese es el caso raro, y
+                  avisa de que al cliente le llega un archivo y no todos. */}
+              {!esVar&&<span style={{fontSize:10.5,lineHeight:1.45,color:D.tx4,marginTop:-4}}>
+                ⚠ Al cliente solo le llega el primero; los demás no los ve.
+              </span>}
+              {!enviada&&<label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",width:"fit-content",fontSize:10.5,color:D.tx5}}>
                 <input type="checkbox" checked={!esVar} onChange={e=>upT(t.id,{materialAdjunto:e.target.checked,...(e.target.checked?{varianteElegida:null}:{})})} style={{width:12,height:12,padding:0,flexShrink:0}}/>
                 No son versiones, es material adjunto
-              </label>
+              </label>}
             </>}
-            <button onClick={()=>pickFor(t.id)} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:9,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer",width:"fit-content"}}>
+            {!enviada&&<button onClick={()=>pickFor(t.id)} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:9,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer",width:"fit-content"}}>
               + Otra versión{n>1?" (van "+n+")":" de esta pieza"}
-            </button>
+            </button>}
             {t.varianteElegida&&<span style={{fontSize:11,color:D.cian,fontWeight:600}}>
               ✓ El cliente eligió: {(t.files||[]).find(x=>x.url===t.varianteElegida)?.name||"una versión"}
             </span>}
@@ -4478,13 +4491,34 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   };
 
   return(<div className="d-in">
+    {/* SELECTOR DE EMPRESA — lo primero de la página, y con la misma forma que la cabecera de
+        Org Semanal. De qué empresa estás viendo el contenido es la pregunta que manda sobre
+        todo lo demás de la pantalla: puesta abajo, como una fila de píldoras más entre otras
+        cinco, había que ir a buscarla. Es la misma tarjeta que en Org Semanal a propósito —
+        cambiar de empresa se hace igual y se busca en el mismo sitio en las dos pantallas. */}
+    <div style={{...D_MARCO,marginBottom:18}}>
+      <div style={D_CARD}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <span style={{fontSize:26,fontWeight:700,letterSpacing:".04em",color:co?.color||D.cian}}>{co?.name?.toUpperCase()||"EMPRESA"}</span>
+            <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>INMERSIA SPA · Marketing digital 2026</span>
+          </div>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={dGrupo}>
+              {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),c.color)}>{c.name}</button>)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     {/* ENCABEZADO */}
     <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginBottom:18}}>
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
         {/* El encabezado dice en qué pantalla estás. Sirviendo tres entradas del menú desde el
             mismo componente, un "Contenido" fijo dejaba a Automatizaciones y a Programar
             publicaciones con el título de otra página. */}
-        <span style={{fontSize:26,fontWeight:700,letterSpacing:"-.01em"}}>
+        <span style={{fontSize:18,fontWeight:700,letterSpacing:"-.01em"}}>
           {modo==="automatizaciones"?"Automatizaciones":modo==="publicar"?"Programar publicaciones":"Contenido"}
         </span>
         <span style={{fontSize:12.5,color:D.tx3}}>
@@ -4495,17 +4529,11 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             : <>Conectado en vivo con <span style={{color:D.tx2,fontWeight:600}}>Org Semanal</span> y el <span style={{color:D.tx2,fontWeight:600}}>portal del cliente</span> — lo que cambia aquí, cambia allá.</>}
         </span>
       </div>
-      {/* En la fila del título quedan SOLO las acciones. El selector de empresa se fue de aquí:
-          elegir de qué empresa estás viendo el contenido no es una acción, y con la misma
-          píldora y el mismo tamaño que "+ Nueva pieza" la fila entera se leía como seis botones
-          equivalentes. */}
+      {/* Crear y subir piezas se fue de aquí abajo, junto a las etapas que llenan: eran lo
+          primero que se leía en una página que se abre para MIRAR cómo va el contenido, y
+          quedaban a media pantalla de distancia de lo que producen. Aquí arriba queda el
+          estado de la cuenta, que no es una acción sobre el contenido. */}
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        {/* Subir y crear piezas solo tiene sentido en producción. En las otras dos vistas
-            estorbaba y confundía sobre qué se está haciendo. */}
-        {vistaActual==="produccion"&&<>
-          <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
-          <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(var(--rgb-acento),.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(var(--rgb-acento),.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
-        </>}
         {/* Estado de Instagram de esta empresa. Vive aquí y no solo en las tarjetas porque una
             empresa sin piezas aprobadas no tendría dónde conectar la cuenta. */}
         {!igCarga&&(ig
@@ -4513,16 +4541,6 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
              style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-lav),.07)",border:"1px solid rgba(var(--rgb-lav),.35)",color:D.lav,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>📸 @{ig.username||"instagram"}</button>
           :<button onClick={conectarIG} title="Autoriza la cuenta de la marca en Instagram"
              style={{padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Conectar Instagram</button>)}
-      </div>
-    </div>
-
-    {/* Selector de empresa: qué estás mirando, no qué vas a hacer. Lleva su etiqueta delante
-        para que se lea como un rótulo y no como un menú de botones. */}
-    <div style={{display:"flex",alignItems:"center",gap:11,flexWrap:"wrap",marginBottom:16}}>
-      <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4}}>Empresa</span>
-      <div style={dGrupo}>
-        {cos.map(c=>{const on=String(selCo)===String(c.id);return(
-          <button key={c.id} onClick={()=>sSelCo(c.id)} style={{padding:"7px 16px",borderRadius:999,border:"none",background:on?"var(--bg4)":"transparent",color:on?D.tx:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{c.name}</button>);})}
       </div>
     </div>
 
@@ -4547,8 +4565,6 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </button>);})}
     </div>}
 
-    {vistaActual==="produccion"&&<Cupos co={co} tasks={tasks} y={hoyY} m={hoyM}/>}
-
     {vistaActual==="produccion"&&!stReady&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
       <b>⚠️ Almacenamiento sin configurar.</b>{stMotivo?<> Motivo: {stMotivo}.</>:<> Falta el bucket de Supabase Storage.</>} Por ahora solo se pueden subir archivos de menos de 3 MB, que no alcanza para reels.
     </div>}
@@ -4565,6 +4581,16 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <input ref={fileRef} type="file" multiple accept="image/*,video/*" style={{display:"none"}} onChange={e=>handleFiles(e.target.files)}/>
       <input ref={corrRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handleCorrection(e.target.files)}/>
       <input ref={perRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handlePer(e.target.files)}/>
+
+      {/* Las acciones que gastan cupo, pegadas a las etapas que llenan, y el saldo del mes con
+          ellas. El cupo va plegado como en Org Semanal: es el dato que se consulta justo antes
+          de crear una pieza, no un titular que se coma el ancho entero de la pantalla cada vez
+          que se abre Contenido — y desplegado se sigue viendo igual que antes. */}
+      {vistaActual==="produccion"&&<div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+        <button onClick={()=>sNueva(true)} style={{padding:"9px 18px",borderRadius:999,background:D.cian,border:"1px solid "+D.cian,color:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>+ Nueva pieza</button>
+        <button onClick={()=>sDzOpen(o=>!o)} style={{padding:"9px 16px",borderRadius:999,background:dzOpen?"rgba(var(--rgb-acento),.08)":"transparent",border:"1px solid "+(dzOpen?"rgba(var(--rgb-acento),.4)":D.line2),color:dzOpen?D.cian:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>⇪ Subir varios</button>
+        <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
+      </div>}
 
       {/* SUBIDA POR LOTE — plegada, para cargar varios archivos de una */}
       {vistaActual==="produccion"&&dzOpen&&<div className="d-in" style={{...D_CARD,marginBottom:18}}>
@@ -4896,6 +4922,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     </Md>
 
     {/* Qué versión aprobó el cliente, cuando lo dice por fuera de la app. */}
+    {/* La pieza sale del alcance del equipo en cuanto se envía, y el botón está a un dedo de
+        los votos. Decirlo después no sirve de nada: no hay vuelta atrás que ofrecer. */}
+    <Md open={!!envConf} onClose={()=>sEnvConf(null)} title="¿Enviar al portal?" width={440}>
+      {envConf&&<div>
+        <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 10px",color:D.tx2}}>
+          «{envConf.title||"La pieza"}» pasa al portal de {co?.name||"el cliente"} y queda esperando su respuesta.
+        </p>
+        <p style={{fontSize:12.5,lineHeight:1.55,margin:"0 0 16px",color:D.tx4}}>
+          Una vez enviada <b style={{color:D.tx2}}>no podrás hacerle cambios</b>: solo eliminarla. Si el cliente pide cambios, la pieza vuelve al equipo y ahí sí se sube la corrección.
+        </p>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,flexWrap:"wrap"}}>
+          <Bt v="s" onClick={()=>sEnvConf(null)}>Cancelar</Bt>
+          <Bt v="p" onClick={()=>{const t=envConf;sEnvConf(null);enviarAlPortal(t);}}>Enviar al portal →</Bt>
+        </div>
+      </div>}
+    </Md>
+
     <Md open={!!aprobVar} onClose={()=>sAprobVar(null)} title="¿Con cuál se quedó?" width={430}>
       {aprobVar&&<div>
         <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 14px",color:D.tx2}}>
@@ -7856,6 +7899,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   },[grabRefresh]);
   const[vista,sVista]=useState("semana");
   const[driveOpen,sDriveOpen]=useState(false);
+  // Org Semanal es la otra puerta a "enviar al portal", el mismo viaje de ida sin vuelta que en
+  // Contenido. Preguntar solo en una de las dos deja la garantía a medias, y esta es la pantalla
+  // en la que se trabaja a diario.
+  const[envConf,sEnvConf]=useState(null);
   // Vive en la misma franja recortada que el cupo del mes, así que sale por el mismo camino.
   const cerrarDrive=useCallback(()=>sDriveOpen(false),[]);
   const menuDrive=useMenuFlotante(driveOpen,cerrarDrive,260);
@@ -8234,7 +8281,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                                 :listoParaEnviar?"Aprobado por todo el equipo"
                                 :`Faltan ${r.faltan} ${r.faltan===1?"voto":"votos"}`}
                             </span>
-                            {listoParaEnviar&&<button onClick={()=>cambiarEstado(it,"en_aprobacion")}
+                            {listoParaEnviar&&<button onClick={()=>sEnvConf(it)}
                               style={{padding:"11px 24px",borderRadius:999,background:STATES.en_aprobacion.c,border:"1px solid "+STATES.en_aprobacion.c,color:D.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Enviar al portal del cliente →</button>}
                           </div>);})()}
                       </>)}
@@ -8388,6 +8435,24 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         </div>
       </div>
     </div></Portal>)}
+
+    {/* La pieza sale del alcance del equipo en cuanto se envía: desde ahí manda el cliente y lo
+        único que queda es eliminarla. El botón está justo debajo de los votos, así que decirlo
+        después no sirve — no hay vuelta atrás que ofrecer. Mismo texto que en Contenido. */}
+    <Md open={!!envConf} onClose={()=>sEnvConf(null)} title="¿Enviar al portal?" width={440}>
+      {envConf&&<div>
+        <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 10px",color:D.tx2}}>
+          «{envConf.title||"La pieza"}» pasa al portal de {co?.name||"el cliente"} y queda esperando su respuesta.
+        </p>
+        <p style={{fontSize:12.5,lineHeight:1.55,margin:"0 0 16px",color:D.tx4}}>
+          Una vez enviada <b style={{color:D.tx2}}>no podrás hacerle cambios</b>: solo eliminarla. Si el cliente pide cambios, la pieza vuelve al equipo y ahí sí se sube la corrección.
+        </p>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,flexWrap:"wrap"}}>
+          <Bt v="s" onClick={()=>sEnvConf(null)}>Cancelar</Bt>
+          <Bt v="p" onClick={()=>{const it=envConf;sEnvConf(null);cambiarEstado(it,"en_aprobacion");}}>Enviar al portal →</Bt>
+        </div>
+      </div>}
+    </Md>
 
     {/* LIGHTBOX */}
     {lightbox&&(<Portal><div onClick={()=>sLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-sombra),.85)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",backdropFilter:"blur(8px)"}}>
