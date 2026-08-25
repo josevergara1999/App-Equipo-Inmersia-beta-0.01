@@ -957,6 +957,7 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
     share:<><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="m8.2 10.9 7.5-3.7M8.2 13.1l7.5 3.7"/></>,
     star:<><path d="m12 4.2 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 4.2Z"/></>,
     play:<><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m10.4 9.2 4.8 2.8-4.8 2.8Z"/></>,
+    file:<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5"/></>,
     image:<><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.4" cy="9.4" r="1.6"/><path d="m4.4 17.6 4.6-4.3 3.1 2.9 3-2.6 4.4 3.9"/></>,
   };
   if(!paths[n])return<svg {...p}><circle cx="12" cy="12" r="4"/></svg>;
@@ -2273,17 +2274,25 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
     ["cotizacion_lista","Cotización lista"],
     ["cotizacion_enviada","Cotización enviada"],
     ["esperando_respuesta","Esperando respuesta"],
-    ["cliente_cerrado","Cliente cerrado ✅"],
-    ["perdido","Perdido ✗"],
+    ["cliente_cerrado","Cliente cerrado"],
+    ["perdido","Perdido"],
   ];
   const CANALES=[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Email"],["telefono","Teléfono"],["presencial","Presencial"],["otro","Otro"]];
   const COMUNICACION=[["cerrado","Cerrado"],["abierto","Abierto"],["no_responde","No responde bien"],["interesado","Interesado"],["desinteresado","Desinteresado"]];
   const NEEDS_PROMPT={contactado:1,en_respuesta:1,reunion_agendada:1,cotizacion_lista:1};
-  const STAGE_BTN_LABEL={contactado:"📩 Acercamiento",en_respuesta:"💬 Comunicación",reunion_agendada:"🗓 Reunión",cotizacion_lista:"📄 Cotización"};
+  const STAGE_BTN_LABEL={contactado:"Acercamiento",en_respuesta:"Comunicación",reunion_agendada:"Reunión",cotizacion_lista:"Cotización"};
+  const STAGE_BTN_ICON={contactado:"mail",en_respuesta:"chat",reunion_agendada:"calendar",cotizacion_lista:"file"};
 
   const[areaF,sAreaF]=useState("all");
   const[catF,sCatF]=useState("all");
   const[statusF,sStatusF]=useState("pendiente");
+  // Ubicación y categoría dejan de ser doce píldoras sueltas y pasan a ser dos desplegables.
+  const[fUbi,sFUbi]=useState(false);
+  const[fCat,sFCat]=useState(false);
+  const cerrarUbi=useCallback(()=>sFUbi(false),[]);
+  const cerrarCat=useCallback(()=>sFCat(false),[]);
+  const menuUbi=useMenuFlotante(fUbi,cerrarUbi,240);
+  const menuCat=useMenuFlotante(fCat,cerrarCat,260);
   const[dragId,sDragId]=useState(null);
   const[dragOverCol,sDragOverCol]=useState(null);
   const[pendingMove,sPendingMove]=useState(null);
@@ -2345,7 +2354,22 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
   },[pendingMove]);
 
   const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
-  const chip=(active,onClick,label)=>(<button key={label} onClick={onClick} style={{fontSize:11,fontWeight:600,padding:"6px 12px",borderRadius:7,border:"1px solid var(--border)",background:active?"var(--accent)":"var(--bg3)",color:active?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{label}</button>);
+  const cuentaEstado=k=>(pros||[]).filter(p=>(p.status||"pendiente")===k).length;
+  // Un desplegable de filtro. El botón dice SIEMPRE qué filtra —"Ubicación · Chillán"—: suelta,
+  // la píldora "Chillán" no decía de qué era, y al lado de "Restaurantes y cafés" y de
+  // "Aprobados" las tres parecían la misma clase de cosa.
+  const filtroMenu=(menu,abierto,sAbierto,rotulo,valor,opciones,elegir)=>(
+    <div ref={menu.caja} style={{position:"relative"}}>
+      <button onClick={()=>sAbierto(o=>!o)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px solid "+(valor==="all"?"var(--border)":"var(--accent)"),color:valor==="all"?"var(--tx2)":"var(--accent)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+        <span style={{color:"var(--tx4)",fontWeight:500}}>{rotulo}</span>
+        {opciones.find(([k])=>k===valor)?.[1]||"Todas"}
+        <span style={{fontSize:9}}>▾</span>
+      </button>
+      {abierto&&menu.estilo&&<Portal><div ref={menu.panel} style={{...menu.estilo,borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+        {opciones.map(([k,l])=>(
+          <button key={k} onClick={()=>{elegir(k);sAbierto(false);}} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,background:valor===k?"rgba(var(--rgb-acento),.1)":"transparent",border:"none",color:valor===k?"var(--accent)":"var(--tx2)",fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{l}</button>))}
+      </div></Portal>}
+    </div>);
   const updateField=(id,field,value)=>{const nl=pros.map(x=>x.id===id?{...x,[field]:value}:x);sPros(nl);DB.save("prospects",nl);};
   const setStatus=(id,status)=>{const nl=pros.map(x=>x.id===id?{...x,status}:x);sPros(nl);DB.save("prospects",nl);};
   const commitMove=(id,etapa,extra)=>{
@@ -2391,10 +2415,10 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
     const sz=small?28:34;
     const ic={width:sz,height:sz,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:small?13:15,color:"var(--accent)",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"50%",textDecoration:"none",flexShrink:0};
     return(<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:small?8:0}}>
-      {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" title="Instagram" style={ic}>📸</a>}
-      {p.website&&<a href={p.website} target="_blank" rel="noreferrer" title="Sitio web" style={ic}>🔗</a>}
-      {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" title="Ver en Maps" style={ic}>📍</a>}
-      {p.phone&&<a href={`tel:${p.phone}`} title={p.phone} style={ic}>📞</a>}
+      {p.instagram_handle&&<a href={`https://instagram.com/${p.instagram_handle}`} target="_blank" rel="noreferrer" title="Instagram" style={ic}><Ic n="instagram" s={small?13:15}/></a>}
+      {p.website&&<a href={p.website} target="_blank" rel="noreferrer" title="Sitio web" style={ic}><Ic n="link" s={small?13:15}/></a>}
+      {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer" title="Ver en Maps" style={ic}><Ic n="pin" s={small?13:15}/></a>}
+      {p.phone&&<a href={`tel:${p.phone}`} title={p.phone} style={ic}><Ic n="phone" s={small?13:15}/></a>}
     </div>);
   };
 
@@ -2404,18 +2428,34 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
         <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Prospectos</h1>
         <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{pendingCount} pendientes de revisión</div>
       </div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-        <Bt v="p" icon="plus" onClick={()=>sShowAdd(true)}>Agregar prospecto</Bt>
-        <div style={{width:1,height:20,background:"var(--border)"}}/>
-        {STATUS_L.map(([k,l])=>chip(statusF===k,()=>sStatusF(k),l))}
-        <div style={{width:1,height:20,background:"var(--border)"}}/>
-        {chip(areaF==="all",()=>sAreaF("all"),"Todas las ubicaciones")}
-        {AREAS_L.map(([k,l])=>chip(areaF===k,()=>sAreaF(k),l))}
-        <div style={{width:1,height:20,background:"var(--border)"}}/>
-        {chip(catF==="all",()=>sCatF("all"),"Todas las categorías")}
-        {CATS_L.map(([k,l])=>chip(catF===k,()=>sCatF(k),l))}
-      </div>
+      <Bt v="p" icon="plus" onClick={()=>sShowAdd(true)}>Agregar prospecto</Bt>
     </div>
+
+    {/* Antes esto era UNA fila con el botón de crear y tres grupos de filtros seguidos, todos
+        con la misma píldora y separados por hairlines de 1px. En el teléfono la fila se parte
+        donde cae, los separadores quedan a mitad de renglón y el resultado son doce botones
+        idénticos repartidos en cuatro líneas, con tres encendidos a la vez. No se ve dónde
+        termina un grupo y empieza el otro, y "Chillán" a secas no dice de qué es filtro.
+
+        Ahora son tres cosas distintas con tres formas distintas: crear es un botón y vive
+        arriba con el título; en qué lista estás son pestañas —es lo que cambia el tablero
+        entero, no un filtro—; y ubicación y categoría son dos desplegables que dicen su
+        nombre. */}
+    <div style={{display:"flex",gap:24,marginBottom:16,borderBottom:"1px solid var(--border)",flexWrap:"wrap"}}>
+      {STATUS_L.map(([k,l])=>{const on=statusF===k,n=cuentaEstado(k);return(
+        <button key={k} onClick={()=>sStatusF(k)} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"0 2px 10px",background:"transparent",border:"none",borderBottom:"2px solid "+(on?"var(--accent)":"transparent"),marginBottom:-1,color:on?"var(--tx)":"var(--tx4)",fontFamily:"inherit",fontSize:14,fontWeight:on?700:600,cursor:"pointer"}}>
+          {l}
+          {n>0&&<span style={{fontFamily:"var(--font-mono)",fontSize:10.5,padding:"1px 7px",borderRadius:999,background:on?"rgba(var(--rgb-acento),.12)":"rgba(var(--rgb-tinta),.05)",color:on?"var(--accent)":"var(--tx5)"}}>{n}</span>}
+        </button>);})}
+    </div>
+
+    {/* Ubicación y categoría solo filtran la lista de aprobados —`pending` no las mira—, así que
+        en las otras dos pestañas no se muestran: estaban ahí encendidas, aparentando recortar
+        una lista que en realidad salía entera. */}
+    {statusF==="aprobado"&&<div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:16}}>
+      {filtroMenu(menuUbi,fUbi,sFUbi,"Ubicación",areaF,[["all","Todas"],...AREAS_L],sAreaF)}
+      {filtroMenu(menuCat,fCat,sFCat,"Categoría",catF,[["all","Todas"],...CATS_L],sCatF)}
+    </div>}
 
     {statusF!=="aprobado"?(
       <>
@@ -2440,14 +2480,14 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
                         <div style={{flex:"2 1 280px"}}>{linkRow(p,false)}</div>
                         <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
                           {statusF==="pendiente"?(<>
-                            <Bt v="p" onClick={()=>setStatus(p.id,"aprobado")} style={{padding:"7px 14px",fontSize:11}}>✅ Aprobar</Bt>
-                            <Bt v="d" onClick={()=>setStatus(p.id,"rechazado")} style={{padding:"7px 14px",fontSize:11}}>✗ Rechazar</Bt>
+                            <Bt v="p" onClick={()=>setStatus(p.id,"aprobado")} style={{padding:"7px 14px",fontSize:11}} icon="check">Aprobar</Bt>
+                            <Bt v="d" onClick={()=>setStatus(p.id,"rechazado")} style={{padding:"7px 14px",fontSize:11}} icon="x">Rechazar</Bt>
                           </>):(
                             <Bt v="s" onClick={()=>setStatus(p.id,"pendiente")} style={{padding:"7px 14px",fontSize:11}}>↩ Volver a pendiente</Bt>
                           )}
                         </div>
                       </div>
-                      {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                      {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}><Ic n="search" s={11} style={{verticalAlign:"-1px",marginRight:5}}/>{p.profile_notes}</div>}
                     </div>
                   ))}
                 </div>
@@ -2474,35 +2514,35 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
                 <div style={{fontSize:13,fontWeight:600,marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
                 <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{fontSize:9,marginBottom:8}}>{p.fit_flag}</Bg>
                 {linkRow(p,true)}
-                {p.canales_primer_contacto?.length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>📩 {p.canales_primer_contacto.map(c=>CANALES.find(([k])=>k===c)?.[1]||c).join(", ")}</div>}
-                {p.comunicacion_status&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>💬 {COMUNICACION.find(([k])=>k===p.comunicacion_status)?.[1]||p.comunicacion_status}</div>}
-                {p.reunion_fecha&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2}}>🗓 {p.reunion_fecha} {p.reunion_hora||""}{p.reunion_personas?.length?" · "+p.reunion_personas.map(uid=>users.find(u=>u.id===uid)?.name||"?").join(", "):""}</div>}
+                {p.canales_primer_contacto?.length>0&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:5}}><Ic n="mail" s={10}/>{p.canales_primer_contacto.map(c=>CANALES.find(([k])=>k===c)?.[1]||c).join(", ")}</div>}
+                {p.comunicacion_status&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:5}}><Ic n="chat" s={10}/>{COMUNICACION.find(([k])=>k===p.comunicacion_status)?.[1]||p.comunicacion_status}</div>}
+                {p.reunion_fecha&&<div style={{fontSize:9,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:5}}><Ic n="calendar" s={10}/>{p.reunion_fecha} {p.reunion_hora||""}{p.reunion_personas?.length?" · "+p.reunion_personas.map(uid=>users.find(u=>u.id===uid)?.name||"?").join(", "):""}</div>}
                 {p.cotizacion_file&&<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                  <a href={p.cotizacion_file.data} download={p.cotizacion_file.name} style={{fontSize:9,color:"var(--accent)",textDecoration:"none"}}>📄 {p.cotizacion_file.name}</a>
-                  <button onClick={()=>{if(confirm("¿Quitar el archivo de cotización?"))updateField(p.id,"cotizacion_file",null);}} style={{fontSize:9,padding:"1px 5px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit"}}>🗑 Quitar</button>
+                  <a href={p.cotizacion_file.data} download={p.cotizacion_file.name} style={{fontSize:9,color:"var(--accent)",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:4}}><Ic n="file" s={10}/>{p.cotizacion_file.name}</a>
+                  <button onClick={()=>{if(confirm("¿Quitar el archivo de cotización?"))updateField(p.id,"cotizacion_file",null);}} style={{fontSize:9,padding:"1px 5px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:4}}><Ic n="trash" s={10}/>Quitar</button>
                 </div>}
                 <button onClick={()=>sExpandedIds(prev=>({...prev,[p.id]:!prev[p.id]}))} className={p.profile_notes&&!expanded?"shimmer-btn":""} style={{fontSize:10,fontWeight:600,padding:"4px 9px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:4,marginTop:2,marginBottom:8}}>
                   {expanded?"▲":"▼"} {p.profile_notes?"Resumen":"Notas"}
                 </button>
                 {expanded&&(<div style={{marginBottom:8,padding:"8px 10px",background:"var(--bg3)",borderRadius:8}}>
-                  {p.profile_notes&&<div style={{fontSize:10,color:"var(--tx2)",lineHeight:1.4,marginBottom:8,whiteSpace:"pre-wrap"}}>🔍 {p.profile_notes}</div>}
+                  {p.profile_notes&&<div style={{fontSize:10,color:"var(--tx2)",lineHeight:1.4,marginBottom:8,whiteSpace:"pre-wrap"}}><Ic n="search" s={10} style={{verticalAlign:"-1px",marginRight:5}}/>{p.profile_notes}</div>}
                   <NotesBox initial={p.seguimiento_notas} onSave={v=>updateField(p.id,"seguimiento_notas",v)}/>
                 </div>)}
                 <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
                   {NEEDS_PROMPT[p.etapa||"contactado"]&&(()=>{
                     const stageKey=p.etapa||"contactado";
-                    let btnLabel=STAGE_BTN_LABEL[stageKey],btnTargetEtapa=stageKey,btnBg="transparent",btnBorder="var(--border)",btnColor="var(--tx3)",btnWeight=400,btnBlink=false;
+                    let btnLabel=STAGE_BTN_LABEL[stageKey],btnIcon=STAGE_BTN_ICON[stageKey],btnTargetEtapa=stageKey,btnBg="transparent",btnBorder="var(--border)",btnColor="var(--tx3)",btnWeight=400,btnBlink=false;
                     if(stageKey==="contactado"){
                       const hasChannel=p.canales_primer_contacto?.length>0;
-                      if(hasChannel){btnLabel="⏳ Esperando";btnTargetEtapa="contactado";btnBg="var(--success)";btnBorder="var(--success)";btnColor="var(--bg)";btnWeight=700;btnBlink=true;}
-                      else{btnLabel="📩 Acercamiento";btnTargetEtapa="contactado";}
+                      if(hasChannel){btnLabel="Esperando";btnIcon="clock";btnTargetEtapa="contactado";btnBg="var(--success)";btnBorder="var(--success)";btnColor="var(--bg)";btnWeight=700;btnBlink=true;}
+                      else{btnLabel="Acercamiento";btnIcon="mail";btnTargetEtapa="contactado";}
                     }else if(stageKey==="en_respuesta"){
-                      btnLabel="💬 En conversación";btnTargetEtapa="en_respuesta";btnBg="rgba(77,199,255,.15)";btnBorder="var(--info)";btnColor="var(--info)";btnWeight=700;btnBlink=true;
+                      btnLabel="En conversación";btnIcon="chat";btnTargetEtapa="en_respuesta";btnBg="rgba(77,199,255,.15)";btnBorder="var(--info)";btnColor="var(--info)";btnWeight=700;btnBlink=true;
                     }
-                    return(<button onClick={()=>sPendingMove({id:p.id,targetEtapa:btnTargetEtapa})} className={btnBlink?"blink-slow":""} style={{fontSize:9,padding:"3px 6px",background:btnBg,border:"1px solid "+btnBorder,borderRadius:5,color:btnColor,cursor:"pointer",fontFamily:"inherit",fontWeight:btnWeight}}>{btnLabel}</button>);
+                    return(<button onClick={()=>sPendingMove({id:p.id,targetEtapa:btnTargetEtapa})} className={btnBlink?"blink-slow":""} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:9,padding:"3px 6px",background:btnBg,border:"1px solid "+btnBorder,borderRadius:5,color:btnColor,cursor:"pointer",fontFamily:"inherit",fontWeight:btnWeight}}><Ic n={btnIcon} s={10}/>{btnLabel}</button>);
                   })()}
                   <button onClick={()=>setStatus(p.id,"pendiente")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid var(--border)",borderRadius:5,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>↩ pendiente</button>
-                  <button onClick={()=>setStatus(p.id,"rechazado")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit"}}>✗ rechazar</button>
+                  <button onClick={()=>setStatus(p.id,"rechazado")} style={{fontSize:9,padding:"3px 6px",background:"transparent",border:"1px solid rgba(255,90,78,.3)",borderRadius:5,color:"var(--danger)",cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:4}}><Ic n="x" s={10}/>rechazar</button>
                 </div>
               </div>
               );})}
@@ -2544,7 +2584,7 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
       {pendingMove?.targetEtapa==="cotizacion_lista"&&(
         <Fd label="Archivo de cotización (PDF)">
           <input type="file" accept="application/pdf" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sMFile({name:f.name,data:ev.target.result,type:f.type});r.readAsDataURL(f);}}/>
-          {mFile&&<div style={{fontSize:12,color:"var(--tx2)",marginTop:6}}>📄 {mFile.name}</div>}
+          {mFile&&<div style={{fontSize:12,color:"var(--tx2)",marginTop:6,display:"flex",alignItems:"center",gap:5}}><Ic n="file" s={12}/>{mFile.name}</div>}
         </Fd>
       )}
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
