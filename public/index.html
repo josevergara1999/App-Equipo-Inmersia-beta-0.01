@@ -8129,7 +8129,10 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
               return(
                 <div key={it.id} className="d-in" style={{borderRadius:20,padding:5,background:realce?realce.marco:"linear-gradient(160deg, rgba(var(--rgb-tinta),.28), rgba(var(--rgb-tinta),.05) 45%, rgba(var(--rgb-peri),.18))"}}>
-                  <div style={{position:"relative",borderRadius:16,background:"linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99))",border:"1px solid rgba(var(--rgb-tinta),.08)",boxShadow:"inset 0 1px 0 rgba(var(--rgb-luz),.06)",borderLeft:"3px solid "+col,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
+                  <div style={{position:"relative",borderRadius:16,background:"linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99))",border:"1px solid rgba(var(--rgb-tinta),.08)",boxShadow:"inset 0 1px 0 rgba(var(--rgb-luz),.06)",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
+                    {/* La franja del tipo, apagándose hacia abajo. Va antes del realce para que quede por
+                        debajo de él y no se corte con su animación. */}
+                    <span aria-hidden="true" style={{position:"absolute",left:0,top:0,bottom:0,width:3,borderRadius:"16px 0 0 16px",background:"linear-gradient(180deg, "+col+" 0%, "+col+"66 38%, transparent 100%)",pointerEvents:"none"}}/>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:16,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
 
                     {enAsistente?(
