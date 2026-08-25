@@ -205,6 +205,13 @@ const PALETAS={
     line:"#161B2A", line15:"#151A28", line2:"#262D40", line3:"#1E2536",
     tx:"#F4F2ED", tx2:"#C9CFDC", tx3:"#8E93A6", tx4:"#6B7484", tx5:"#4A5265",
     cian:"#6FE7F2", cianHov:"#8FEFF7", peri:"#9BB4FF", lav:"#C9BFFF", rojo:"#FF8B8B",
+    // Estas tres estaban SOLO en la paleta clara. Como `PC` arma sus getters recorriendo las
+    // claves de esta de aquí, PC.ambar / PC.verde / PC.rosa no tenían getter y devolvían
+    // undefined en los dos temas: 56 lecturas repartidas por la app —avisos de almacenamiento,
+    // puntos de estado, "Automatización disponible"— se quedaban sin su color y heredaban el
+    // del padre, o con el fondo transparente. Son los mismos valores que ya usaban las
+    // variables CSS `--rgb-ambar`, `--rgb-verde` y el rosa de `TT_COLORES.oscuro`.
+    ambar:"#EFD9A0", verde:"#8FF2C2", rosa:"#F2A8C4",
     sombra:"0 20px 60px rgba(var(--rgb-sombra),.5)", velo:"rgba(var(--rgb-velo),.72)",
   },
   // "Deep Focus" en claro. El acento es el teal profundo #143D4A, que sobre papel funciona
@@ -227,6 +234,72 @@ Object.keys(PALETAS.oscuro).forEach(k=>Object.defineProperty(PC,k,{get:()=>PALET
 // estilos en línea. Hacen falta los dos: la app usa las dos vías.
 // `D` es el mismo objeto: dos nombres para la paleta, por historia del código.
 const D=PC;
+
+// Los colores de marca —empresas, integrantes, planes— vienen de una paleta anterior hecha
+// para brillar sobre negro: turquesas, corales y amarillos fluorescentes. Sobre el papel del
+// modo claro pierden el contraste contra el fondo y encima desentonan con "Deep Focus", que es
+// una familia apagada. `tono` los traduce, y es la misma decisión que ya se tomó en
+// `TT_COLORES.claro`: NO son los de siempre oscurecidos a ojo, sino un hermano elegido dentro
+// de la paleta clara —varios de ellos son literalmente entradas de la paleta—.
+//
+// Un color que no esté en la tabla —una empresa nueva con su color propio, que se elige desde
+// la app— cae en el cálculo: se le baja la luminosidad y se le quita saturación hasta el rango
+// de la familia. Y un color que YA es oscuro no se toca, así que pasar por `tono` un color de
+// la paleta (D.peri, D.cian) es inofensivo.
+//
+// En modo oscuro `tono` no hace nada: la paleta vieja fue hecha justo para ese fondo.
+const TONOS_CLARO={
+  "#4ecdc4":"#1F6F63", "#35d6a5":"#2F7E60", "#a8e26b":"#4A7A33",   // verdes y turquesas
+  "#ff6b6b":"#B5544A", "#ff7a6b":"#A85A3E",                        // rojos
+  "#ffd93d":"#8A6E2F", "#ffc857":"#9A7F3F",                        // amarillos
+  "#6bcbff":"#4E7A96", "#6fa8ff":"#3E6FA0",                        // azules
+  "#9d6bff":"#6B5A9A", "#c77dff":"#7D6A9A", "#c9a0ff":"#6B7FA6",   // violetas
+  "#ff9ff3":"#9A5C74",                                             // rosa
+  "#aab4af":"#6E7479",                                             // gris
+};
+// Contraste real contra el papel del modo claro, con la fórmula de WCAG. Es lo que decide si
+// un color hay que traducirlo: el ojo no juzga "luminosidad", juzga si se despega del fondo.
+const LUZ_CANAL=v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4);};
+function contrasteClaro(hex){
+  const n=parseInt(hex.slice(1),16);
+  const l=.2126*LUZ_CANAL((n>>16)&255)+.7152*LUZ_CANAL((n>>8)&255)+.0722*LUZ_CANAL(n&255);
+  const f=.2126*LUZ_CANAL(242)+.7152*LUZ_CANAL(241)+.0722*LUZ_CANAL(236);   // el bg #F2F1EC
+  return (Math.max(l,f)+.05)/(Math.min(l,f)+.05);
+}
+function tono(c){
+  if(TEMA!=="claro"||typeof c!=="string")return c;
+  const h=c.trim().toLowerCase();
+  if(TONOS_CLARO[h])return TONOS_CLARO[h];
+  const m=/^#([0-9a-f]{6})$/.exec(h);
+  if(!m)return c;                                   // rgb(), var(), color-mix()… no se tocan
+  // El corte NO puede ser la luminosidad HSL. Un neón saturado —#00FF88— da exactamente 0.5,
+  // que es la definición de un color puro, y se colaba entero teniendo 1.19 de contraste sobre
+  // el papel: invisible. Se mide el contraste de verdad, y 3 es el mínimo de WCAG para texto
+  // grande. Por eso un color que ya es oscuro (los de la paleta clara) sale intacto de aquí.
+  if(contrasteClaro(h)>=3)return c;
+  const n=parseInt(m[1],16);
+  const r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), lz=(mx+mn)/2, d=mx-mn;
+  let hu=0;
+  if(d)hu=(mx===r?((g-b)/d+(g<b?6:0)):mx===g?((b-r)/d+2):((r-g)/d+4))/6;
+  // Se conserva el tono —un cliente rojo sigue siendo rojo— y se le recorta la saturación al
+  // rango de la familia. Después se le baja la luz hasta que se lee, en vez de fiarlo a un
+  // número mágico: el mismo 0.36 deja un amarillo bien y un azul corto.
+  const sa=Math.min(d?d/(1-Math.abs(2*lz-1)):0,.45);
+  const aHex=lu=>{
+    const q=lu<.5?lu*(1+sa):lu+sa-lu*sa, pp=2*lu-q;
+    const canal=t=>{if(t<0)t+=1;if(t>1)t-=1;
+      if(t<1/6)return pp+(q-pp)*6*t;
+      if(t<1/2)return q;
+      if(t<2/3)return pp+(q-pp)*(2/3-t)*6;
+      return pp;};
+    const x=v=>Math.round(v*255).toString(16).padStart(2,"0");
+    return "#"+x(canal(hu+1/3))+x(canal(hu))+x(canal(hu-1/3));
+  };
+  let out=aHex(.44);
+  for(let lu=.44;lu>=.16&&contrasteClaro(out)<3.4;lu-=.035)out=aHex(lu);
+  return out;
+}
 function aplicarTema(t){
   TEMA=(t==="claro")?"claro":"oscuro";
   try{localStorage.setItem("inm_tema",TEMA);}catch(_){}
@@ -872,7 +945,7 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
 };
 
 // ═══ UI COMPONENTS (new design) ═════════════════════════════════
-function Av({u,sz=28}){return<div title={u?.name} style={{width:sz,height:sz,borderRadius:"50%",background:u?.color||"#666",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:sz*.36,fontWeight:600,color:"var(--bg)",flexShrink:0,letterSpacing:".02em"}}>{u?.avatar||"?"}</div>}
+function Av({u,sz=28}){return<div title={u?.name} style={{width:sz,height:sz,borderRadius:"50%",background:tono(u?.color)||"#666",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:sz*.36,fontWeight:600,color:"var(--bg)",flexShrink:0,letterSpacing:".02em"}}>{u?.avatar||"?"}</div>}
 function Bt({children,v="p",onClick:oc,style:s,disabled:d,icon}){const vs={p:{background:"var(--accent)",color:"var(--bg)",padding:"9px 16px",fontSize:14,fontWeight:600},s:{background:"var(--bg3)",color:"var(--tx)",padding:"8px 14px",fontSize:13,border:"1px solid var(--border)"},g:{background:"transparent",color:"var(--tx2)",padding:"5px 8px",fontSize:13},d:{background:"transparent",color:"var(--danger)",padding:"8px 14px",fontSize:13,border:"1px solid rgba(255,90,78,.3)"},go:{background:"var(--gold)",color:"var(--bg)",padding:"9px 18px",fontSize:14,fontWeight:700}};return<button disabled={d} onClick={oc} style={{opacity:d?0.4:1,borderRadius:10,display:"inline-flex",alignItems:"center",gap:7,letterSpacing:"-0.005em",...vs[v],...s}}>{icon&&<Ic n={icon} s={15}/>}{children}</button>}
 function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:999,fontSize:12,fontWeight:600,color:cl||"var(--tx2)",background:b||(cl?cl+"22":"var(--bg4)"),whiteSpace:"nowrap",lineHeight:1,...s}}>{children}</span>}
 // Todo lo que ocupa la pantalla entera se monta en el <body>, nunca dentro del árbol de la
@@ -1773,10 +1846,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:12}}>
             {cos.map(c=>{const pl={name:c.planName||PLANS[c.plan]?.name||c.plan,price:c.price||c.customPrice||PLANS[c.plan]?.price||0,tasks:c.tasks||PLANS[c.plan]?.tasks||{}};const ct=tasks.filter(t=>String(t.companyId)===String(c.id));const done=ct.filter(t=>["aprobado","publicado"].includes(t.state)).length;
             return(<div key={c.id} className="card" style={{overflow:"hidden"}}>
-              <div style={{height:3,background:c.color}}/>
+              <div style={{height:3,background:tono(c.color)}}/>
               <div style={{padding:20}}>
                 <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-                  <div style={{width:42,height:42,borderRadius:12,background:c.color,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:18}}>{c.name[0]}</div>
+                  <div style={{width:42,height:42,borderRadius:12,background:tono(c.color),display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:18}}>{c.name[0]}</div>
                   <div style={{flex:1}}>
                     <div style={{fontSize:16,fontWeight:600,letterSpacing:"-0.01em"}}>{c.name}</div>
                     <div style={{fontSize:12,color:"var(--tx3)"}}>{pl?.name} · {fP(pl?.price||0)}/mes</div>
@@ -1906,13 +1979,13 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
           {users.filter(u=>u.role!=="cliente").map(u=>{const ut=tasks.filter(t=>(Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id));const dn=ut.filter(t=>["aprobado","publicado"].includes(t.state)).length;const myPays=teamPay[u.id]||[];
             return(<div key={u.id} className="card" style={{overflow:"hidden"}}>
-              <div style={{height:3,background:u.color}}/>
+              <div style={{height:3,background:tono(u.color)}}/>
               <div style={{padding:20,textAlign:"center"}}>
                 <Av u={u} sz={52}/>
                 <div style={{marginTop:8,fontSize:16,fontWeight:600,letterSpacing:"-0.01em"}}>{u.name}</div>
                 {isA?<select value={u.role} onChange={e=>chRole(u.id,e.target.value)} style={{marginTop:6,fontSize:12,padding:"4px 8px",width:"auto",textAlign:"center"}}><option value="admin">Administrador</option><option value="editor">Editor</option><option value="visualizador">Visualizador</option><option value="Sales">Sales</option></select>:<Bg color={u.role==="admin"?"var(--danger)":u.role==="editor"?"var(--accent)":u.role==="Sales"?"var(--gold)":"var(--tx2)"} style={{marginTop:6}}>{u.role}</Bg>}
                 <div style={{display:"flex",justifyContent:"center",gap:20,marginTop:14}}>
-                  <div><div className="num" style={{fontSize:22,fontWeight:600,color:u.color}}>{ut.length}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Asignadas</div></div>
+                  <div><div className="num" style={{fontSize:22,fontWeight:600,color:tono(u.color)}}>{ut.length}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Asignadas</div></div>
                   <div><div className="num" style={{fontSize:22,fontWeight:600,color:"var(--success)"}}>{dn}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Listas</div></div>
                 </div>
                 {u.id===cu.id&&myPays.length>0&&<div style={{marginTop:10,borderTop:"1px solid var(--border)",paddingTop:8,textAlign:"left"}}><div style={{fontSize:11,fontWeight:600,color:"var(--gold)",marginBottom:4}}>Mis pagos</div>{myPays.slice(0,3).map(p=>(<div key={p.id} style={{fontSize:11,display:"flex",justifyContent:"space-between",color:"var(--tx2)",marginBottom:2}}><span>{p.concept||"Pago"}</span><span className="num" style={{color:"var(--success)"}}>{fP(p.amount)}</span></div>))}</div>}
@@ -1950,7 +2023,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           <Bt v="d" onClick={()=>{const nw={...gcalTokens};delete nw[cu.id];sGCT(nw);localStorage.setItem("inm_gcal_tokens",JSON.stringify(nw));sShGcal(false);}} style={{fontSize:11}}>Desconectar</Bt>
           <div style={{marginTop:10,padding:6,background:"var(--bg3)",borderRadius:6}}>
             <div style={{fontSize:9,color:"var(--tx2)"}}>Conectados:</div>
-            {Object.keys(gcalTokens).filter(k=>gcalTokens[k]).map(k=>{const u=users.find(u2=>u2.id===parseInt(k));return u?<Bg key={k} color={u.color} style={{margin:2,fontSize:8}}>{u.name} ✓</Bg>:null;})}
+            {Object.keys(gcalTokens).filter(k=>gcalTokens[k]).map(k=>{const u=users.find(u2=>u2.id===parseInt(k));return u?<Bg key={k} color={tono(u.color)} style={{margin:2,fontSize:8}}>{u.name} ✓</Bg>:null;})}
           </div>
         </div>
       </Md>
@@ -2767,7 +2840,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
           <span style={{fontSize:15,fontWeight:600,color:D.tx,display:"block",marginBottom:12}}>Eventos por marca</span>
           <div style={{...dGrupo,width:"fit-content",marginBottom:14,flexWrap:"wrap"}}>
             <button onClick={()=>sMarca("all")} style={dPill(marca==="all")}>Todas</button>
-            {cos.map(c=><button key={c.id} onClick={()=>sMarca(String(c.id))} style={dPill(String(marca)===String(c.id),c.color)}>{c.name}</button>)}
+            {cos.map(c=><button key={c.id} onClick={()=>sMarca(String(c.id))} style={dPill(String(marca)===String(c.id),tono(c.color))}>{c.name}</button>)}
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -2800,8 +2873,8 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                   <span style={label}>Marca</span>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {cos.map(c=>{const on=String(evF.companyId)===String(c.id);return(
-                      <button key={c.id} onClick={()=>sEvF({...evF,companyId:String(c.id)})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:on?c.color+"1a":"transparent",border:"1px solid "+(on?c.color+"73":D.line2),color:on?c.color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                        <span style={{width:7,height:7,borderRadius:"50%",background:c.color}}/>{c.name}
+                      <button key={c.id} onClick={()=>sEvF({...evF,companyId:String(c.id)})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:on?tono(c.color)+"1a":"transparent",border:"1px solid "+(on?tono(c.color)+"73":D.line2),color:on?tono(c.color):D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                        <span style={{width:7,height:7,borderRadius:"50%",background:tono(c.color)}}/>{c.name}
                       </button>);})}
                   </div>
                 </div>
@@ -2820,7 +2893,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {users.filter(u=>u.role!=="cliente").map(u=>{const on=evF.attendees.includes(u.id);return(
                       <button key={u.id} onClick={()=>togAsistenteEv(u.id)} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px 6px 7px",borderRadius:999,background:on?"rgba(var(--rgb-acento),.1)":"transparent",border:"1px solid "+(on?"rgba(var(--rgb-acento),.45)":D.line2),color:on?D.cian:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                        <span style={{width:20,height:20,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:u.color||D.peri,color:D.bg,fontSize:8.5,fontWeight:700}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>
+                        <span style={{width:20,height:20,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:tono(u.color)||D.peri,color:D.bg,fontSize:8.5,fontWeight:700}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>
                         {u.name}
                       </button>);})}
                   </div>
@@ -2859,8 +2932,8 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                   <span style={label}>Empresa</span>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {cos.map(c=>{const on=String(agF.companyId)===String(c.id);return(
-                      <button key={c.id} onClick={()=>sAgF({...agF,companyId:on?"":String(c.id)})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:on?c.color+"1a":"transparent",border:"1px solid "+(on?c.color+"73":D.line2),color:on?c.color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                        <span style={{width:7,height:7,borderRadius:"50%",background:c.color}}/>{c.name}
+                      <button key={c.id} onClick={()=>sAgF({...agF,companyId:on?"":String(c.id)})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:on?tono(c.color)+"1a":"transparent",border:"1px solid "+(on?tono(c.color)+"73":D.line2),color:on?tono(c.color):D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                        <span style={{width:7,height:7,borderRadius:"50%",background:tono(c.color)}}/>{c.name}
                       </button>);})}
                   </div>
                 </div>
@@ -2885,7 +2958,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {users.filter(u=>u.role!=="cliente").map(u=>{const on=agF.attendees.includes(u.id);return(
                       <button key={u.id} onClick={()=>togAsistente(u.id)} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px 6px 7px",borderRadius:999,background:on?"rgba(var(--rgb-acento),.1)":"transparent",border:"1px solid "+(on?"rgba(var(--rgb-acento),.45)":D.line2),color:on?D.cian:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                        <span style={{width:20,height:20,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:u.color||D.peri,color:D.bg,fontSize:8.5,fontWeight:700}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>
+                        <span style={{width:20,height:20,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:tono(u.color)||D.peri,color:D.bg,fontSize:8.5,fontWeight:700}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>
                         {u.name}
                       </button>);})}
                   </div>
@@ -2940,7 +3013,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                     <span style={{fontSize:11,color:esHoy?D.cian:D.tx4,whiteSpace:"nowrap",fontWeight:esHoy?700:400}}>{rel}</span>
                     <div style={{display:"flex",alignItems:"center",paddingLeft:6}}>
                       {asis.map(u=>(
-                        <span key={u.id} title={u.name} style={{width:22,height:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:u.color||D.peri,color:D.bg,fontSize:8.5,fontWeight:700,border:"2px solid "+D.panel,marginLeft:-6}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>))}
+                        <span key={u.id} title={u.name} style={{width:22,height:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",background:tono(u.color)||D.peri,color:D.bg,fontSize:8.5,fontWeight:700,border:"2px solid "+D.panel,marginLeft:-6}}>{u.avatar||u.name.slice(0,2).toUpperCase()}</span>))}
                     </div>
                     {r.meetLink&&<a href={r.meetLink} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 11px",borderRadius:999,background:esHoy?"rgba(var(--rgb-verde),.12)":"rgba(var(--rgb-peri),.08)",border:"1px solid "+(esHoy?"rgba(var(--rgb-verde),.45)":"rgba(var(--rgb-peri),.3)"),color:esHoy?PC.verde:D.peri,fontSize:11,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>📹 {esHoy?"Entrar a Meet":"Meet"}</a>}
                     <span style={{fontSize:11,color:D.tx4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{asis.map(u=>u.name).join(", ")}</span>
@@ -4380,8 +4453,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
               {t.company&&<span style={{opacity:.45}}>·</span>}
               {enc.length
                 ? enc.map(u=>(
-                    <span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 8px",borderRadius:999,background:(u.color||D.peri)+"1a",border:"1px solid "+(u.color||D.peri)+"4d",color:D.tx2,fontWeight:600}}>
-                      <span style={{width:6,height:6,borderRadius:"50%",background:u.color||D.peri,flexShrink:0}}/>{u.name}
+                    <span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 8px",borderRadius:999,background:(tono(u.color)||D.peri)+"1a",border:"1px solid "+(tono(u.color)||D.peri)+"4d",color:D.tx2,fontWeight:600}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:tono(u.color)||D.peri,flexShrink:0}}/>{u.name}
                     </span>))
                 : <span style={{fontStyle:"italic"}}>Sin encargado</span>}
             </div>);
@@ -4505,7 +4578,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <div style={D_CARD}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            <span style={{fontSize:26,fontWeight:700,letterSpacing:".04em",color:co?.color||D.cian}}>{co?.name?.toUpperCase()||"EMPRESA"}</span>
+            <span style={{fontSize:26,fontWeight:700,letterSpacing:".04em",color:tono(co?.color)||D.cian}}>{co?.name?.toUpperCase()||"EMPRESA"}</span>
             <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>INMERSIA SPA · Marketing digital 2026</span>
             {/* La cuenta de Instagram de la empresa vive aquí, con su nombre: es parte de quién
                 es el cliente, no una acción de la pantalla. Colgada del título de la página se
@@ -4523,7 +4596,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
             <div style={dGrupo}>
-              {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),c.color)}>{c.name}</button>)}
+              {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),tono(c.color))}>{c.name}</button>)}
             </div>
           </div>
         </div>
@@ -6129,7 +6202,7 @@ function MetricasPg({cos,addN}){
     </div>
 
     {igCos.length>1&&<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-      {igCos.map(c=><button key={c.id} onClick={()=>{sSelCo(c.id);sData(null);}} style={{padding:"7px 14px",borderRadius:9,fontSize:13,fontWeight:600,border:`2px solid ${selCo===c.id?c.color:"var(--border)"}`,background:selCo===c.id?c.color+"22":"transparent",color:selCo===c.id?c.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>)}
+      {igCos.map(c=><button key={c.id} onClick={()=>{sSelCo(c.id);sData(null);}} style={{padding:"7px 14px",borderRadius:9,fontSize:13,fontWeight:600,border:`2px solid ${selCo===c.id?tono(c.color):"var(--border)"}`,background:selCo===c.id?tono(c.color)+"22":"transparent",color:selCo===c.id?tono(c.color):"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>)}
     </div>}
 
     {metaSt&&!metaSt.connected&&<div className="card" style={{padding:32,textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>📱</div><div style={{fontSize:16,fontWeight:600,marginBottom:8}}>Conecta tu cuenta de Meta</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar con Meta</a></div>}
@@ -6676,7 +6749,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
         </div>
         {attachableTasks.map(t=>{const co=cos.find(c=>String(c.id)===String(t.companyId));const on=g&&g.taskId===t.id;
           return(<div key={t.id} onClick={()=>attachTo(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,cursor:"pointer",background:on?"rgba(var(--rgb-lav),.08)":D.panel,border:"1px solid "+(on?"rgba(var(--rgb-lav),.4)":D.line3)}}>
-            <div style={{width:28,height:28,borderRadius:8,background:(co&&co.color)||D.line2,display:"flex",alignItems:"center",justifyContent:"center",color:D.bg,fontWeight:700,fontSize:11}}>{co?co.name[0]:"?"}</div>
+            <div style={{width:28,height:28,borderRadius:8,background:(co&&tono(co.color))||D.line2,display:"flex",alignItems:"center",justifyContent:"center",color:D.bg,fontWeight:700,fontSize:11}}>{co?co.name[0]:"?"}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",gap:6,alignItems:"center"}}><Bg color={TT[t.type]?.c} style={{fontSize:9,padding:"2px 5px"}}>{TT[t.type]?.l}</Bg><span style={{fontSize:13,fontWeight:600}}>{t.title}</span></div>
               <div style={{fontFamily:"var(--font-mono)",fontSize:11,color:D.tx4,marginTop:2}}>{t.date||"sin fecha"} · {SS[t.state]?.l}</div>
@@ -6861,7 +6934,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
               {/* Row 1: Company + price editor */}
               <div style={{display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",marginBottom:8}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,minWidth:160}}>
-                  <div style={{width:34,height:34,borderRadius:9,background:c.color,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:14}}>{c.name[0]}</div>
+                  <div style={{width:34,height:34,borderRadius:9,background:tono(c.color),display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:14}}>{c.name[0]}</div>
                   <div><div style={{fontSize:14,fontWeight:600}}>{c.name}</div><div style={{fontSize:11,color:"var(--tx3)"}}>{q.pl?.name||"Custom"}</div></div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"var(--tx3)"}}>Plan $</span><input type="number" value={getOvr(c.id).price!==undefined?getOvr(c.id).price:q.basePrice} onChange={e=>setOvr(c.id,"price",e.target.value)} style={{width:90,fontSize:12,padding:"4px 6px",textAlign:"right"}}/></div>
@@ -6891,7 +6964,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
                 <div><div style={{fontSize:10,color:"var(--gold)"}}>IVA</div><div className="num" style={{fontSize:14,fontWeight:600,color:"var(--gold)"}}>{fP(q.iva)}</div></div>
                 <div><div style={{fontSize:10,color:"var(--success)"}}>Total</div><div className="num" style={{fontSize:14,fontWeight:600,color:"var(--success)"}}>{fP(q.totalIva)}</div></div>
                 <div style={{flex:1,minWidth:80}}>
-                  <div style={{height:5,background:"var(--bg4)",borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{width:q.pct+"%",height:"100%",background:c.color,transition:"width .4s"}}/></div>
+                  <div style={{height:5,background:"var(--bg4)",borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{width:q.pct+"%",height:"100%",background:tono(c.color),transition:"width .4s"}}/></div>
                   <div className="num" style={{fontSize:10,color:"var(--tx3)"}}>{q.pct}%</div>
                 </div>
               </div>
@@ -6950,7 +7023,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
         {history.map(r=>{const qn=r.type==="50_1"?"Cuota 1":"Cuota 2";const mLabel=MO[r.month]+" "+r.year;
           return(<div key={r.id} style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr 1.2fr",padding:"12px 20px",borderBottom:"1px solid var(--border)",alignItems:"center",gap:10,minWidth:650}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:26,height:26,borderRadius:6,background:r.co?.color,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:11}}>{r.co?.name?.[0]}</div>
+              <div style={{width:26,height:26,borderRadius:6,background:tono(r.co?.color),display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontWeight:700,fontSize:11}}>{r.co?.name?.[0]}</div>
               <div style={{fontSize:13,fontWeight:500}}>{r.co?.name}</div>
             </div>
             <div style={{fontSize:12,color:"var(--tx2)"}}>{mLabel}</div>
@@ -7139,9 +7212,9 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
               Todas<span style={{fontFamily:"var(--font-mono)",fontSize:10.5}}>{totalMes}</span>
             </button>
             {cos.map(c=>{const on=String(filtroCo)===String(c.id);const n=conteoCo(c.id);return(
-              <button key={c.id} onClick={()=>sFiltroCo(on?"all":String(c.id))} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:on?c.color+"1a":"transparent",border:"1px solid "+(on?c.color+"73":D.line2),color:on?c.color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                <span style={{width:7,height:7,borderRadius:"50%",background:c.color}}/>{c.name}
-                <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:on?c.color:D.tx4}}>{n}</span>
+              <button key={c.id} onClick={()=>sFiltroCo(on?"all":String(c.id))} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 13px",borderRadius:999,background:on?tono(c.color)+"1a":"transparent",border:"1px solid "+(on?tono(c.color)+"73":D.line2),color:on?tono(c.color):D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:tono(c.color)}}/>{c.name}
+                <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:on?tono(c.color):D.tx4}}>{n}</span>
               </button>);})}
             <span style={{marginLeft:"auto",fontSize:12,color:D.tx3}}>
               {totalMes===0?"Nada agendado este mes":`${totalMes} ${totalMes===1?"publicación":"publicaciones"} · capa ${capa==="cliente"?"del cliente":"interna"}`}
@@ -7964,12 +8037,12 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       <div style={D_CARD}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            <span style={{fontSize:26,fontWeight:700,letterSpacing:".04em",color:co?.color||D.cian}}>{co?.name?.toUpperCase()||"EMPRESA"}</span>
+            <span style={{fontSize:26,fontWeight:700,letterSpacing:".04em",color:tono(co?.color)||D.cian}}>{co?.name?.toUpperCase()||"EMPRESA"}</span>
             <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>INMERSIA SPA · Marketing digital 2026</span>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
             <div style={dGrupo}>
-              {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),c.color)}>{c.name}</button>)}
+              {cos.map(c=><button key={c.id} onClick={()=>sSelCo(String(c.id))} style={dPill(String(selCo)===String(c.id),tono(c.color))}>{c.name}</button>)}
             </div>
           </div>
         </div>
@@ -8490,7 +8563,7 @@ function TskForm({cos,users,onSave}){const[f,sF]=useState({title:"",type:"post",
   <Fd label="Título"><input value={f.title} onChange={e=>sF({...f,title:e.target.value})} placeholder="Nombre de la tarea"/></Fd>
   <Fd label="Tipo de contenido"><select value={f.type} onChange={e=>sF({...f,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></Fd>
   <Fd label="Empresa"><select value={f.companyId} onChange={e=>{const co=cos.find(c=>c.id===parseInt(e.target.value));sF({...f,companyId:parseInt(e.target.value),company:co?.name||""});}}><option value={0}>Seleccionar...</option>{cos.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Fd>
-  <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=f.responsable.includes(u.id);return(<button key={u.id} onClick={()=>sF({...f,responsable:sel?f.responsable.filter(id=>id!==u.id):[...f.responsable,u.id]})} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+u.color+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+u.color+" 35%,transparent)":"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
+  <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=f.responsable.includes(u.id);return(<button key={u.id} onClick={()=>sF({...f,responsable:sel?f.responsable.filter(id=>id!==u.id):[...f.responsable,u.id]})} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+tono(u.color)+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+tono(u.color)+" 35%,transparent)":"var(--border)"),color:sel?tono(u.color):"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
   <Fd label="Fecha"><input type="date" value={f.date} onChange={e=>sF({...f,date:e.target.value})}/></Fd>
   <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="p" disabled={!f.title||!f.companyId} onClick={()=>onSave(f)} icon="plus">Crear tarea</Bt></div></div>);}
 function CoForm({onSave}){
@@ -8547,7 +8620,7 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave
         : (["aprobado","publicado"].includes(t.state)&&!t.date?{state:s,date:t.plannedDay||null}:{state:s})
     )} style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:600,background:t.state===s?"color-mix(in oklch,"+SS[s].c+" 20%,var(--bg3))":"var(--bg4)",border:"1px solid "+(t.state===s?SS[s].c:"var(--border)"),color:t.state===s?SS[s].c:"var(--tx2)",fontFamily:"inherit",cursor:"pointer"}}>{SS[s].l}</button>)}</div></Fd>
     {/* Responsables */}
-    <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id;return(<button key={u.id} onClick={()=>{const cur=Array.isArray(t.responsable)?[...t.responsable]:(t.responsable?[t.responsable]:[]);const nw=sel?cur.filter(id=>id!==u.id):[...cur,u.id];onUp({responsable:nw});}} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+u.color+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+u.color+" 35%,transparent)":"var(--border)"),color:sel?u.color:"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
+    <Fd label="Responsables"><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{teamUsers.map(u=>{const sel=Array.isArray(t.responsable)?t.responsable.includes(u.id):t.responsable===u.id;return(<button key={u.id} onClick={()=>{const cur=Array.isArray(t.responsable)?[...t.responsable]:(t.responsable?[t.responsable]:[]);const nw=sel?cur.filter(id=>id!==u.id):[...cur,u.id];onUp({responsable:nw});}} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,fontSize:12,fontWeight:sel?600:500,background:sel?"color-mix(in oklch,"+tono(u.color)+" 14%,transparent)":"var(--bg4)",border:"1px solid "+(sel?"color-mix(in oklch,"+tono(u.color)+" 35%,transparent)":"var(--border)"),color:sel?tono(u.color):"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}</div></Fd>
     {/* Fecha */}
     <Fd label="Fecha"><input type="date" value={t.date||""} onChange={e=>onUp({date:e.target.value||null})}/></Fd>
     {t.state==="publicado"&&(<Fd label="Hora de publicación"><input type="time" value={t.publishTime||""} onChange={e=>onUp({publishTime:e.target.value||null})}/></Fd>)}
@@ -10073,7 +10146,7 @@ function ClientView({user:cu,onLogout:ol}){
               (`pub.username`), que es la que de verdad publica. El nombre de la marca es el último
               recurso: para una maqueta cumple, pero puede llevar espacios/acentos que ningún @
               real tiene. */}
-          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={co?.color} co={co}
+          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={tono(co?.color)} co={co}
             cuenta={ig?.username||pub?.username||co?.name||cu.companyName||""}/>
         </>)}
       </div>

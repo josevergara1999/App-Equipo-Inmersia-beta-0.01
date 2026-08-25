@@ -86,7 +86,20 @@ Alias de componentes: `Ic` (icono), `Av` (avatar), `Bt` (botón), `Bg` (píldora
 ### Diseño visual
 
 Paleta en las constantes `PC` / `D` (fondo `#05060B`, cian `#6FE7F2`, peri `#9BB4FF`, lavanda
-`#C9BFFF`, rojo `#FF8B8B`). Helpers: `D_CARD`, `D_MARCO`, `dPill`, `dGrupo`, `dNav`. El tema es
+`#C9BFFF`, rojo `#FF8B8B`). **Las dos paletas tienen que tener las MISMAS claves**: `PC` arma sus
+getters recorriendo las de `PALETAS.oscuro`, así que una clave que solo esté en `claro` no tiene
+getter y devuelve `undefined` en los dos temas — sin error, con el estilo simplemente ignorado.
+Pasó con `ambar`, `verde` y `rosa`: 56 lecturas sin color hasta el 25-ago-2026.
+
+**Los colores de marca pasan por `tono()`.** Las empresas, los integrantes y los planes traen
+colores de una paleta anterior hecha para brillar sobre negro (`#4ecdc4`, `#ff9ff3`…), y sobre el
+papel del modo claro no se despegan del fondo: entre 1,0 y 3,1 de contraste. Como esos valores
+viven en la base (`companies[].color`) no se pueden cambiar en el código, así que se traducen al
+pintarlos. `TONOS_CLARO` tiene el hermano escrito a mano de los catorce conocidos —elegidos
+dentro de la paleta clara, igual que `TT_COLORES.claro`— y cualquier otro cae en un cálculo que
+conserva el tono, le recorta la saturación y le baja la luz hasta pasar de 3,4 de contraste. El
+corte para decidir si hay que traducir es el **contraste real contra el fondo**, no la luminosidad
+HSL: un neón saturado da 0,5 justo de luminosidad y se colaba entero. En modo oscuro no hace nada. Helpers: `D_CARD`, `D_MARCO`, `dPill`, `dGrupo`, `dNav`. El tema es
 único; el conmutador de variantes se quitó y `body[data-variant]` queda fijo en `A`.
 
 Las secciones nuevas salen de exports de Claude Design (`~/Downloads/*.dc.html`). **Ese
