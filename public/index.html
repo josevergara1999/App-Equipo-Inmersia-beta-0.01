@@ -877,6 +877,58 @@ function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inlin
 // borroso. Es la misma razón por la que la barra inferior del celular vive aquí.
 function Portal({children:ch}){return ReactDOM.createPortal(ch,document.body)}
 function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<Portal><div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-velo),.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"calc(14px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px))",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(var(--rgb-sombra),.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>)}
+// Menú desplegable al que no lo recorta nadie. Un `position:absolute` colgando del botón
+// queda encerrado en cuanto un ancestro tiene overflow, y la fila de acciones de Org Semanal
+// es un carrusel horizontal (`overflowX:auto`) —que además, al dejar de ser `visible` un eje,
+// convierte el otro en scroll—: el panel salía cortado por arriba y por abajo dentro de una
+// franja de unos 40 px, desplazado, sin que se viera ni el botón que lo abrió. Aquí el panel
+// se dibuja en el <body> con `position:fixed` y se ancla midiendo el botón, así que se escapa
+// de cualquier ancestro que recorte. Es lo mismo en escritorio y en teléfono; lo único que
+// cambia con el tamaño es cuánto hueco hay que dejarle a la barra inferior.
+// Lo usan el cupo del mes y el Drive de Org Semanal, que viven en esa misma franja.
+function useMenuFlotante(abierto,cerrar,anchoMax){
+  const caja=useRef(null),btn=useRef(null),panel=useRef(null);
+  const[pos,sPos]=useState(null);
+  const medir=useCallback(()=>{
+    if(!btn.current)return;
+    const r=btn.current.getBoundingClientRect();
+    const ancho=Math.min(anchoMax,window.innerWidth-24);
+    // Alineado con el botón, y de vuelta a la pantalla si se sale por la derecha.
+    const left=Math.max(12,Math.min(r.left,window.innerWidth-ancho-12));
+    // Bajo 768px la barra inferior vive en el body por encima de esto y taparía el final de
+    // la lista: se le deja su sitio y el panel se desplaza por dentro si no cabe.
+    const reserva=window.innerWidth<768?86:16;
+    sPos({top:r.bottom+6,left,ancho,alto:Math.max(160,window.innerHeight-(r.bottom+6)-reserva)});
+  },[anchoMax]);
+  // Se mide al abrir y mientras siga abierto: el botón se mueve al girar el teléfono, al
+  // desplazar la página y al arrastrar el propio carrusel de acciones.
+  useEffect(()=>{
+    if(!abierto){sPos(null);return}
+    medir();
+    const on=()=>medir();
+    window.addEventListener("resize",on);
+    window.addEventListener("scroll",on,true);
+    return()=>{window.removeEventListener("resize",on);window.removeEventListener("scroll",on,true)};
+  },[abierto,medir]);
+  // Un menú que solo cierra con su propio botón se queda abierto tapando la semana. Y como el
+  // panel vive en el <body>, ya no cuenta como "dentro de la caja": sin mirarlo aparte, tocar
+  // el propio panel lo cerraba.
+  useEffect(()=>{
+    if(!abierto)return;
+    const fuera=e=>{
+      if(caja.current&&caja.current.contains(e.target))return;
+      if(panel.current&&panel.current.contains(e.target))return;
+      cerrar();
+    };
+    const tecla=e=>{if(e.key==="Escape")cerrar()};
+    document.addEventListener("mousedown",fuera);
+    document.addEventListener("keydown",tecla);
+    return()=>{document.removeEventListener("mousedown",fuera);document.removeEventListener("keydown",tecla)};
+  },[abierto,cerrar]);
+  // `estilo` ya trae sitio, ancho y tope de alto; el panel solo pone su piel encima.
+  const estilo=pos&&{position:"fixed",top:pos.top,left:pos.left,zIndex:900,width:pos.ancho,maxHeight:pos.alto,overflowY:"auto"};
+  return{caja,btn,panel,estilo};
+}
 // Barra de cupos del mes. Se usa igual en Contenido y en Org Semanal: es el mismo dato y
 // tiene que decir lo mismo en los dos sitios.
 function Cupos({co,tasks,y,m,compact}){
@@ -887,28 +939,9 @@ function Cupos({co,tasks,y,m,compact}){
   // ve exactamente igual que antes. En Contenido no cambia: ahí sí manda, porque es la
   // vista donde se crean las piezas que gastan el cupo.
   const[abierto,sAbierto]=useState(false);
-  const[corre,sCorre]=useState(0);
-  const caja=useRef(null);
-  const panel=useRef(null);
-  // La fila de botones se parte sola en el teléfono, así que la pastilla puede acabar en
-  // cualquier sitio. Se mide el panel una vez abierto y, si se sale por la derecha, se
-  // corre lo justo para que quepa: sin esto, en pantalla chica se leía a medias.
-  useEffect(()=>{
-    if(!compact||!abierto||!panel.current){sCorre(0);return}
-    const r=panel.current.getBoundingClientRect();
-    const sobra=r.right-(window.innerWidth-12);
-    sCorre(sobra>0?-sobra:0);
-  },[compact,abierto]);
-  // Un menú que solo cierra con su propio botón se queda abierto tapando la semana. Cierra
-  // al tocar fuera y con Escape, como el resto de menús de la app.
-  useEffect(()=>{
-    if(!compact||!abierto)return;
-    const fuera=e=>{if(caja.current&&!caja.current.contains(e.target))sAbierto(false)};
-    const tecla=e=>{if(e.key==="Escape")sAbierto(false)};
-    document.addEventListener("mousedown",fuera);
-    document.addEventListener("keydown",tecla);
-    return()=>{document.removeEventListener("mousedown",fuera);document.removeEventListener("keydown",tecla)};
-  },[compact,abierto]);
+  const cerrar=useCallback(()=>sAbierto(false),[]);
+  // En Contenido (`compact` falso) esto no se abre nunca: ahí la franja va entera y a la vista.
+  const menu=useMenuFlotante(compact&&abierto,cerrar,430);
   if(!co||!saldo.length)return null;
   const agotados=saldo.filter(s=>s.libre<=0&&s.incluido>0).length;
   const franja=(
@@ -951,15 +984,15 @@ function Cupos({co,tasks,y,m,compact}){
   // Plegado queda el mes y nada más. Lo único que sobrevive al pliegue es el aviso de que
   // algún tipo se agotó: esconder eso no es quitar ruido, es quitar la advertencia.
   return(
-    <div ref={caja} style={{position:"relative"}}>
-      <button onClick={()=>sAbierto(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+(agotados?"rgba(var(--rgb-rojo),.35)":D.line2),color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+    <div ref={menu.caja} style={{position:"relative"}}>
+      <button ref={menu.btn} onClick={()=>sAbierto(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+(agotados?"rgba(var(--rgb-rojo),.35)":D.line2),color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
         Cupo {MO[m].toLowerCase()}
         {agotados>0&&<span title="Hay un tipo sin cupo este mes" style={{width:6,height:6,borderRadius:"50%",background:PC.rojo,flexShrink:0}}/>}
         <span style={{fontSize:9}}>▾</span>
       </button>
-      {abierto&&<div ref={panel} style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,width:"min(430px, calc(100vw - 32px))",transform:"translateX("+corre+"px)",borderRadius:12,background:D.panel2,border:"1px solid "+(agotados?"rgba(var(--rgb-rojo),.3)":D.line2),boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:"12px 13px"}}>
+      {abierto&&menu.estilo&&<Portal><div ref={menu.panel} style={{...menu.estilo,borderRadius:12,background:D.panel2,border:"1px solid "+(agotados?"rgba(var(--rgb-rojo),.3)":D.line2),boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:"12px 13px"}}>
         {franja}
-      </div>}
+      </div></Portal>}
     </div>);
 }
 function Fd({label:l,children:ch,hint:h}){return<div style={{marginBottom:14}}><label style={{fontSize:12,color:"var(--tx2)",display:"block",marginBottom:6,fontWeight:500}}>{l}</label>{ch}{h&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:4}}>{h}</div>}</div>}
@@ -7823,6 +7856,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   },[grabRefresh]);
   const[vista,sVista]=useState("semana");
   const[driveOpen,sDriveOpen]=useState(false);
+  // Vive en la misma franja recortada que el cupo del mes, así que sale por el mismo camino.
+  const cerrarDrive=useCallback(()=>sDriveOpen(false),[]);
+  const menuDrive=useMenuFlotante(driveOpen,cerrarDrive,260);
   const[lightbox,sLightbox]=useState(null);
   const[showGrabPicker,sShowGrabPicker]=useState(null);
   const[grabTime,sGrabTime]=useState("");
@@ -7932,18 +7968,18 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               </div>
               <div style={{display:"flex",gap:movil?7:10,flexWrap:movil?"nowrap":"wrap",overflowX:movil?"auto":"visible",paddingBottom:movil?2:0,maxWidth:"100%"}}>
                 <Cupos co={co} tasks={tasks} y={hoyY} m={hoyM} compact/>
-                <div style={{position:"relative"}}>
-                  <button onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:6,padding:movil?"7px 12px":"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:movil?11.5:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                <div ref={menuDrive.caja} style={{position:"relative"}}>
+                  <button ref={menuDrive.btn} onClick={()=>sDriveOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:6,padding:movil?"7px 12px":"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:movil?11.5:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
                     <Ic n="companies" s={13} c={D.tx2}/>Drive<span style={{fontSize:9}}>▾</span>
                   </button>
-                  {driveOpen&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:30,maxWidth:"calc(100vw - 32px)",minWidth:210,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
+                  {driveOpen&&menuDrive.estilo&&<Portal><div ref={menuDrive.panel} style={{...menuDrive.estilo,borderRadius:12,background:D.panel2,border:"1px solid "+D.line2,boxShadow:"0 18px 44px rgba(var(--rgb-velo),.7)",padding:6,display:"flex",flexDirection:"column",gap:2}}>
                     {(co?.links||[]).length===0&&<span style={{fontSize:11.5,color:D.tx4,padding:"8px 10px"}}>Esta empresa no tiene carpetas.</span>}
                     {(co?.links||[]).map(l=>(
                       <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,color:D.tx2,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
                         <span style={{width:24,height:24,borderRadius:7,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"rgba(var(--rgb-lav),.12)",flexShrink:0}}><Ic n="companies" s={12} c={D.lav}/></span>
                         {l.name}
                       </a>))}
-                  </div>}
+                  </div></Portal>}
                 </div>
                 <button onClick={dupWeek} style={{padding:movil?"7px 12px":"9px 16px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:movil?11.5:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Duplicar →</button>
                 {items.length>0&&<button onClick={clearWeek} style={{padding:"9px 16px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.07)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:D.rojo,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Limpiar</button>}
