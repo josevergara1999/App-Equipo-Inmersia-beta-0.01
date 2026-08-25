@@ -7848,17 +7848,6 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           </div>
         </div>
 
-        {vista==="semana"?(<>
-
-          {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
-            <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
-          </div>}
-
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",minHeight:26}}>
-            {Object.entries(TT).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;if(!c)return null;return(
-              <span key={k} style={{padding:"5px 13px",borderRadius:999,background:v.c+"14",border:"1px solid "+v.c+"59",color:v.c,fontFamily:"var(--font-mono)",fontSize:11,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase"}}>{c} {v.l}{c>1?"S":""}</span>);})}
-          </div>
-        </>):null}
       </div>
     </div>
     {/* PENDING DRAFTS REVIEW */}
@@ -7949,6 +7938,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 })()}
               </div>
             </div>
+          {!stReady&&<div style={{marginTop:16,marginBottom:10,padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5}}>
+            <b>⚠️ No se pueden subir archivos.</b>{stMotivo?<> {stMotivo}.</>:null} Sin material no se puede marcar una pieza como <b>Listo</b> ni enviarla al portal, así que el flujo queda detenido hasta arreglarlo.
+          </div>}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",minHeight:26}}>
+            {Object.entries(TT).map(([k,v])=>{const c=items.filter(it=>it.type===k).length;if(!c)return null;return(
+              <span key={k} style={{padding:"5px 13px",borderRadius:999,background:v.c+"14",border:"1px solid "+v.c+"59",color:v.c,fontFamily:"var(--font-mono)",fontSize:11,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase"}}>{c} {v.l}{c>1?"S":""}</span>);})}
+          </div>
       </div>
     </div>}
 
