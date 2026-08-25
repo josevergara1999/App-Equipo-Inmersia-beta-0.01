@@ -7210,8 +7210,10 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
   const carpetas=co?.links||[];
   const tieneAuto=["reel","post"].includes(it.type);
   const PASOS=[
-    {t:"¿Qué se publica?", sub:"Primero el título con el que lo vas a reconocer, después el tipo."},
-    {t:"¿Quién la hace?",  sub:"Le llega el aviso. Puedes dejarlo sin asignar."},
+    // Dice para qué sirve cada campo, no en qué orden están: eso ya se ve. En una línea, que en
+    // el teléfono cada frase de más es otro renglón entre la pregunta y la caja de escribir.
+    {t:"¿Qué vas a preparar?", sub:"Nombre para reconocerla, formato para publicarla."},
+    {t:"¿Quién la hace?",  sub:"Le llega el aviso. Puede quedar sin asignar."},
   ];
   // Arranca en el primer hueco: al editar una pieza ya hecha no obliga a repasar lo que ya está.
   const[i,sI]=useState(!(it.title||"").trim()?0:1);
