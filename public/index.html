@@ -6892,6 +6892,12 @@ function AutoTx({value,onChange,placeholder,style,...props}){
 //   · "interno"  → la planificación del equipo (ítems de Org Semanal + días de grabación)
 // Se consulta, no se edita: el cliente agenda en su portal y aquí el equipo mira.
 function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
+  // Las celdas del calendario miden 94px de alto para que quepan las piezas del día. En un
+  // teléfono eso son seis filas de 94 y el mes se estira hasta hacer scroll tres pantallas para
+  // ver algo que cabe de un vistazo. Ahí bajan a 52: sigue entrando el número y los puntos de
+  // color, que es lo que se mira en pantalla pequeña.
+  const [movil,sMovil]=useState(()=>window.innerWidth<768);
+  useEffect(()=>{const h=()=>sMovil(window.innerWidth<768);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const hoy=new Date();
   const[cM,sCM]=useState(hoy.getMonth());
   const[cY,sCY]=useState(hoy.getFullYear());
@@ -7048,18 +7054,18 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:D.line15}}>
             {celdas.map((c,i)=>{
-              if(!c)return <div key={"e"+i} style={{minHeight:94,background:"var(--bg)"}}/>;
+              if(!c)return <div key={"e"+i} style={{minHeight:movil?52:94,background:"var(--bg)"}}/>;
               const emps=porEmpresa(c.ds);
               const hayGrab=(grabaciones[c.ds]||[]).length>0&&capa==="interno";
               const esHoy=c.ds===hoyDs, sel=selDia===c.ds;
               return(<button key={c.ds} onClick={()=>sSelDia(sel?null:c.ds)}
-                style={{position:"relative",minHeight:94,minWidth:0,padding:"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"var(--bg2)",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
+                style={{position:"relative",minHeight:movil?52:94,minWidth:0,padding:movil?"5px 4px 6px":"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"var(--bg2)",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
                 <span style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{width:22,height:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontSize:11.5,fontWeight:700,color:esHoy?D.bg:(emps.length?D.tx:D.tx4),background:esHoy?D.peri:"transparent",flexShrink:0}}>{c.day}</span>
+                  <span style={{width:movil?18:22,height:movil?18:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontSize:11.5,fontWeight:700,color:esHoy?D.bg:(emps.length?D.tx:D.tx4),background:esHoy?D.peri:"transparent",flexShrink:0}}>{c.day}</span>
                   {hayGrab&&<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:6,background:"rgba(var(--rgb-rojo2),.1)",border:"1px solid rgba(var(--rgb-rojo2),.45)",color:D.rojo,fontSize:8.5,fontWeight:700,letterSpacing:".08em"}}>GRAB</span>}
                 </span>
-                <span style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {emps.slice(0,3).map(e=>(
+                <span style={{display:"flex",flexDirection:"column",gap:movil?2:4}}>
+                  {emps.slice(0,movil?2:3).map(e=>(
                     <span key={e.companyId} style={{display:"flex",alignItems:"center",gap:5}}>
                       <span style={{width:7,height:7,borderRadius:"50%",background:colorCo(e.companyId),flexShrink:0}}/>
                       <span style={{display:"flex",gap:3,alignItems:"center",flex:"1 1 auto",minWidth:0,overflow:"hidden"}}>
@@ -7069,7 +7075,7 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
                       </span>
                       <span style={{fontFamily:"var(--font-mono)",fontSize:10,fontWeight:700,color:colorCo(e.companyId)}}>{e.items.length}</span>
                     </span>))}
-                  {emps.length>3&&<span style={{fontFamily:"var(--font-mono)",fontSize:9,color:D.tx4,paddingLeft:12}}>+{emps.length-3} marcas</span>}
+                  {emps.length>(movil?2:3)&&<span style={{fontFamily:"var(--font-mono)",fontSize:9,color:D.tx4,paddingLeft:12}}>+{emps.length-(movil?2:3)} marcas</span>}
                 </span>
               </button>);})}
           </div>
