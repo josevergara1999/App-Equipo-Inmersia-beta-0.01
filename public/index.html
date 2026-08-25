@@ -1498,6 +1498,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // Dónde está la burbuja del riel. `null` = donde esté la página actual, que es lo que hay que
   // ver al abrirlo; en cuanto se toca algo manda lo tocado.
   const[railSel,sRailSel]=useState(null);
+  // Mientras el dedo está puesto: en qué entrada va y si llegó a moverse. Un toque y un
+  // arrastre terminan igual —la burbuja aterriza y se abre la sección— pero no tardan lo mismo:
+  // el arrastre ya enseñó el viaje mientras ocurría, el toque todavía tiene que enseñarlo.
+  const[dragBarra,sDragBarra]=useState(null);
+  const[dragRiel,sDragRiel]=useState(null);
   // Y al cerrar vuelve a null pase lo que pase. Tocar una entrada ya lo hacía, pero cerrar
   // tocando fuera o el propio botón de Herramientas no: la próxima vez el riel abría con la
   // burbuja sobre lo último que se tocó, en vez de sobre donde estás.
@@ -2155,6 +2160,15 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           const sel=items[i]||items[0];
           if(!sel)return null;
           const salto="top .5s cubic-bezier(.34,1.45,.64,1), background .35s ease, color .35s ease";
+          // De la posición del dedo a la entrada que hay debajo. Si cae en la línea que separa
+          // dos grupos no devuelve nada: la burbuja se queda donde estaba en vez de parpadear.
+          const deY=e=>{
+            const r=e.currentTarget.getBoundingClientRect();
+            const y=e.clientY-r.top+PAD;                 // el padding no está dentro de este nodo
+            const f=filas.find(x=>!x.sep&&y>=x.top&&y<x.top+ITEM);
+            return f?items.indexOf(f):null;
+          };
+          const abrir=it=>{if(!it)return;it.fn();sMobMenu(false);sRailSel(null);};
           const rgba=(h,a)=>{const n=parseInt(String(h).slice(1),16);return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"};
 
           return(<div style={{position:"fixed",right:14,bottom:"calc(86px + env(safe-area-inset-bottom, 16px))",zIndex:999,width:60,padding:PAD+"px 0",borderRadius:999,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 18px 40px rgba(var(--rgb-sombra),.35)",animation:"railIn .45s cubic-bezier(.3,.8,.3,1) both",transformOrigin:"50% 105%"}}>
@@ -2169,19 +2183,32 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               <span key={i} style={{display:"flex",animation:"bubblePop .4s ease"}}><Ic n={sel.ic} s={20} c="var(--bg)"/></span>
             </div>
 
-            <div style={{position:"absolute",right:74,top:sel.top+(ITEM-40)/2,display:"flex",flexDirection:"column",gap:1,padding:"7px 14px",borderRadius:14,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 6px 16px rgba(var(--rgb-sombra),.25)",whiteSpace:"nowrap",transition:salto,animation:"fadeIn .3s ease .2s both"}}>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:8.5,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)"}}>{sel.grupo}</span>
-              <span style={{fontSize:12.5,fontWeight:700,color:sel.col}}>{sel.l}</span>
-            </div>
+            <button onClick={()=>abrir(sel)} style={{position:"absolute",right:74,top:sel.top+(ITEM-40)/2,display:"flex",alignItems:"center",gap:9,padding:"7px 12px 7px 14px",borderRadius:14,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 6px 16px rgba(var(--rgb-sombra),.25)",whiteSpace:"nowrap",transition:salto,animation:"fadeIn .3s ease .2s both",fontFamily:"inherit",cursor:"pointer"}}>
+              <span style={{display:"flex",flexDirection:"column",gap:1,alignItems:"flex-start"}}>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:8.5,letterSpacing:".18em",textTransform:"uppercase",color:"var(--tx4)"}}>{sel.grupo}</span>
+                <span style={{fontSize:12.5,fontWeight:700,color:sel.col}}>{sel.l}</span>
+              </span>
+              <span style={{fontSize:15,color:sel.col,lineHeight:1}}>›</span>
+            </button>
 
-            <div style={{display:"flex",flexDirection:"column",animation:"fadeIn .3s ease .18s both"}}>
+            {/* El riel se ARRASTRA, no se toca. Poner el dedo en la burbuja y subirla o bajarla:
+                la etiqueta va cantando dónde estás y al soltar se abre esa sección. Tocar un
+                icono solo mueve la burbuja hasta él —así se ve a dónde apunta— pero no entra:
+                con iconos solos, entrar de un toque es entrar a ciegas.
+                `touchAction:"none"` es obligatorio; sin eso el navegador se queda el gesto para
+                desplazar la página y el arrastre no llega nunca. */}
+            <div style={{display:"flex",flexDirection:"column",animation:"fadeIn .3s ease .18s both",touchAction:"none"}}
+              onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);const k=deY(e);if(k!=null){sRailSel(k);sDragRiel({k,movido:false});}}}
+              onPointerMove={e=>{if(!dragRiel)return;const k=deY(e);if(k!=null&&k!==dragRiel.k){sRailSel(k);sDragRiel({k,movido:true});}}}
+              onPointerUp={()=>{if(!dragRiel)return;const d=dragRiel;sDragRiel(null);if(d.movido)abrir(items[d.k]);}}
+              onPointerCancel={()=>sDragRiel(null)}>
               {filas.map((f,n)=>f.sep
                 ?<span key={"s"+n} style={{height:SEP,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{width:18,height:1,background:"var(--border)"}}/></span>
                 :(()=>{const k=items.indexOf(f),on=k===i;
-                  return(<button key={f.l} title={f.l} onClick={()=>{sRailSel(k);setTimeout(()=>{f.fn();sMobMenu(false);sRailSel(null);},240);}}
-                    style={{width:60,height:ITEM,display:"flex",alignItems:"center",justifyContent:"center",background:"none",border:"none",cursor:"pointer",padding:0}}>
+                  return(<span key={f.l} title={f.l}
+                    style={{width:60,height:ITEM,display:"flex",alignItems:"center",justifyContent:"center",cursor:"grab"}}>
                     <Ic n={f.ic} s={20} c="var(--tx3)" style={{opacity:on?0:1,transform:on?"translateX(-10px) scale(.5)":"none",transition:"opacity .25s, transform .25s"}}/>
-                  </button>);})()
+                  </span>);})()
               )}
             </div>
           </div>);
@@ -2215,7 +2242,18 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           const COLS=[PC.cian,PC.peri,PC.lav,PC.rosa];
           const CENTROS=[12.5,37.5,62.5,87.5];
           const idx=pg==="dashboard"?0:pg==="planner"?1:pg==="contenido"?2:3;
-          const act=mobMenu?3:idx;                       // con la hoja abierta manda Herramientas
+          // Manda el dedo si está puesto; si no, la hoja abierta; si no, la página.
+          const act=dragBarra?dragBarra.i:(mobMenu?3:idx);
+          const deX=e=>{const r=e.currentTarget.getBoundingClientRect();
+            return Math.max(0,Math.min(3,Math.floor((e.clientX-r.left)/(r.width/4))));};
+          // `dragBarra` NO se limpia antes de navegar: si se limpiara, la burbuja volvería un
+          // instante a la pestaña vieja —`pg` todavía no cambió— y se vería rebotar. Se limpia
+          // en el mismo lote que `irA`, cuando la página ya es la nueva.
+          const elegirTab=(i,movido)=>{
+            if(i===3){sDragBarra(null);sMobMenu(o=>!o);return;}
+            const ir=()=>{irA(TABS[i][0]);sMobMenu(false);sDragBarra(null);};
+            setTimeout(ir,movido?0:220);
+          };
           const col=COLS[act];
           const rgba=(h,a)=>{const n=parseInt(String(h).slice(1),16);return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"};
           const salto="left .5s cubic-bezier(.34,1.45,.64,1), background .35s ease";
@@ -2235,14 +2273,23 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                 </span>
               </div>
 
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",position:"relative"}}>
+              {/* Se puede tocar o arrastrar, y las dos cosas terminan igual: la burbuja aterriza
+                  en la pestaña y recién ahí cambia la página. Tocar y que la pantalla cambie en
+                  el mismo instante hacía que la burbuja no se viera viajar nunca — el movimiento
+                  existía y no lo veía nadie. Arrastrando la pausa no hace falta: el viaje ya se
+                  vio mientras el dedo estaba puesto. */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",position:"relative",touchAction:"none"}}
+                onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);sDragBarra({i:deX(e),movido:false});}}
+                onPointerMove={e=>{if(!dragBarra)return;const i=deX(e);if(i!==dragBarra.i)sDragBarra({i,movido:true});}}
+                onPointerUp={()=>{if(!dragBarra)return;elegirTab(dragBarra.i,dragBarra.movido);}}
+                onPointerCancel={()=>sDragBarra(null)}>
                 {TABS.map(([k,icn,l],i)=>{
                   const on=act===i;
-                  return(<button key={l} onClick={()=>{if(k){irA(k);sMobMenu(false);}else sMobMenu(o=>!o);}}
-                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"4px 0",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>
+                  return(<span key={l}
+                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"4px 0",cursor:"pointer",fontFamily:"inherit"}}>
                     <Ic n={icn} s={21} c="var(--tx3)" style={{opacity:on?0:1,transform:on?"translateY(-10px) scale(.5)":"none",transition:"opacity .25s, transform .25s"}}/>
                     <span style={{fontSize:10.5,fontWeight:on?700:500,color:on?col:"var(--tx3)",transition:"color .3s"}}>{l}</span>
-                  </button>);
+                  </span>);
                 })}
               </div>
             </div>
