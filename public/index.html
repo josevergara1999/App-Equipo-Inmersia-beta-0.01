@@ -27,7 +27,10 @@
    el hueco reservado en <html> no se aplicaba. Con overflow-y:scroll la barra está fija y el
    ancho de la página no cambia nunca — que era lo que hacía saltar la cabecera al pasar de una
    vista larga a una corta. */
-html{scrollbar-gutter:stable;overflow-y:scroll}
+/* Solo en pantallas de ratón. En el teléfono la barra de scroll flota encima del contenido y no
+   le roba ancho a nada, así que forzarla ahí no arregla nada y sí puede sacar una barra gris en
+   algunos Android. El salto de ancho es un problema de escritorio. */
+@media (min-width:769px){ html{scrollbar-gutter:stable;overflow-y:scroll} }
 html,body{min-height:100%}
 body{font-family:'DM Sans',system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
