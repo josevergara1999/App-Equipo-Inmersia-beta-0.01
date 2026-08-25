@@ -256,6 +256,11 @@ const TONOS_CLARO={
   "#9d6bff":"#6B5A9A", "#c77dff":"#7D6A9A", "#c9a0ff":"#6B7FA6",   // violetas
   "#ff9ff3":"#9A5C74",                                             // rosa
   "#aab4af":"#6E7479",                                             // gris
+  // Métricas trae una TERCERA paleta, de otro momento del proyecto. Mismo problema.
+  "#a78bfa":"#5F4B8B", "#c77dff":"#7D6A9A",                        // violetas
+  "#34d399":"#1F7A5B", "#a3e635":"#5C7A1E",                        // verdes
+  "#60a5fa":"#3E6FA0",                                             // azul
+  "#f87171":"#B0564C", "#f59e0b":"#8A6E2F", "#f472b6":"#9A5C74",   // rojo, ámbar, rosa
 };
 // Contraste real contra el papel del modo claro, con la fórmula de WCAG. Es lo que decide si
 // un color hay que traducirlo: el ojo no juzga "luminosidad", juzga si se despega del fondo.
@@ -939,6 +944,20 @@ const Ic=({n,s=20,c="currentColor",sw=1.5,style})=>{
     // 📸 de antes era un emoji: lo pintaba el sistema, con su propio color y su propio tamaño.
     instagram:<><rect x="3" y="3" width="18" height="18" rx="5.4"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.05" cy="6.95" r="1.05" fill={c} stroke="none"/></>,
     external:<><path d="M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5M14 4h6v6M10 14 20 4"/></>,
+    // Los de Métricas. La pantalla se dibujaba con emojis —👥 📡 ❤️ 🔥— y un emoji lo pinta el
+    // sistema: trae su propio color y su propio peso, así que en una fila de rótulos grises
+    // aparecían cinco manchas de colores ajenos a la paleta, y en cada teléfono distintas.
+    heart:<><path d="M12 20.2s-7.2-4.3-7.2-9.4a4.1 4.1 0 0 1 7.2-2.7 4.1 4.1 0 0 1 7.2 2.7c0 5.1-7.2 9.4-7.2 9.4Z"/></>,
+    signal:<><circle cx="12" cy="12" r="1.9"/><path d="M8.6 8.6a4.8 4.8 0 0 0 0 6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8"/><path d="M5.7 5.7a8.9 8.9 0 0 0 0 12.6M18.3 5.7a8.9 8.9 0 0 1 0 12.6"/></>,
+    spark:<><path d="M12 21c2.9 0 5.2-2.2 5.2-5 0-3.6-3.6-5.2-4.4-8.9-1.2 1-2 2.2-2.4 3.5-.9-.8-1.5-1.9-1.7-3.1C6.9 9.1 6 11.4 6 13.6 6 17.7 8.7 21 12 21Z"/><path d="M12 21a2.3 2.3 0 0 0 2.3-2.3c0-1.6-2.3-2.6-2.3-4.2-1.4.9-2.3 2.3-2.3 3.7A2.5 2.5 0 0 0 12 21Z"/></>,
+    mail:<><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.6 6.6 8.4 5.9 8.4-5.9"/></>,
+    phone:<><path d="M7 3.6h2.9l1.5 3.9-2 1.5a12.2 12.2 0 0 0 5.6 5.6l1.5-2 3.9 1.5v2.9a2 2 0 0 1-2.2 2A16.6 16.6 0 0 1 5 5.8 2 2 0 0 1 7 3.6Z"/></>,
+    link:<><path d="M10.4 13.6a4.1 4.1 0 0 0 5.8 0l2.8-2.8a4.1 4.1 0 0 0-5.8-5.8l-1.4 1.4"/><path d="M13.6 10.4a4.1 4.1 0 0 0-5.8 0L5 13.2a4.1 4.1 0 0 0 5.8 5.8l1.4-1.4"/></>,
+    bookmark:<><path d="M7 3.8h10a1 1 0 0 1 1 1v15.4l-6-4.1-6 4.1V4.8a1 1 0 0 1 1-1Z"/></>,
+    share:<><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="m8.2 10.9 7.5-3.7M8.2 13.1l7.5 3.7"/></>,
+    star:<><path d="m12 4.2 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 4.2Z"/></>,
+    play:<><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m10.4 9.2 4.8 2.8-4.8 2.8Z"/></>,
+    image:<><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.4" cy="9.4" r="1.6"/><path d="m4.4 17.6 4.6-4.3 3.1 2.9 3-2.6 4.4 3.9"/></>,
   };
   if(!paths[n])return<svg {...p}><circle cx="12" cy="12" r="4"/></svg>;
   return<svg {...p}>{paths[n]}</svg>;
@@ -6168,24 +6187,27 @@ function MetricasPg({cos,addN}){
   const typeMap={};
   posts.forEach(p=>{if(!typeMap[p.media_type])typeMap[p.media_type]={count:0,eng:0,reach:0};typeMap[p.media_type].count++;typeMap[p.media_type].eng+=p.engRate;typeMap[p.media_type].reach+=p.reach;});
   const typeArr=Object.entries(typeMap).map(([t,d])=>({t,count:d.count,avgEng:(d.eng/d.count).toFixed(2),avgReach:Math.round(d.reach/d.count)}));
-  const typeLabel={IMAGE:"📷 Fotos",VIDEO:"🎬 Videos",CAROUSEL_ALBUM:"🖼 Carruseles"};
+  const typeLabel={IMAGE:"Fotos",VIDEO:"Videos",CAROUSEL_ALBUM:"Carruseles"};
   const dayMap={};
   posts.forEach(p=>{const day=new Date(p.timestamp).toLocaleDateString("es-CL",{weekday:"short"});if(!dayMap[day])dayMap[day]={count:0,eng:0};dayMap[day].count++;dayMap[day].eng+=p.engRate;});
   const bestDays=Object.entries(dayMap).map(([day,d])=>({day,avg:(d.eng/d.count).toFixed(2)})).sort((a,b)=>b.avg-a.avg);
 
   const kMetrics=[
-    {label:"Seguidores",val:followers,icon:"👥",color:"#a78bfa"},
-    {label:"Alcance",val:sum(curr,"reach")||tot.reach||0,prev:sum(prev,"reach")||prevTot.reach||0,icon:"📡",color:"#34d399"},
-    {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"❤️",color:"#60a5fa"},
-    {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"🔥",color:"#f87171"},
+    {label:"Seguidores",val:followers,icon:"team",color:tono("#a78bfa")},
+    {label:"Alcance",val:sum(curr,"reach")||tot.reach||0,prev:sum(prev,"reach")||prevTot.reach||0,icon:"signal",color:tono("#34d399")},
+    {label:"Interacciones",val:tot.total_interactions||0,prev:prevTot.total_interactions,icon:"heart",color:tono("#60a5fa")},
+    {label:"Cuentas activas",val:tot.accounts_engaged||0,prev:prevTot.accounts_engaged,icon:"spark",color:tono("#f87171")},
     // "Impresiones" y "Visitas perfil" se sacaron 2026-07-13 — Meta deprecó ambas
     // metricas en Instagram Insights, ya no hay dato real que mostrar aqui.
-    ...(data?.followerGrowth!=null?[{label:"Crecimiento",val:data.followerGrowth,prev:data.prevFollowerGrowth,icon:"📈",color:"#a3e635"}]:[]),
+    ...(data?.followerGrowth!=null?[{label:"Crecimiento",val:data.followerGrowth,prev:data.prevFollowerGrowth,icon:"trend_up",color:tono("#a3e635")}]:[]),
   ];
 
-  const tabs=[["resumen","📊 Resumen"],["crecimiento","📈 Crecimiento"],["audiencia","👥 Audiencia"],["contenido","🎨 Contenido"]];
+  // Cada pestaña con el icono que ya usa el resto de la app para lo mismo: Resumen lleva el de
+  // Inicio, Contenido el de Contenido. Un emoji distinto en cada una las hacía parecer cuatro
+  // secciones de apps diferentes.
+  const tabs=[["resumen","Resumen","dashboard"],["crecimiento","Crecimiento","trend_up"],["audiencia","Audiencia","team"],["contenido","Contenido","paperclip"]];
 
-  if(igCos.length===0)return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}><div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>📊</div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Sin cuentas conectadas</div><div style={{fontSize:13}}>Edita una empresa y agrega su ID de Instagram</div></div></div>);
+  if(igCos.length===0)return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}><div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{marginBottom:10}}><Ic n="dashboard" s={36} c="var(--tx4)"/></div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Sin cuentas conectadas</div><div style={{fontSize:13}}>Edita una empresa y agrega su ID de Instagram</div></div></div>);
 
   return(<div className="fi" style={{maxWidth:1100,margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
@@ -6197,7 +6219,7 @@ function MetricasPg({cos,addN}){
         <div style={{display:"flex",gap:3,background:"var(--bg3)",borderRadius:8,padding:3,border:"1px solid var(--border)"}}>
           {[[30,"30d"],[90,"3m"],[180,"6m"]].map(([d,l])=><button key={d} onClick={()=>sPeriodDays(d)} style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:600,border:"none",background:periodDays===d?"var(--accent)":"transparent",color:periodDays===d?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>)}
         </div>
-        {metaSt&&(metaSt.connected?<div style={{display:"flex",gap:6,alignItems:"center"}}><Bg color="var(--success)">✓ {metaSt.user}</Bg><a href="/api/auth/meta" title="Reconectar (por ejemplo si se agrego un permiso nuevo)" style={{fontSize:11,color:"var(--tx3)",textDecoration:"underline",cursor:"pointer"}}>reconectar</a></div>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
+        {metaSt&&(metaSt.connected?<div style={{display:"flex",gap:6,alignItems:"center"}}><Bg color="var(--success)">✓ {metaSt.user}</Bg><a href="/api/auth/meta" title="Reconectar (por ejemplo si se agrego un permiso nuevo)" style={{fontSize:11,color:"var(--tx3)",textDecoration:"underline",cursor:"pointer"}}>reconectar</a></div>:<a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 16px",background:tono("#1877F2"),color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar</a>)}
       </div>
     </div>
 
@@ -6205,21 +6227,21 @@ function MetricasPg({cos,addN}){
       {igCos.map(c=><button key={c.id} onClick={()=>{sSelCo(c.id);sData(null);}} style={{padding:"7px 14px",borderRadius:9,fontSize:13,fontWeight:600,border:`2px solid ${selCo===c.id?tono(c.color):"var(--border)"}`,background:selCo===c.id?tono(c.color)+"22":"transparent",color:selCo===c.id?tono(c.color):"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>)}
     </div>}
 
-    {metaSt&&!metaSt.connected&&<div className="card" style={{padding:32,textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>📱</div><div style={{fontSize:16,fontWeight:600,marginBottom:8}}>Conecta tu cuenta de Meta</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",background:"#1877F2",color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar con Meta</a></div>}
+    {metaSt&&!metaSt.connected&&<div className="card" style={{padding:32,textAlign:"center",marginBottom:16}}><div style={{marginBottom:10}}><Ic n="instagram" s={36} c="var(--tx4)"/></div><div style={{fontSize:16,fontWeight:600,marginBottom:8}}>Conecta tu cuenta de Meta</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",background:tono("#1877F2"),color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,textDecoration:"none"}}>Conectar con Meta</a></div>}
 
     {metaSt?.connected&&<div style={{display:"flex",gap:4,marginBottom:20,borderBottom:"1px solid var(--border)",paddingBottom:0}}>
-      {tabs.map(([k,l])=><button key={k} onClick={()=>sTab(k)} style={{padding:"8px 16px",background:"transparent",border:"none",borderBottom:`2px solid ${tab===k?"var(--accent)":"transparent"}`,color:tab===k?"var(--accent)":"var(--tx2)",fontSize:13,fontWeight:tab===k?600:400,cursor:"pointer",fontFamily:"inherit",marginBottom:-1}}>{l}</button>)}
+      {tabs.map(([k,l,ic])=><button key={k} onClick={()=>sTab(k)} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",background:"transparent",border:"none",borderBottom:`2px solid ${tab===k?"var(--accent)":"transparent"}`,color:tab===k?"var(--accent)":"var(--tx2)",fontSize:13,fontWeight:tab===k?600:400,cursor:"pointer",fontFamily:"inherit",marginBottom:-1}}><Ic n={ic} s={14}/>{l}</button>)}
     </div>}
 
     {loading&&<div style={{textAlign:"center",padding:60,color:"var(--tx3)"}}><div style={{display:"inline-flex",gap:5}}>{[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"var(--accent)",opacity:.6,animation:`pulse 1s infinite ${i*.2}s`}}/>)}</div><div style={{marginTop:10,fontSize:13}}>Cargando métricas...</div></div>}
 
-    {data?.error&&<div className="card" style={{padding:20,borderColor:"rgba(255,90,78,.3)"}}><div style={{color:"var(--danger)",fontSize:14,fontWeight:600}}>Error: {data.error}</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,padding:"8px 14px",background:"#1877F2",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>Reconectar</a></div>}
+    {data?.error&&<div className="card" style={{padding:20,borderColor:"rgba(255,90,78,.3)"}}><div style={{color:"var(--danger)",fontSize:14,fontWeight:600}}>Error: {data.error}</div><a href="/api/auth/meta" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,padding:"8px 14px",background:tono("#1877F2"),color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>Reconectar</a></div>}
 
     {data?.connected&&!loading&&tab==="resumen"&&<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
         {kMetrics.map(m=>{const t=m.prev!=null?pct(m.val,m.prev):null;return(
           <div key={m.label} className="card" style={{padding:"14px 16px"}}>
-            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{m.icon} {m.label}</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,display:"flex",alignItems:"center",gap:6}}><Ic n={m.icon} s={13}/>{m.label}</div>
             <div className="num" style={{fontSize:24,fontWeight:700,color:m.color}}>{fN(m.val)}</div>
             {t!==null&&<div style={{fontSize:11,marginTop:3,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
           </div>);})}
@@ -6227,20 +6249,20 @@ function MetricasPg({cos,addN}){
       {chartVals.length>2&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos {periodLabel}{periodDays>30?" · agrupado por semana":""}</div>
-        <MiniLineChart values={chartVals} color="#34d399"/>
+        <MiniLineChart values={chartVals} color={tono("#34d399")}/>
       </div>}
       {(data.monthly||[]).length>1&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12,marginBottom:16}}>
         <div className="card" style={{padding:20}}>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>📡 Alcance mes a mes</div>
-          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.reach||0}))} color="#34d399" fN={fN}/>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:6}}><Ic n="signal" s={12}/>Alcance mes a mes</div>
+          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.reach||0}))} color={tono("#34d399")} fN={fN}/>
         </div>
         <div className="card" style={{padding:20}}>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>❤️ Interacciones mes a mes</div>
-          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.total_interactions||0}))} color="#60a5fa" fN={fN}/>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:6}}><Ic n="heart" s={12}/>Interacciones mes a mes</div>
+          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.total_interactions||0}))} color={tono("#60a5fa")} fN={fN}/>
         </div>
         <div className="card" style={{padding:20}}>
-          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2}}>🔥 Cuentas activas mes a mes</div>
-          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.accounts_engaged||0}))} color="#f87171" fN={fN}/>
+          <div style={{fontSize:12,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:6}}><Ic n="spark" s={12}/>Cuentas activas mes a mes</div>
+          <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.accounts_engaged||0}))} color={tono("#f87171")} fN={fN}/>
         </div>
         {/* "Visitas perfil" e "Impresiones" mes a mes se sacaron 2026-07-13 — Meta
             deprecó ambas metricas, ya no llegan datos para esos graficos. */}
@@ -6248,9 +6270,9 @@ function MetricasPg({cos,addN}){
       {data.cta&&Object.values(data.cta).some(v=>v>0)&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Acciones del perfil ({periodLabel})</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
-          {[{k:"website_clicks",l:"Clics web",icon:"🔗",c:"#34d399"},{k:"email_contacts",l:"Email",icon:"✉️",c:"#60a5fa"},{k:"phone_call_clicks",l:"Llamadas",icon:"📞",c:"#f59e0b"},{k:"direction_clicks",l:"Dirección",icon:"📍",c:"#f87171"}].filter(x=>data.cta[x.k]>0).map(x=>(
+          {[{k:"website_clicks",l:"Clics web",icon:"link",c:tono("#34d399")},{k:"email_contacts",l:"Email",icon:"mail",c:tono("#60a5fa")},{k:"phone_call_clicks",l:"Llamadas",icon:"phone",c:tono("#f59e0b")},{k:"direction_clicks",l:"Dirección",icon:"pin",c:tono("#f87171")}].filter(x=>data.cta[x.k]>0).map(x=>(
             <div key={x.k} style={{padding:"12px 14px",background:"var(--bg3)",borderRadius:10,border:"1px solid var(--border)"}}>
-              <div style={{fontSize:11,color:"var(--tx3)",marginBottom:2}}>{x.icon} {x.l}</div>
+              <div style={{fontSize:11,color:"var(--tx3)",marginBottom:2,display:"flex",alignItems:"center",gap:6}}><Ic n={x.icon} s={13}/>{x.l}</div>
               <div className="num" style={{fontSize:20,fontWeight:700,color:x.c}}>{fN(data.cta[x.k])}</div>
             </div>
           ))}
@@ -6261,9 +6283,9 @@ function MetricasPg({cos,addN}){
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
           {data.media.slice(0,6).map(post=>(
             <div key={post.id} style={{background:"var(--bg3)",borderRadius:8,overflow:"hidden",border:"1px solid var(--border)"}}>
-              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{post.media_type==="VIDEO"?"🎬":"📷"}</div>}
+              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n={post.media_type==="VIDEO"?"play":"image"} s={24} c="var(--tx4)"/></div>}
               <div style={{padding:"6px 8px"}}>
-                <div style={{fontSize:12,color:"var(--tx3)",display:"flex",gap:8}}><span>❤️ {fN(post.like_count)}</span><span>💬 {fN(post.comments_count)}</span></div>
+                <div style={{fontSize:12,color:"var(--tx3)",display:"flex",gap:11}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}><Ic n="heart" s={12}/>{fN(post.like_count)}</span><span style={{display:"inline-flex",alignItems:"center",gap:4}}><Ic n="chat" s={12}/>{fN(post.comments_count)}</span></div>
               </div>
             </div>))}
         </div>
@@ -6273,12 +6295,12 @@ function MetricasPg({cos,addN}){
     {data?.connected&&!loading&&tab==="crecimiento"&&<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
         {[
-          {label:"Seguidores actuales",val:fN(followers),icon:"👥",color:"#a78bfa"},
-                {label:"Crecimiento neto (30d)",val:data?.followerGrowth!=null?fN(data.followerGrowth):"N/D",rawVal:data?.followerGrowth||0,prev:data?.prevFollowerGrowth,icon:"📈",color:"#34d399"},
-          {label:"Tasa de crecimiento",val:data?.followerGrowth!=null&&followers>0?(data.followerGrowth/followers*100).toFixed(2)+"%":"N/D",icon:"🚀",color:"#a78bfa"},
+          {label:"Seguidores actuales",val:fN(followers),icon:"team",color:tono("#a78bfa")},
+                {label:"Crecimiento neto (30d)",val:data?.followerGrowth!=null?fN(data.followerGrowth):"N/D",rawVal:data?.followerGrowth||0,prev:data?.prevFollowerGrowth,icon:"trend_up",color:tono("#34d399")},
+          {label:"Tasa de crecimiento",val:data?.followerGrowth!=null&&followers>0?(data.followerGrowth/followers*100).toFixed(2)+"%":"N/D",icon:"trend_up",color:tono("#a78bfa")},
         ].map(m=>{const t=m.prev!=null?pct(m.rawVal||0,m.prev):null;return(
           <div key={m.label} className="card" style={{padding:"16px 18px"}}>
-            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6}}>{m.icon} {m.label}</div>
+            <div style={{fontSize:12,color:"var(--tx3)",marginBottom:6,display:"flex",alignItems:"center",gap:6}}><Ic n={m.icon} s={13}/>{m.label}</div>
             <div className="num" style={{fontSize:26,fontWeight:700,color:m.color}}>{m.val}</div>
             {t!==null&&<div style={{fontSize:12,marginTop:4,fontWeight:600,color:Number(t)>=0?"var(--success)":"var(--danger)"}}>{Number(t)>=0?"↑":"↓"}{Math.abs(t)}% vs anterior</div>}
           </div>);})}
@@ -6286,21 +6308,21 @@ function MetricasPg({cos,addN}){
       {followerChartVals.length>2&&<div className="card" style={{padding:20,marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Evolución de seguidores</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Últimos {periodLabel}{periodDays>30?" · por semana":""}</div>
-        <MiniLineChart values={followerChartVals} color="#a78bfa"/>
+        <MiniLineChart values={followerChartVals} color={tono("#a78bfa")}/>
       </div>}
       {(data?.monthly||[]).length>1&&<div className="card" style={{padding:20,marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance mes a mes</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Comparativa por período</div>
-        <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.reach||0}))} color="#34d399" fN={fN}/>
+        <MiniBarChart data={(data.monthly||[]).map(m=>({label:m.label,v:m.reach||0}))} color={tono("#34d399")} fN={fN}/>
       </div>}
       {chartVals.length>2&&periodDays===30&&<div className="card" style={{padding:20,marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>Alcance diario</div>
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Este mes vs mes anterior</div>
-        <MiniLineChart values={chartVals} color="#34d399"/>
-        {prevChartVals.length>0&&<div style={{marginTop:8,opacity:.5}}><MiniLineChart values={prevChartVals} color="#34d399" h={40}/></div>}
+        <MiniLineChart values={chartVals} color={tono("#34d399")}/>
+        {prevChartVals.length>0&&<div style={{marginTop:8,opacity:.5}}><MiniLineChart values={prevChartVals} color={tono("#34d399")} h={40}/></div>}
         <div style={{display:"flex",gap:16,marginTop:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Este mes</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:"#34d399",borderRadius:2}}/> Mes anterior</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)"}}><div style={{width:12,height:2,background:tono("#34d399"),borderRadius:2}}/> Este mes</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--tx3)",opacity:.6}}><div style={{width:12,height:2,background:tono("#34d399"),borderRadius:2}}/> Mes anterior</div>
         </div>
       </div>}
       {bestDays.length>0&&<div className="card" style={{padding:20}}>
@@ -6309,7 +6331,7 @@ function MetricasPg({cos,addN}){
           {bestDays.map((d,i)=><div key={d.day} style={{padding:"12px 10px",borderRadius:10,background:i===0?"var(--accent)22":i===1?"var(--accent)11":"var(--bg3)",border:`1px solid ${i===0?"var(--accent)":"var(--border)"}`,textAlign:"center"}}>
             <div style={{fontSize:11,color:"var(--tx3)",marginBottom:4}}>{d.day}</div>
             <div className="num" style={{fontSize:16,fontWeight:700,color:i===0?"var(--accent)":"var(--tx)"}}>{d.avg}%</div>
-            {i===0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2}}>⭐ Mejor</div>}
+            {i===0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2,display:"flex",alignItems:"center",gap:4}}><Ic n="star" s={10}/>Mejor</div>}
           </div>)}
         </div>
       </div>}
@@ -6332,7 +6354,7 @@ function MetricasPg({cos,addN}){
       {gTotal>1&&<div className="card" style={{padding:20,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Distribución por género</div>
         <div style={{display:"flex",gap:12,alignItems:"center"}}>
-          {[["F","Mujeres","#f472b6"],["M","Hombres","#60a5fa"],["U","Otro","#a78bfa"]].map(([k,l,c])=>genderMap[k]>0&&(
+          {[["F","Mujeres",tono("#f472b6")],["M","Hombres",tono("#60a5fa")],["U","Otro",tono("#a78bfa")]].map(([k,l,c])=>genderMap[k]>0&&(
             <div key={k} style={{flex:genderMap[k]/gTotal,textAlign:"center"}}>
               <div style={{height:60,background:c+"33",border:`2px solid ${c}`,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <span className="num" style={{fontSize:18,fontWeight:700,color:c}}>{Math.round(genderMap[k]/gTotal*100)}%</span>
@@ -6350,7 +6372,7 @@ function MetricasPg({cos,addN}){
             <span style={{color:"var(--tx3)"}}>{fN(c.value)}</span>
           </div>
           <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden"}}>
-            <div style={{width:(c.value/cityMax*100)+"%",height:"100%",background:"#60a5fa",borderRadius:3,transition:"width .4s"}}/>
+            <div style={{width:(c.value/cityMax*100)+"%",height:"100%",background:tono("#60a5fa"),borderRadius:3,transition:"width .4s"}}/>
           </div>
         </div>)}
       </div>}
@@ -6359,7 +6381,7 @@ function MetricasPg({cos,addN}){
         <div style={{fontSize:12,color:"var(--tx3)",marginBottom:16}}>Distribución de seguidores por país</div>
         {(()=>{const cMax=data.demoCountry[0]?.value||1;return data.demoCountry.slice(0,8).map((c,i)=>(<div key={i} style={{marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{c.dimension_values?.[0]||"Desconocido"}</span><span style={{color:"var(--tx3)"}}>{fN(c.value)}</span></div>
-          <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden"}}><div style={{width:(c.value/cMax*100)+"%",height:"100%",background:"#a78bfa",borderRadius:3,transition:"width .4s"}}/></div>
+          <div style={{height:6,background:"var(--bg4)",borderRadius:3,overflow:"hidden"}}><div style={{width:(c.value/cMax*100)+"%",height:"100%",background:tono("#a78bfa"),borderRadius:3,transition:"width .4s"}}/></div>
         </div>))})()}
       </div>}
       {data?.onlineByHour&&Object.keys(data.onlineByHour).length>0&&(()=>{
@@ -6380,7 +6402,7 @@ function MetricasPg({cos,addN}){
           </div>
         </div>);
       })()}
-      {ageArr.length===0&&cities.length===0&&<div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:36,marginBottom:10}}>👥</div><div style={{fontSize:14}}>Los datos demográficos aún no están disponibles para esta cuenta</div></div>}
+      {ageArr.length===0&&cities.length===0&&<div className="card" style={{padding:32,textAlign:"center",color:"var(--tx3)"}}><div style={{marginBottom:10}}><Ic n="team" s={36} c="var(--tx4)"/></div><div style={{fontSize:14}}>Los datos demográficos aún no están disponibles para esta cuenta</div></div>}
     </>}
 
     {data?.connected&&!loading&&tab==="contenido"&&<>
@@ -6408,15 +6430,15 @@ function MetricasPg({cos,addN}){
           {sortedPosts.map((post,idx)=>(
             <div key={post.id} style={{background:"var(--bg3)",borderRadius:10,overflow:"hidden",border:"1px solid var(--border)",position:"relative"}}>
               {idx<3&&<div style={{position:"absolute",top:6,left:6,background:"var(--accent)",color:"var(--bg)",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:700,zIndex:1}}>#{idx+1}</div>}
-              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>{post.media_type==="VIDEO"?"🎬":"📷"}</div>}
+              {(post.media_url||post.thumbnail_url)?<img src={post.thumbnail_url||post.media_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"}/>:<div style={{width:"100%",aspectRatio:"1",background:"var(--bg4)",display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n={post.media_type==="VIDEO"?"play":"image"} s={28} c="var(--tx4)"/></div>}
               <div style={{padding:"8px 10px"}}>
                 <div style={{fontSize:10,color:"var(--tx3)",marginBottom:4}}>{new Date(post.timestamp).toLocaleDateString("es-CL",{day:"numeric",month:"short"})}</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11}}>
-                  <div><span style={{color:"var(--tx3)"}}>❤️ </span><span className="num">{fN(post.likes)}</span></div>
-                  <div><span style={{color:"var(--tx3)"}}>💬 </span><span className="num">{fN(post.comments)}</span></div>
-                  <div><span style={{color:"var(--tx3)"}}>🔖 </span><span className="num">{fN(post.saves)}</span></div>
-                  <div><span style={{color:"var(--tx3)"}}>🔄 </span><span className="num">{fN(post.shares)}</span></div>
-                  <div style={{gridColumn:"span 2"}}><span style={{color:"var(--tx3)"}}>📡 </span><span className="num">{fN(post.reach)}</span></div>
+                  <div><span style={{color:"var(--tx3)",marginRight:4}}><Ic n="heart" s={11} style={{verticalAlign:"-1px"}}/></span><span className="num">{fN(post.likes)}</span></div>
+                  <div><span style={{color:"var(--tx3)",marginRight:4}}><Ic n="chat" s={11} style={{verticalAlign:"-1px"}}/></span><span className="num">{fN(post.comments)}</span></div>
+                  <div><span style={{color:"var(--tx3)",marginRight:4}}><Ic n="bookmark" s={11} style={{verticalAlign:"-1px"}}/></span><span className="num">{fN(post.saves)}</span></div>
+                  <div><span style={{color:"var(--tx3)",marginRight:4}}><Ic n="share" s={11} style={{verticalAlign:"-1px"}}/></span><span className="num">{fN(post.shares)}</span></div>
+                  <div style={{gridColumn:"span 2"}}><span style={{color:"var(--tx3)",marginRight:4}}><Ic n="signal" s={11} style={{verticalAlign:"-1px"}}/></span><span className="num">{fN(post.reach)}</span></div>
                 </div>
                 <div style={{marginTop:6,padding:"4px 8px",background:"var(--accent)22",borderRadius:6,textAlign:"center"}}>
                   <span style={{fontSize:12,fontWeight:700,color:"var(--accent)"}}>{post.engRate}%</span>
