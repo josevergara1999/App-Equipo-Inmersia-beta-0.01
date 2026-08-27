@@ -682,6 +682,22 @@ const INIT_USERS=[
   {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:PC.verde,pass:"1234",companyName:"valle aventura"},
 ];
 
+// El correo del portal de una empresa: su nombre, normalizado. Tiene que dar EXACTAMENTE lo
+// mismo que `_slug` en server.js, que es quien empareja ese correo con la empresa — si las dos
+// no coinciden, el cliente entra y ve una pantalla vacía sin que nada explique por qué.
+const slugEmpresa=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+
+// El acceso al portal de una empresa, venga de donde venga. `portalEmail` es el que genera el
+// botón; si no lo tiene, se busca en INIT_USERS, porque las cuatro empresas de siempre ya traían
+// el suyo escrito ahí desde antes de que el botón existiera. Sin esto, Fauna y Huemul —que
+// llevan meses entrando a su portal— aparecían como si nunca se les hubiera dado acceso.
+const accesoPortal=co=>{
+  if(!co)return null;
+  if(co.portalEmail)return co.portalEmail;
+  const u=INIT_USERS.find(x=>x.role==="cliente"&&slugEmpresa(x.companyName)===slugEmpresa(co.name));
+  return u?u.email:null;
+};
+
 // Espejo del tope que valida `/api/social/publish` en el servidor. Vale la pena contarlo aquí
 // para que el cliente lo vea mientras escribe y no descubra el límite al publicar.
 const IG_CAPTION_MAX=2200;
@@ -1796,18 +1812,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // el aviso prometía un acceso que no existía. Ahora queda escrito en la propia empresa, que
   // sí se guarda, y por eso sobrevive.
   const generarAcceso=co=>{
-    // Misma normalización que `_slug` en el servidor, que es quien empareja este correo con la
-    // empresa. Si las dos no coinciden al pie de la letra, el cliente entra y no ve nada.
-    const correo=String(co.name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const correo=slugEmpresa(co.name);
     if(!correo)return addN("Esta empresa necesita un nombre para generar su acceso");
     const nuevos=cos.map(c=>c.id===co.id?{...c,portalEmail:correo,portalAt:new Date().toISOString()}:c);
     sCos(nuevos);DB.save("companies",nuevos);
     addN("Acceso creado: "+correo+" · 1234");
   };
   const copiarAcceso=async co=>{
-    const txt="Portal de "+co.name+": "+location.origin+"\nUsuario: "+co.portalEmail+"\nContraseña: 1234";
+    const correo=accesoPortal(co);
+    const txt="Portal de "+co.name+": "+location.origin+"\nUsuario: "+correo+"\nContraseña: 1234";
     if(await copiarAlPortapapeles(txt)){sBriefCopiado("acc"+co.id);setTimeout(()=>sBriefCopiado(null),2400);}
-    else addN("No se pudo copiar. Usuario: "+co.portalEmail+" · 1234");
+    else addN("No se pudo copiar. Usuario: "+correo+" · 1234");
   };
   const enlaceBrief=co=>location.origin+"/brief/"+asegurarBrief(co).token;
   const copiarBrief=async co=>{
@@ -2084,7 +2099,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     entrar. Y una vez generado se queda a la vista, que es lo que hace falta el
                     día que el cliente dice «perdí la contraseña». */}
                 {(()=>{
-                  const acc=c.portalEmail;
+                  const acc=accesoPortal(c);
                   const copiado=briefCopiado==="acc"+c.id;
                   if(!acc)return(<div style={{marginTop:8}}>
                     <button onClick={()=>generarAcceso(c)} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px dashed var(--border2)",color:"var(--tx3)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
@@ -2093,7 +2108,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   </div>);
                   return(<div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",marginTop:8,padding:"9px 12px",borderRadius:11,background:"rgba(var(--rgb-verde),.05)",border:"1px solid rgba(var(--rgb-verde),.3)"}}>
                     <Ic n="check" s={13} c={PC.verde}/>
-                    <span style={{fontSize:11.5,fontWeight:700,color:PC.verde}}>Acceso a portal generado</span>
+                    <span style={{fontSize:11.5,fontWeight:700,color:PC.verde}}>Acceso creado</span>
                     <span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:"var(--tx2)"}}>{acc} · 1234</span>
                     <button onClick={()=>copiarAcceso(c)} title="Copiar el acceso para mandárselo al cliente" style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:999,background:"transparent",border:"1px solid var(--border2)",color:copiado?PC.verde:"var(--tx3)",fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>
                       <Ic n={copiado?"check":"copy"} s={11}/>{copiado?"Copiado":"Copiar"}
@@ -2636,9 +2651,13 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
   };
 
   const respuesta=c=>{
-    const v=(brief.respuestas||{})[c.k];
+    const r=brief.respuestas||{};
+    const v=r[c.k];
     if(Array.isArray(v))return v.length?v.join(" · "):null;
-    return String(v||"").trim()||null;
+    const txt=String(v||"").trim();
+    // Un "Otro" a secas no dice nada. Lo que vale es lo que escribió al lado.
+    if(txt==="Otro"&&c.otro&&String(r[c.k+"Otro"]||"").trim())return String(r[c.k+"Otro"]).trim();
+    return txt||null;
   };
 
   return(<Md open={open} onClose={onClose} title={"Brief · "+(co?.name||"")} width={620}>
@@ -2692,7 +2711,7 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
             ? <span style={{fontSize:12,color:D.tx5,fontStyle:"italic"}}>Sin responder.</span>
             : conRespuesta.map(c=>(
                 <div key={c.k} style={{marginBottom:11}}>
-                  <div style={{fontSize:11,color:D.tx4,marginBottom:3,lineHeight:1.4}}>{c.l}</div>
+                  <div style={{fontSize:11,color:D.tx4,marginBottom:3,lineHeight:1.4}}>{BRIEF.conEmpresa(c.l,co?.name)}</div>
                   <div style={{fontSize:13,color:D.tx,lineHeight:1.55,whiteSpace:"pre-wrap"}}>{respuesta(c)}</div>
                 </div>))}
         </div>);

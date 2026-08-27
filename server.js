@@ -1551,8 +1551,12 @@ function briefEnTexto(b, nombre) {
   BRIEF_DEF.SECCIONES.forEach(sec => {
     const lineas = sec.campos.map(c => {
       const v = r[c.k];
-      const txt = Array.isArray(v) ? v.join(", ") : String(v || "").trim();
-      return txt ? "- " + c.l + ": " + txt : null;
+      let txt = Array.isArray(v) ? v.join(", ") : String(v || "").trim();
+      // Un "Otro" a secas no le dice nada a nadie; lo que vale es lo que escribió al lado.
+      if (txt === "Otro" && c.otro && String(r[c.k + "Otro"] || "").trim()) txt = String(r[c.k + "Otro"]).trim();
+      // Y la etiqueta va con el nombre real: "¿Cómo ves a Auraklinic en 5 años?" es una pregunta
+      // distinta de "¿cómo ves tu negocio?", y la respuesta de abajo contesta a la primera.
+      return txt ? "- " + BRIEF_DEF.conEmpresa(c.l, nombre) + ": " + txt : null;
     }).filter(Boolean);
     if (lineas.length) partes.push("\n" + sec.n + ". " + sec.t.toUpperCase() + "\n" + lineas.join("\n"));
   });

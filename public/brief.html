@@ -147,7 +147,9 @@
   // ── Dibujar ─────────────────────────────────────────────────────────────────────────────
   function campoHTML(c){
     var v=datos[c.k];
-    var h='<div class="campo"><label class="et" for="f_'+c.k+'">'+esc(c.l)+(c.req?'<span class="req">*</span>':'')+'</label>';
+    // La etiqueta puede llevar {empresa}: preguntar "¿cómo ves a Auraklinic en 5 años?" y no
+    // "¿cómo ves tu negocio?" cambia lo que la gente se molesta en contestar.
+    var h='<div class="campo"><label class="et" for="f_'+c.k+'">'+esc(BRIEF.conEmpresa(c.l,empresa))+(c.req?'<span class="req">*</span>':'')+'</label>';
     if(c.ayuda) h+='<div class="ayuda">'+esc(c.ayuda)+'</div>';
     if(c.tipo==="larga"){
       h+='<textarea id="f_'+c.k+'" data-k="'+c.k+'" placeholder="'+esc(c.ph||"")+'">'+esc(v||"")+'</textarea>';
@@ -161,6 +163,14 @@
            (tope&&!on?' disabled':'')+'>'+esc(o)+'</button>';
       });
       h+='</div>';
+      // El campo libre de "Otro" se dibuja SIEMPRE y se esconde: así lo escrito no se pierde al
+      // cambiar de opción y volver, y encenderlo es tocar un estilo en vez de rehacer el nodo
+      // —que en el teléfono cierra el teclado a media palabra—.
+      if(c.otro){
+        var abierto=datos[c.k]==="Otro";
+        h+='<input type="text" id="fo_'+c.k+'" data-k="'+c.k+'Otro" value="'+esc(datos[c.k+"Otro"]||"")+
+           '" placeholder="¿Cuál? Escríbelo" style="margin-top:9px;display:'+(abierto?"block":"none")+'">';
+      }
     }else{
       h+='<input type="text" id="f_'+c.k+'" data-k="'+c.k+'" value="'+esc(v||"")+'" placeholder="'+esc(c.ph||"")+'">';
     }
@@ -229,6 +239,12 @@
       b.setAttribute("aria-pressed",on);
       b.disabled=!!(tope&&!on);
     });
+    var libre=document.getElementById("fo_"+k);
+    if(libre){
+      var abierto=datos[k]==="Otro";
+      libre.style.display=abierto?"block":"none";
+      if(abierto)libre.focus();
+    }
   }
 
   function busca(k){
@@ -251,7 +267,9 @@
       if(!c.req)return;
       var v=datos[c.k];
       var vacio=c.tipo==="varias"?!(Array.isArray(v)&&v.length):!String(v||"").trim();
-      if(vacio) f.push(c.l);
+      // Elegir "Otro" y no escribir cuál es lo mismo que no haber contestado.
+      if(!vacio&&c.otro&&v==="Otro"&&!String(datos[c.k+"Otro"]||"").trim())vacio=true;
+      if(vacio) f.push(BRIEF.conEmpresa(c.l,empresa));
     });});
     return f;
   }
@@ -290,7 +308,7 @@
   }
   function campoDe(etiqueta){
     for(var i=0;i<BRIEF.SECCIONES.length;i++){
-      var c=BRIEF.SECCIONES[i].campos.filter(function(x){return x.l===etiqueta;})[0];
+      var c=BRIEF.SECCIONES[i].campos.filter(function(x){return BRIEF.conEmpresa(x.l,empresa)===etiqueta;})[0];
       if(c)return c.k;
     }
     return "";

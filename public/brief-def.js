@@ -22,7 +22,10 @@
         { k: "negocio", l: "Nombre del negocio o marca", tipo: "texto", req: true, ph: "Ej: Restaurant El Rincón del Chef" },
         { k: "contacto", l: "Nombre del dueño o contacto principal", tipo: "texto", req: true, ph: "Ej: Juan Pérez" },
         {
-          k: "rubro", l: "Rubro", tipo: "una", req: true,
+          // `otro: true` abre un campo de texto al elegir "Otro". Una lista cerrada obliga a
+          // meter con calzador un negocio que no está, y después nadie sabe qué era: media
+          // agencia trabaja con rubros que no caben en seis opciones.
+          k: "rubro", l: "Rubro", tipo: "una", req: true, otro: true,
           op: ["Restaurant / Café", "Cabaña / Lodge / Hotel", "Tienda", "Turismo / Outdoor", "Servicios", "Otro"],
         },
         { k: "tipoNegocio", l: "Tipo de negocio", tipo: "una", op: ["Familiar", "PYME", "Individual"] },
@@ -74,8 +77,14 @@
     },
     {
       n: "04", t: "Objetivos",
-      d: "Qué quieres que pase. Sin esto, publicar bonito no significa nada.",
+      d: "Hacia dónde va el negocio, y qué te tiene que dar esto. Sin la primera parte, la segunda se convierte en publicar bonito y nada más.",
       campos: [
+        // `{empresa}` lo reemplazan las dos puntas por el nombre real. Preguntar "¿cómo ves a
+        // Auraklinic en 5 años?" y no "¿cómo ves tu negocio?" cambia lo que la gente contesta:
+        // con el nombre delante se responde en concreto.
+        { k: "objetivoEmpresa", l: "¿Cuál es el objetivo de {empresa}?", tipo: "larga", req: true, ph: "A qué vino este negocio. No lo de marketing todavía — el negocio." },
+        { k: "visionNegocio", l: "¿Cómo ves a {empresa} en 5 años?", tipo: "larga", ph: "Cuántos locales, qué vende, qué lugar ocupa. Dilo aunque suene grande." },
+        { k: "visionDuenos", l: "¿Y cómo se ven ustedes, sus dueños, en 5 años?", tipo: "larga", ph: "Qué papel quieren tener: al pie del cañón, dirigiendo, o fuera del día a día." },
         {
           k: "objetivos", l: "¿Qué quieres lograr?", tipo: "varias", max: 2, req: true,
           ayuda: "Elige un máximo de dos. Con más de dos objetivos a la vez, ninguno se cumple.",
@@ -141,10 +150,17 @@
 
   // Las claves que el cliente puede escribir. El servidor filtra por esta lista, así que una
   // pregunta que no esté aquí no entra por más que alguien la mande a mano.
-  const CLAVES_CLIENTE = SECCIONES.reduce((a, s) => a.concat(s.campos.map(c => c.k)), []);
+  // Un campo con `otro` guarda su texto libre en una clave aparte (`rubroOtro`). Tiene que estar
+  // en esta lista o el servidor lo descarta y el rubro escrito a mano se pierde en silencio.
+  const CLAVES_CLIENTE = SECCIONES.reduce((a, s) =>
+    a.concat(s.campos.map(c => c.k), s.campos.filter(c => c.otro).map(c => c.k + "Otro")), []);
   const CLAVES_EQUIPO = INTERNA.campos.map(c => c.k);
 
-  const API = { SECCIONES, INTERNA, CLAVES_CLIENTE, CLAVES_EQUIPO };
+  // Las etiquetas pueden llevar {empresa}. Sin nombre todavía —el formulario cargando— cae en
+  // "tu negocio", que se lee bien igual.
+  const conEmpresa = (txt, nombre) => String(txt || "").replace(/{empresa}/g, nombre || "tu negocio");
+
+  const API = { SECCIONES, INTERNA, CLAVES_CLIENTE, CLAVES_EQUIPO, conEmpresa };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else raiz.BRIEF = API;
 
