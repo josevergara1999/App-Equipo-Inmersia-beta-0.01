@@ -1519,6 +1519,164 @@ app.post("/api/loyalty/redeem", requireAuth, async (req, res) => {
 // ===============================
 // 📣 META ADS ADVISOR
 // ===============================
+// ═══ BRIEF DE CLIENTE ═════════════════════════════════════════════════════════════════════
+// PÚBLICAS Y SIN SESIÓN, a propósito: el brief se manda el día que se cierra el trato, cuando la
+// empresa todavía no tiene portal —dar de alta un usuario de portal es tocar código y desplegar—.
+// Lo que sustituye a la sesión es el token: 32 hex que genera el equipo, imposible de enumerar y
+// que solo abre UNA empresa. Quien lo tiene, lo tiene porque se lo mandamos nosotros.
+//
+// El token NO se acepta por parámetro suelto ni viaja en el cuerpo: la fila se busca POR él, y de
+// la fila sale la empresa. Así no hay forma de apuntar a otra desde el navegador.
+const BRIEF_DEF = require("./public/brief-def.js");
+
+// Al cliente se le devuelve SOLO lo suyo: sus respuestas y el nombre de su empresa. Ni el token de
+// otra, ni las notas del asesor, ni el análisis interno.
+function briefPublico(b, coNombre) {
+  const r = {};
+  BRIEF_DEF.CLAVES_CLIENTE.forEach(k => { if (b.respuestas && b.respuestas[k] !== undefined) r[k] = b.respuestas[k]; });
+  return { empresa: coNombre || "", respuestas: r, enviadoAt: b.enviadoAt || null };
+}
+
+// El brief en texto plano, que es como lo lee Gemini. Lo usan el repaso del equipo y el chat del
+// portal: quien pregunta por su reel merece una respuesta que sepa a qué se dedica y a quién le
+// vende, no una lectura de números a secas.
+function briefEnTexto(b, nombre) {
+  const r = (b && b.respuestas) || {};
+  const partes = ["BRIEF DE " + String(nombre || "LA EMPRESA").toUpperCase()];
+  BRIEF_DEF.SECCIONES.forEach(sec => {
+    const lineas = sec.campos.map(c => {
+      const v = r[c.k];
+      const txt = Array.isArray(v) ? v.join(", ") : String(v || "").trim();
+      return txt ? "- " + c.l + ": " + txt : null;
+    }).filter(Boolean);
+    if (lineas.length) partes.push("\n" + sec.n + ". " + sec.t.toUpperCase() + "\n" + lineas.join("\n"));
+  });
+  return partes.join("\n");
+}
+
+// La empresa de quien pregunta, cuando quien pregunta es un cliente del portal. Devuelve null para
+// el equipo: ahí no hay UNA empresa y no corresponde colgarle el brief de nadie.
+async function briefDeQuienPregunta(req) {
+  try {
+    const co = clienteDe(authInfo(req));
+    if (!co) return null;
+    const cid = await idEmpresaCliente(co);
+    if (!cid) return null;
+    const briefs = (await sbGet("briefs", [])) || [];
+    const b = briefs.find(x => x && String(x.companyId) === String(cid) && x.enviadoAt);
+    if (!b) return null;
+    const cos = (await sbGet("companies", [])) || [];
+    const emp = cos.find(c => String(c.id) === String(cid));
+    return briefEnTexto(b, emp && emp.name);
+  } catch (e) { console.error("brief contexto:", e.message); return null; }
+}
+
+app.get("/api/brief/:token", rateLimit(60, "brief-leer"), async (req, res) => {
+  try {
+    const briefs = (await sbGet("briefs", [])) || [];
+    const b = briefs.find(x => x && x.token && x.token === req.params.token);
+    if (!b) return res.status(404).json({ error: "Este enlace ya no sirve. Pídele uno nuevo a INMERSIA." });
+    const cos = (await sbGet("companies", [])) || [];
+    const co = cos.find(c => String(c.id) === String(b.companyId));
+    res.json(briefPublico(b, co && co.name));
+  } catch (e) { console.error("brief leer:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/brief/:token", rateLimit(20, "brief-guardar"), async (req, res) => {
+  try {
+    const enviadas = (req.body && req.body.respuestas) || {};
+    // Solo las claves del formulario del cliente. Las de la sección 07 —notas del asesor,
+    // desafíos, próximos pasos— se descartan aunque alguien las mande a mano: son notas NUESTRAS
+    // sobre él, y no tiene por qué poder escribirlas ni leerlas.
+    const limpias = {};
+    BRIEF_DEF.CLAVES_CLIENTE.forEach(k => {
+      const v = enviadas[k];
+      if (v === undefined) return;
+      if (Array.isArray(v)) limpias[k] = v.slice(0, 12).map(x => String(x).slice(0, 200));
+      else limpias[k] = String(v).slice(0, 4000);
+    });
+
+    const hecho = await enCola(async () => {
+      const briefs = (await sbGet("briefs", [])) || [];
+      const b = briefs.find(x => x && x.token && x.token === req.params.token);
+      if (!b) return { estado: 404, error: "Este enlace ya no sirve. Pídele uno nuevo a INMERSIA." };
+      const ahora = new Date().toISOString();
+      const nuevos = briefs.map(x => x !== b ? x : {
+        ...x,
+        // Se funde sobre lo que ya había: si vuelve al enlace a corregir dos campos, no borra el
+        // resto por no haberlos mandado.
+        respuestas: { ...(x.respuestas || {}), ...limpias },
+        enviadoAt: ahora,
+        // Un análisis viejo deja de valer en cuanto cambian las respuestas.
+        analisis: null, analisisAt: null,
+      });
+      if (!(await sbPut("briefs", nuevos))) return { estado: 502, error: "No se pudo guardar. Inténtalo de nuevo." };
+      return { estado: 200, brief: b, enviadoAt: ahora, primera: !b.enviadoAt };
+    });
+    if (hecho.estado !== 200) return res.status(hecho.estado).json({ error: hecho.error });
+
+    // El aviso al equipo va FUERA de la cola: `crearNotif` entra en ella por su cuenta. Y que el
+    // aviso falle no puede tumbar un brief que ya está guardado.
+    try {
+      const cos = (await sbGet("companies", [])) || [];
+      const co = cos.find(c => String(c.id) === String(hecho.brief.companyId));
+      const nombre = (co && co.name) || "una empresa";
+      await crearNotif({
+        type: "brief",
+        title: hecho.primera ? "Brief recibido — " + nombre : "Brief actualizado — " + nombre,
+        body: hecho.primera
+          ? nombre + " respondió su brief. Ya se puede leer en Empresas."
+          : nombre + " corrigió su brief. Vale la pena repasarlo.",
+        to: TEAM.filter(u => u.role === "admin").map(u => u.email),
+        important: true,
+        dedupKey: "brief_" + hecho.brief.companyId + "_" + hecho.enviadoAt.slice(0, 13),
+      });
+    } catch (e) { console.error("brief aviso:", e.message); }
+
+    res.json({ ok: true, enviadoAt: hecho.enviadoAt });
+  } catch (e) { console.error("brief guardar:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+// Repaso del brief con IA. Del lado del equipo y con sesión: es lectura de negocio, no del
+// cliente. Se guarda en la fila para no volver a pagarlo cada vez que se abre la ficha.
+app.post("/api/brief/:companyId/analisis", requireAuth, rateLimit(12, "brief-ia"), async (req, res) => {
+  try {
+    const briefs = (await sbGet("briefs", [])) || [];
+    const b = briefs.find(x => x && String(x.companyId) === String(req.params.companyId));
+    if (!b || !b.enviadoAt) return res.status(404).json({ error: "Esta empresa todavía no ha respondido su brief" });
+    const cos = (await sbGet("companies", [])) || [];
+    const co = cos.find(c => String(c.id) === String(b.companyId));
+
+    const prompt = [
+      "Eres estratega de contenido en INMERSIA, una agencia de marketing digital de Ñuble, Chile.",
+      "Abajo está el brief que respondió un cliente. Léelo y escribe un repaso para el equipo que va a producir su contenido.",
+      "",
+      "Responde en español de Chile, sin saludar y sin repetir el brief. Máximo 350 palabras, en estas cuatro partes con estos títulos exactos:",
+      "",
+      "QUÉ VENDE DE VERDAD — dos o tres líneas: qué compra realmente su cliente, que casi nunca es lo que el negocio cree que vende.",
+      "POR DÓNDE EMPEZAR — dos o tres ideas de contenido concretas para el primer mes, atadas a lo que dijo. Nada genérico.",
+      "CUIDADO CON — contradicciones, expectativas que no cuadran con el plazo que pidió, restricciones que van a chocar con lo que quiere lograr, o material que no tiene y va a hacer falta.",
+      "QUÉ FALTA PREGUNTAR — lo que dejó vago y hay que cerrar antes de producir.",
+      "",
+      "Si algo no está en el brief, dilo. No inventes datos.",
+      "",
+      briefEnTexto(b, co && co.name),
+    ].join("\n");
+
+    const analisis = await callGemini([{ parts: [{ text: prompt }] }]);
+    if (!analisis) return res.status(502).json({ error: "La IA no respondió, inténtalo de nuevo" });
+
+    const ahora = new Date().toISOString();
+    await enCola(async () => {
+      const frescos = (await sbGet("briefs", [])) || [];
+      await sbPut("briefs", frescos.map(x => (x && String(x.companyId) === String(req.params.companyId))
+        ? { ...x, analisis, analisisAt: ahora } : x));
+      return true;
+    });
+    res.json({ analisis, analisisAt: ahora });
+  } catch (e) { console.error("brief analisis:", e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/meta/advisor", requireAuth, async (req, res) => {
   try {
     const { company, campaigns, totalBudget, question } = req.body;
@@ -2019,8 +2177,17 @@ app.post("/api/ai/post-chat", requireAuth, rateLimit(25, "ai-chat"), async (req,
 DATOS REALES (últimas ${posts.length} publicaciones de la cuenta):
 ${listaPosts}
 ${foco}`;
+    // El brief del cliente entra como contexto. Sin él la IA solo sabe leer números: puede decir
+    // que un reel tuvo poco alcance, pero no que ese negocio vende cabañas a familias en invierno
+    // y que el reel iba de otra cosa. Con el brief, la misma pregunta se responde en los términos
+    // del negocio de quien pregunta. Solo aplica a clientes del portal: para el equipo no hay UNA
+    // empresa y no corresponde colgarle el brief de nadie.
+    const brief = await briefDeQuienPregunta(req);
+    const contextoBrief = brief
+      ? "\n\nSOBRE EL NEGOCIO (lo respondió el cliente en su propio brief). Úsalo para interpretar los números y para proponer, NUNCA lo cites como si fueran datos de Instagram:\n" + brief
+      : "";
     const historia = (Array.isArray(mensajes) ? mensajes : []).slice(-8).map(m => `${m.rol === "user" ? "Cliente" : "Analista"}: ${String(m.texto || "").slice(0, 600)}`).join("\n");
-    const prompt = `${sistema}\n\nConversación:\n${historia}\nAnalista:`;
+    const prompt = `${sistema}${contextoBrief}\n\nConversación:\n${historia}\nAnalista:`;
     const respuesta = await callGemini([{ parts: [{ text: prompt }] }]);
     res.json({ respuesta: respuesta || "No pude generar una respuesta ahora, inténtalo de nuevo." });
   } catch (e) { console.error("post-chat:", e.message); res.status(500).json({ error: e.message }); }
@@ -3515,6 +3682,7 @@ app.get("/guion", (req, res) => { res.sendFile(path.join(__dirname, "public", "i
 // Van ANTES del comodín; si no, el catch-all les devuelve el login de la app.
 app.get("/unirse/:id",     (req, res) => { res.sendFile(path.join(__dirname, "public", "unirse.html")); });
 app.get("/tarjeta/:codigo", (req, res) => { res.sendFile(path.join(__dirname, "public", "tarjeta.html")); });
+app.get("/brief/:token",   (req, res) => { res.sendFile(path.join(__dirname, "public", "brief.html")); });
 
 app.get("*", (req, res) => { res.sendFile(path.join(__dirname, "public", "index.html")); });
 

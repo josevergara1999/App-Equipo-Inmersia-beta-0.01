@@ -132,7 +132,7 @@ equipo, hay que tocar los dos lados.
 Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
 Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
 `gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
-`notif_daily`, `user_creds`, `social`, `ig`, `galerias`. Los binarios van al **Storage** (bucket
+`notif_daily`, `user_creds`, `social`, `ig`, `galerias`, `briefs`. Los binarios van al **Storage** (bucket
 `contenido`), nunca a esta tabla.
 
 **RLS activo desde 10-ago-2026.** La tabla tiene Row Level Security y NO tiene policies para el
@@ -306,6 +306,33 @@ limpiarlas, pero solo con `planners` cargado: con la lista vacía, todo parecer�
 
 Al crear una pieza desde Contenido se escribe en los dos lados a la vez (item + tarea con el
 mismo `itemId`).
+
+## Brief de cliente
+
+Un brief por empresa en `app_data.briefs`, y **el cliente lo rellena por un enlace público**, sin
+cuenta: `inmersiaperformance.cl/brief/<token>`. La razón es de calendario — el brief se manda el
+día que se cierra el trato, y en ese momento la empresa todavía no tiene portal, porque dar de
+alta un usuario de portal es tocar `INIT_USERS` y `CLIENTES` y desplegar.
+
+Lo que sustituye a la sesión es el token: 32 hex del generador del navegador, creado la primera
+vez que se abre o se copia el enlace de esa empresa. **La fila se busca POR el token** y de ahí
+sale la empresa; el `companyId` no se acepta por parámetro, así que no hay forma de apuntar a
+otra desde el navegador. Por eso `briefs` **no está en `CLAVES_CLIENTE`**: si se le entregara al
+portal, un cliente vería el token de las demás.
+
+- Las preguntas viven en **`public/brief-def.js`**, que cargan las tres puntas: el formulario
+  público, la app del equipo y el servidor (`require`). Escritas dos veces, se cambia una pregunta
+  en un lado y el otro sigue leyendo el rótulo viejo sobre la respuesta nueva.
+- **La sección 07 no la ve el cliente.** Son notas del asesor sobre él; el servidor filtra por
+  `CLAVES_CLIENTE` del brief y las descarta aunque lleguen a mano.
+- El POST **funde** sobre lo guardado: volver al enlace a corregir dos campos no borra el resto.
+- **Sin «plan seleccionado»**, que era la pregunta 06 del documento original: el plan vive en la
+  ficha de la empresa y es lo que calcula el cupo. Preguntarlo aquí abre la puerta a dos verdades.
+- El **repaso con IA** (`/api/brief/:companyId/analisis`) se guarda en la fila y se borra solo en
+  cuanto el cliente cambia una respuesta: un análisis de un brief viejo afirma cosas que ya no son.
+- El brief entra además como contexto del chat del portal (`/api/ai/post-chat`,
+  `briefDeQuienPregunta`). Sin él la IA solo sabe leer números; con él responde en los términos
+  del negocio de quien pregunta.
 
 ## Sesiones de fotos
 

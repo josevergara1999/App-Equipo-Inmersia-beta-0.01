@@ -13,6 +13,10 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=2">
 <title>INMERSIA · Content Management Platform</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Las preguntas del brief. El MISMO archivo que dibuja el formulario público (brief.html) y
+     que valida el servidor: una pregunta se escribe una sola vez. Va antes del script de Babel
+     porque solo define el global `BRIEF`. -->
+<script src="/brief-def.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -403,7 +407,7 @@ const uid=()=>Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,9);
 // pestaña no tocó no viaja, y por tanto no puede pisar lo que tocó otra. Una escritura que
 // llega tarde con datos viejos ya no revierte nada — simplemente no tiene nada propio que
 // escribir.
-const LISTAS_ID={tasks:"id",companies:"id",galerias:"id",planners:"weekKey"};
+const LISTAS_ID={tasks:"id",companies:"id",galerias:"id",planners:"weekKey",briefs:"companyId"};
 const baseline={};
 const clave=(k,x)=>String(x&&x[LISTAS_ID[k]]);
 const porClave=(k,arr)=>new Map((Array.isArray(arr)?arr:[]).filter(x=>x&&x[LISTAS_ID[k]]!=null).map(x=>[clave(k,x),x]));
@@ -457,7 +461,7 @@ async function guardarDiff(key,local,contra){
 // cantar éxito; este es el mismo trato para el lado del equipo.
 let avisarFalloGuardado=null;
 function registrarAvisoGuardado(fn){avisarFalloGuardado=fn;}
-const NOMBRE_LISTA={tasks:"las piezas",companies:"las empresas",galerias:"las sesiones de fotos",planners:"la semana"};
+const NOMBRE_LISTA={tasks:"las piezas",companies:"las empresas",galerias:"las sesiones de fotos",planners:"la semana",briefs:"los briefs"};
 function encolarGuardado(key,local,contra){
   const base=contra||baseline[key];
   const run=async()=>{
@@ -854,6 +858,25 @@ const MO=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Sep
 const WD=["L","M","X","J","V","S","D"];
 // "2026-08-07" → "jue, 7 de agosto". Se parte a mano en vez de `new Date(ds)`: esa forma se
 // interpreta como UTC y en Chile pinta el día anterior.
+// `navigator.clipboard` no existe fuera de https y falta en varios navegadores de teléfono, que
+// es justo donde se manda un enlace por WhatsApp. El respaldo del textarea invisible es feo pero
+// funciona en todos, y quedarse sin copiar el enlace es quedarse sin poder mandar el brief.
+function copiarAlPortapapeles(texto){
+  return new Promise(ok=>{
+    const truco=()=>{
+      try{
+        const t=document.createElement("textarea");
+        t.value=texto;t.style.position="fixed";t.style.top="-1000px";t.style.opacity="0";
+        document.body.appendChild(t);t.focus();t.select();
+        const bien=document.execCommand("copy");
+        document.body.removeChild(t);ok(bien);
+      }catch(e){ok(false);}
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText)
+      navigator.clipboard.writeText(texto).then(()=>ok(true)).catch(truco);
+    else truco();
+  });
+}
 const fechaDia=ds=>{
   // Solo los 10 primeros caracteres (YYYY-MM-DD): un timestamp ISO ("…-07T00:00:00Z") daría
   // tres trozos igual al partir por "-", el tercero sería "07T00:00:00Z", `+p[2]` NaN y saldría
@@ -1481,6 +1504,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // encendían a la vez.
   const navActiva=it=>pg===it.k;
   const[cos,sCos]=useState([]);
+  // Un brief por empresa: {companyId, token, respuestas, enviadoAt, analisis, analisisAt}.
+  const[briefs,sBriefs]=useState([]);
+  const[briefCo,sBriefCo]=useState(null);
+  const[briefCopiado,sBriefCopiado]=useState(null);
   const[pros,sPros]=useState([]);
   const[tasks,sT]=useState([]);const[extras,sEx]=useState([]);
   const[dbLoaded,sDbLoaded]=useState(false);
@@ -1592,6 +1619,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
       if(d.prospects?.length)sPros(d.prospects);
       if(d.galerias?.length)sGal(d.galerias);
+      if(d.briefs?.length)sBriefs(d.briefs);
       if(d.teamPay)sTP(d.teamPay);
       if(d.billRcpts)sBR(d.billRcpts);
       sDbLoaded(true);
@@ -1729,6 +1757,36 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const delCo=coId=>{if(cos.length<=1){addN("❌ No puedes eliminar la última empresa");return;}sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   // Limpieza de los cupos fantasma que dejó el modelo viejo: tareas sin fecha, sin material y
   // sin item en Org Semanal. Cualquier cosa que tenga algo dentro no se toca.
+  // El token se crea la PRIMERA vez que hace falta —al abrir el brief o al copiar su enlace—, no
+  // al dar de alta la empresa: así las que ya existen lo tienen en cuanto se necesita y no hay
+  // nada que migrar. 32 hex del generador del navegador, no `Math.random()`: es predecible, y
+  // este token es lo único que protege la fila de una empresa.
+  const asegurarBrief=co=>{
+    const b=briefs.find(x=>String(x.companyId)===String(co.id));
+    if(b)return b;
+    const bytes=new Uint8Array(16);
+    (window.crypto||window.msCrypto).getRandomValues(bytes);
+    const token=Array.from(bytes).map(x=>x.toString(16).padStart(2,"0")).join("");
+    const nuevo={companyId:co.id,token,respuestas:{},enviadoAt:null,analisis:null,analisisAt:null,creadoAt:new Date().toISOString()};
+    const nuevos=[...briefs,nuevo];
+    sBriefs(nuevos);DB.save("briefs",nuevos);
+    return nuevo;
+  };
+  const abrirBrief=co=>{asegurarBrief(co);sBriefCo(co);};
+  const enlaceBrief=co=>location.origin+"/brief/"+asegurarBrief(co).token;
+  const copiarBrief=async co=>{
+    const url=enlaceBrief(co);
+    if(await copiarAlPortapapeles(url)){
+      sBriefCopiado(co.id);setTimeout(()=>sBriefCopiado(null),2400);
+    }else addN("No se pudo copiar. El enlace es: "+url);
+  };
+  // `servidor` marca lo que el servidor ya guardó por su cuenta (el análisis): se refleja en
+  // pantalla, pero volver a escribirlo desde aquí sería pisarlo con una copia vieja.
+  const guardarBrief=(b,servidor)=>{
+    const nuevos=briefs.map(x=>String(x.companyId)===String(b.companyId)?b:x);
+    sBriefs(nuevos);
+    if(!servidor)DB.save("briefs",nuevos);
+  };
   const limpiarCupos=coId=>{const co=cos.find(c=>c.id===coId);if(!co)return;
     sT(p=>{
       // El patrón importa: genTasks creaba exactamente "<Tipo> <n> <Empresa>". Sin exigirlo,
@@ -1960,6 +2018,31 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasLoyalty?"var(--success)":"var(--tx3)"}}><input type="checkbox" checked={c.hasLoyalty||false} onChange={()=>toggleFt(c.id,"hasLoyalty")} style={{width:14,height:14,padding:0}}/><Ic n="loyalty" s={14}/>Fidelización</label>
                   <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,color:c.hasMeta?"var(--accent2)":"var(--tx3)"}}><input type="checkbox" checked={c.hasMeta||false} onChange={()=>toggleFt(c.id,"hasMeta")} style={{width:14,height:14,padding:0}}/><Ic n="meta" s={14}/>Meta</label>
                 </div>
+                {/* El brief. Lo primero que se hace con una empresa nueva y lo que se vuelve a
+                    mirar cada vez que hay que decidir qué publicar, así que vive en su ficha y no
+                    en una pantalla aparte, y se puede abrir SIEMPRE — antes de mandarlo, mientras
+                    se espera y después de recibido. Copiar el enlace no obliga a abrir nada: es
+                    lo que se hace con una empresa recién creada. */}
+                {(()=>{
+                  const b=briefs.find(x=>String(x.companyId)===String(c.id));
+                  const listo=!!(b&&b.enviadoAt);
+                  const copiado=briefCopiado===c.id;
+                  return(<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                    <button onClick={()=>abrirBrief(c)} title="Ver el brief de esta empresa" style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:999,
+                      background:listo?"rgba(var(--rgb-verde),.06)":"transparent",
+                      border:"1px solid "+(listo?"rgba(var(--rgb-verde),.35)":"var(--border2)"),
+                      color:listo?PC.verde:"var(--tx2)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                      <Ic n="report" s={13}/>Brief
+                      <span style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:listo?PC.verde:"var(--tx5)"}}/>
+                    </button>
+                    <button onClick={()=>copiarBrief(c)} title="Copiar el enlace para mandárselo al cliente" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px solid var(--border2)",color:copiado?PC.verde:"var(--tx3)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                      <Ic n={copiado?"check":"copy"} s={13}/>{copiado?"Copiado":"Copiar enlace"}
+                    </button>
+                    <span style={{fontSize:11,color:"var(--tx4)",lineHeight:1.4,minWidth:0}}>
+                      {listo?"Respondido el "+fechaDia(b.enviadoAt):(b?"Sin responder":"Sin enviar")}
+                    </span>
+                  </div>);
+                })()}
                 <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
                   <button onClick={()=>{if(confirm("¿Borrar los cupos vacíos que dejó el sistema viejo en "+c.name+"?\n\nSon las piezas sin fecha, sin material y sin nada en Org Semanal (\"Post 1 "+c.name+"\", \"Historia 3 "+c.name+"\"…). Ya no hacen falta: los cupos ahora son un número.\n\nLo que tenga cualquier cosa dentro no se toca."))limpiarCupos(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🧹 Limpiar cupos vacíos</button>
                 </div>
@@ -1969,6 +2052,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div>);})}
           </div>
+          <BriefModal open={!!briefCo} onClose={()=>sBriefCo(null)} co={briefCo}
+            brief={briefCo?briefs.find(x=>String(x.companyId)===String(briefCo.id)):null}
+            onGuardar={guardarBrief} addN={addN}/>
           <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};const newCos=[...cos,nc];sCos(newCos);DB.save("companies",newCos);
             // Auto-create client user for this company
             const clientId=nId+1;const clientUser={id:clientId,name:nc.name,email:nc.name.toLowerCase().replace(/\s+/g,""),role:"cliente",avatar:nc.name.slice(0,2).toUpperCase(),color:nc.color||"#9d6bff",pass:"1234",companyName:nc.name};
@@ -2445,6 +2531,135 @@ function MiniBarChart({data,color="#60a5fa",h=90,fN}){
   </svg>);
 }
 
+// ═══ BRIEF DE CLIENTE — la vista del equipo ═══════════════════════════════════════════════
+// Lo que respondió el cliente, de solo lectura: se corrige donde se escribió, en su enlace, no
+// aquí. Lo único editable es la sección 07, que el cliente ni ve ni puede escribir.
+//
+// Las preguntas salen de `BRIEF`, el mismo archivo que dibuja el formulario público. Escritas
+// dos veces, se cambia una pregunta en un lado y el equipo sigue leyendo el rótulo viejo sobre
+// la respuesta nueva.
+function BriefModal({open,onClose,co,brief,onGuardar,addN}){
+  const[notas,sNotas]=useState({});
+  const[analizando,sAnalizando]=useState(false);
+  const[copiado,sCopiado]=useState(false);
+  const[analisis,sAnalisis]=useState(null);
+  useEffect(()=>{
+    if(!open)return;
+    sNotas(BRIEF.CLAVES_EQUIPO.reduce((a,k)=>({...a,[k]:(brief?.respuestas||{})[k]||""}),{}));
+    sAnalisis(brief?.analisis||null);
+    sCopiado(false);
+  },[open,brief]);
+  if(!open||!brief)return null;
+
+  const enlace=location.origin+"/brief/"+brief.token;
+  const respondido=!!brief.enviadoAt;
+
+  const copiar=async()=>{
+    if(await copiarAlPortapapeles(enlace)){sCopiado(true);setTimeout(()=>sCopiado(false),2200);}
+    else addN&&addN("No se pudo copiar. El enlace es: "+enlace);
+  };
+
+  const analizar=async()=>{
+    sAnalizando(true);
+    try{
+      const r=await fetch("/api/brief/"+encodeURIComponent(co.id)+"/analisis",{method:"POST",credentials:"include"});
+      const j=await r.json();
+      if(!r.ok)throw new Error(j.error||"no se pudo");
+      sAnalisis(j.analisis);
+      onGuardar({...brief,analisis:j.analisis,analisisAt:j.analisisAt},true);
+    }catch(e){addN&&addN("No se pudo analizar: "+e.message);}
+    sAnalizando(false);
+  };
+
+  const guardarNotas=()=>{
+    onGuardar({...brief,respuestas:{...(brief.respuestas||{}),...notas}});
+    addN&&addN("Notas del brief guardadas");
+    onClose();
+  };
+
+  const respuesta=c=>{
+    const v=(brief.respuestas||{})[c.k];
+    if(Array.isArray(v))return v.length?v.join(" · "):null;
+    return String(v||"").trim()||null;
+  };
+
+  return(<Md open={open} onClose={onClose} title={"Brief · "+(co?.name||"")} width={620}>
+    {/* El enlace, arriba del todo: es lo que se viene a buscar cuando el brief todavía no llegó. */}
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"12px 14px",borderRadius:12,
+      background:respondido?"rgba(var(--rgb-verde),.05)":"var(--bg3)",
+      border:"1px solid "+(respondido?"rgba(var(--rgb-verde),.3)":"var(--border)"),marginBottom:16}}>
+      <span style={{width:9,height:9,borderRadius:"50%",flexShrink:0,background:respondido?PC.verde:PC.tx4}}/>
+      <span style={{flex:"1 1 200px",minWidth:0,fontSize:12.5,color:D.tx3,lineHeight:1.5}}>
+        {respondido
+          ? <>Respondido el <b style={{color:D.tx2}}>{fechaDia(brief.enviadoAt)}</b>. El cliente puede volver al enlace y corregirlo.</>
+          : <>Todavía sin responder. Mándale el enlace por donde ya hablen; no necesita cuenta.</>}
+      </span>
+      <button onClick={copiar} style={{flexShrink:0,display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:copiado?PC.verde:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+        <Ic n={copiado?"check":"copy"} s={13}/>{copiado?"Copiado":"Copiar enlace"}
+      </button>
+    </div>
+
+    {!respondido&&<div style={{fontSize:12.5,color:D.tx4,lineHeight:1.6,padding:"14px 2px 4px"}}>
+      Cuando lo responda te llega un aviso y las respuestas aparecen aquí.
+    </div>}
+
+    {respondido&&<>
+      {/* El repaso con IA. Se guarda con el brief, así que no se vuelve a pagar cada vez que se
+          abre la ficha; y se borra solo en cuanto el cliente cambia una respuesta, porque un
+          análisis de un brief viejo dice cosas que ya no son ciertas. */}
+      <div style={{borderRadius:14,border:"1px solid "+(analisis?"rgba(var(--rgb-lav),.3)":D.line3),background:analisis?"rgba(var(--rgb-lav),.04)":"transparent",padding:"14px 15px",marginBottom:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+          <Ic n="ai" s={15} c={D.lav}/>
+          <span style={{fontSize:13,fontWeight:700,color:D.lav,flex:"1 1 auto"}}>Repaso con IA</span>
+          <button onClick={analizar} disabled={analizando} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-lav),.4)",color:D.lav,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:analizando?"progress":"pointer"}}>
+            {analizando?"Leyendo…":(analisis?"Volver a leerlo":"Léelo por mí")}
+          </button>
+        </div>
+        {analisis
+          ? <div style={{fontSize:12.5,color:D.tx2,lineHeight:1.65,whiteSpace:"pre-wrap",marginTop:11}}>{analisis}</div>
+          : <div style={{fontSize:12,color:D.tx4,lineHeight:1.55,marginTop:7}}>
+              Qué vende de verdad, por dónde empezar el primer mes, con qué hay que tener cuidado y qué quedó sin preguntar.
+            </div>}
+      </div>
+
+      {BRIEF.SECCIONES.map(s=>{
+        const conRespuesta=s.campos.filter(c=>respuesta(c)!==null);
+        return(<div key={s.n} style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:9,marginBottom:10,paddingBottom:7,borderBottom:"1px solid "+D.line}}>
+            <span style={{fontFamily:"var(--font-mono)",fontSize:10,letterSpacing:".18em",color:D.cian}}>{s.n}</span>
+            <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{s.t}</span>
+            {conRespuesta.length<s.campos.length&&<span style={{marginLeft:"auto",fontSize:10.5,color:D.tx5}}>{conRespuesta.length} de {s.campos.length}</span>}
+          </div>
+          {conRespuesta.length===0
+            ? <span style={{fontSize:12,color:D.tx5,fontStyle:"italic"}}>Sin responder.</span>
+            : conRespuesta.map(c=>(
+                <div key={c.k} style={{marginBottom:11}}>
+                  <div style={{fontSize:11,color:D.tx4,marginBottom:3,lineHeight:1.4}}>{c.l}</div>
+                  <div style={{fontSize:13,color:D.tx,lineHeight:1.55,whiteSpace:"pre-wrap"}}>{respuesta(c)}</div>
+                </div>))}
+        </div>);
+      })}
+    </>}
+
+    {/* Sección 07. Editable siempre, responda el cliente o no: sirve desde la primera visita. */}
+    <div style={{marginTop:6,paddingTop:16,borderTop:"1px solid "+D.line2}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:9,marginBottom:4}}>
+        <span style={{fontFamily:"var(--font-mono)",fontSize:10,letterSpacing:".18em",color:D.tx4}}>{BRIEF.INTERNA.n}</span>
+        <span style={{fontSize:14,fontWeight:600,color:D.tx}}>{BRIEF.INTERNA.t}</span>
+      </div>
+      <div style={{fontSize:11.5,color:D.tx4,marginBottom:13}}>{BRIEF.INTERNA.d}</div>
+      {BRIEF.INTERNA.campos.map(c=>(
+        <Fd key={c.k} label={c.l}>
+          <textarea value={notas[c.k]||""} onChange={e=>sNotas(p=>({...p,[c.k]:e.target.value}))}
+            placeholder={c.ph} style={{width:"100%",minHeight:72,padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,lineHeight:1.55,resize:"vertical",outline:"none"}}/>
+        </Fd>))}
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
+        <Bt v="s" onClick={onClose}>Cerrar</Bt>
+        <Bt v="p" onClick={guardarNotas} icon="save">Guardar las notas</Bt>
+      </div>
+    </div>
+  </Md>);
+}
 function ProspectosPg({pros,sPros,users,addN,currentUser}){
   const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
   const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];

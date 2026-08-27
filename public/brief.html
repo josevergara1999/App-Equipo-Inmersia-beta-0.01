@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Brief · INMERSIA</title>
+<meta name="robots" content="noindex">
+<!--
+  PÁGINA PÚBLICA — la abre el cliente con el enlace que le manda el equipo. Sin cuenta y sin
+  contraseña: se manda el día que se cierra el trato, cuando la empresa todavía no tiene portal.
+
+  A diferencia de `unirse.html`, esta sí lleva la marca de INMERSIA: quien la abre es cliente
+  NUESTRO, no cliente de un cliente. Por eso repite la piel de la app —las dos paletas enteras,
+  DM Sans y JetBrains Mono, las tarjetas con su marco— y respeta el tema del sistema, con el
+  mismo conmutador y la misma clave de localStorage (`inm_tema`) que la app: si esta persona
+  entra después a su portal, se lo encuentra como lo dejó.
+
+  Sin React y sin Babel. El formulario se dibuja desde `brief-def.js`, que es el MISMO archivo
+  que lee la app del equipo: una pregunta se escribe una vez.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Las dos paletas de la app, copiadas tal cual. */
+  :root{
+    --font-mono:'JetBrains Mono',ui-monospace,monospace;
+    --bg:#05060B;--bg2:#0B0E17;--bg3:#0D111B;--bg4:#07090F;
+    --border:#161B2A;--border2:#262D40;--border3:#1E2536;
+    --tx:#F4F2ED;--tx2:#C9CFDC;--tx3:#8E93A6;--tx4:#6B7484;--tx5:#4A5265;
+    --accent:#6FE7F2;--accent2:#8FEFF7;--peri:#9BB4FF;--lav:#C9BFFF;
+    --rojo:#FF8B8B;--verde:#8FF2C2;--ambar:#EFD9A0;
+    --card-bg:linear-gradient(170deg,rgba(13,17,27,.97),rgba(6,8,14,.99));
+    --card-bd:rgba(200,210,228,.08);
+    --marco-bg:linear-gradient(160deg,rgba(200,210,228,.28),rgba(200,210,228,.05) 45%,rgba(155,180,255,.18));
+    --sombra:0 20px 60px rgba(0,0,0,.5);
+  }
+  body[data-tema="claro"]{
+    --bg:#F2F1EC;--bg2:#FBFAF6;--bg3:#F5F4EF;--bg4:#F3F2ED;
+    --border:#E3E0D5;--border2:#D2CFC2;--border3:#DBD8CC;
+    --tx:#1E1E1E;--tx2:#3E4347;--tx3:#5C666C;--tx4:#7B8187;--tx5:#A9A79D;
+    --accent:#143D4A;--accent2:#1E5568;--peri:#4E7A96;--lav:#6B7FA6;
+    --rojo:#B5544A;--verde:#2F7E60;--ambar:#8A6E2F;
+    --card-bg:linear-gradient(170deg,#FBFAF6,#F3F2ED);
+    --card-bd:#DBD8CC;
+    --marco-bg:linear-gradient(160deg,rgba(123,129,135,.28),rgba(123,129,135,.05) 45%,rgba(78,122,150,.18));
+    --sombra:0 10px 30px rgba(30,30,30,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--tx2);
+    font-family:'DM Sans',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:0 0 60px;
+    transition:background .25s ease,color .25s ease;
+  }
+  .caja{max-width:720px;margin:0 auto;padding:0 18px}
+  .mono{font-family:var(--font-mono);letter-spacing:.18em;text-transform:uppercase}
+
+  header{padding:calc(26px + env(safe-area-inset-top,0px)) 0 24px}
+  .fila{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+  h1{font-size:27px;font-weight:600;letter-spacing:-.02em;margin:8px 0 0;color:var(--tx);line-height:1.15}
+  .sub{font-size:13.5px;color:var(--tx3);margin-top:8px;line-height:1.55}
+  .tema{width:38px;height:38px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;
+    justify-content:center;background:transparent;border:1px solid var(--border2);color:var(--tx2);cursor:pointer}
+
+  .marco{border-radius:22px;padding:4px;background:var(--marco-bg);margin-bottom:14px}
+  .tarjeta{border-radius:18px;padding:20px 19px;background:var(--card-bg);border:1px solid var(--card-bd);box-shadow:var(--sombra)}
+  .secN{font-size:10px;color:var(--accent)}
+  .secT{font-size:17px;font-weight:600;color:var(--tx);margin:5px 0 3px;letter-spacing:-.01em}
+  .secD{font-size:12.5px;color:var(--tx4);line-height:1.5;margin-bottom:18px}
+
+  .campo{margin-bottom:19px}
+  .campo:last-child{margin-bottom:0}
+  label.et{display:block;font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:8px;line-height:1.45}
+  .req{color:var(--rojo);margin-left:3px}
+  .ayuda{font-size:11.5px;color:var(--tx4);margin:-3px 0 8px;line-height:1.45}
+  input[type=text],textarea{
+    width:100%;padding:11px 13px;border-radius:11px;background:var(--bg3);
+    border:1px solid var(--border2);color:var(--tx);font-family:inherit;font-size:14px;outline:none;
+  }
+  textarea{min-height:88px;resize:vertical;line-height:1.55}
+  input[type=text]:focus,textarea:focus{border-color:var(--accent)}
+  input::placeholder,textarea::placeholder{color:var(--tx5)}
+
+  .ops{display:flex;flex-wrap:wrap;gap:8px}
+  .op{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;
+    background:transparent;border:1px solid var(--border2);color:var(--tx3);
+    font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+  .op:hover{border-color:var(--tx4)}
+  .op[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+  .op[disabled]{opacity:.38;cursor:not-allowed}
+
+  .pie{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);
+    padding:14px 0 calc(14px + env(safe-area-inset-bottom,0px));margin-top:22px}
+  .pie .caja{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .enviar{padding:13px 26px;border-radius:999px;background:var(--accent);border:1px solid var(--accent);
+    color:var(--bg);font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0}
+  .enviar[disabled]{opacity:.5;cursor:progress}
+  .estado{font-size:12.5px;color:var(--tx4);line-height:1.45;flex:1;min-width:160px}
+  .estado.mal{color:var(--rojo)}
+  .estado.bien{color:var(--verde)}
+
+  .aviso{border-radius:14px;padding:14px 16px;font-size:13px;line-height:1.55;margin-bottom:16px}
+  .aviso.ok{background:rgba(143,242,194,.07);border:1px solid rgba(143,242,194,.3);color:var(--verde)}
+  body[data-tema="claro"] .aviso.ok{background:rgba(47,126,96,.07);border-color:rgba(47,126,96,.3)}
+  .centro{text-align:center;padding:70px 20px;color:var(--tx3);font-size:14px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="app" class="centro">Cargando…</div>
+
+<script src="/brief-def.js"></script>
+<script>
+(function(){
+  "use strict";
+  var token=(location.pathname.split("/").filter(Boolean)[1]||"").trim();
+  var app=document.getElementById("app");
+  var datos={}, empresa="", enviadoAt=null, guardando=false;
+  var BORRADOR="inm_brief_"+token;
+
+  // ── Tema ────────────────────────────────────────────────────────────────────────────────
+  // Manda lo que la persona haya elegido; si no eligió nunca, lo que diga su sistema. Misma
+  // clave que la app, así que si después entra a su portal se lo encuentra igual.
+  function temaGuardado(){ try{ return localStorage.getItem("inm_tema"); }catch(e){ return null; } }
+  function ponTema(t){
+    document.body.setAttribute("data-tema",t==="claro"?"claro":"oscuro");
+    try{ localStorage.setItem("inm_tema",t); }catch(e){}
+    var b=document.getElementById("btema"); if(b) b.innerHTML=icono(t==="claro"?"luna":"sol");
+  }
+  var inicial=temaGuardado()||(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches?"claro":"oscuro");
+  document.body.setAttribute("data-tema",inicial==="claro"?"claro":"oscuro");
+
+  function icono(n){
+    var d={
+      sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3 7 7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/>',
+      luna:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>'
+    }[n]||"";
+    return '<svg viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>';
+  }
+
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+  // ── Dibujar ─────────────────────────────────────────────────────────────────────────────
+  function campoHTML(c){
+    var v=datos[c.k];
+    var h='<div class="campo"><label class="et" for="f_'+c.k+'">'+esc(c.l)+(c.req?'<span class="req">*</span>':'')+'</label>';
+    if(c.ayuda) h+='<div class="ayuda">'+esc(c.ayuda)+'</div>';
+    if(c.tipo==="larga"){
+      h+='<textarea id="f_'+c.k+'" data-k="'+c.k+'" placeholder="'+esc(c.ph||"")+'">'+esc(v||"")+'</textarea>';
+    }else if(c.tipo==="una"||c.tipo==="varias"){
+      var sel=c.tipo==="varias"?(Array.isArray(v)?v:[]):(v?[v]:[]);
+      var tope=c.tipo==="varias"&&c.max&&sel.length>=c.max;
+      h+='<div class="ops" id="f_'+c.k+'">';
+      c.op.forEach(function(o){
+        var on=sel.indexOf(o)>=0;
+        h+='<button type="button" class="op" data-k="'+c.k+'" data-op="'+esc(o)+'" aria-pressed="'+on+'"'+
+           (tope&&!on?' disabled':'')+'>'+esc(o)+'</button>';
+      });
+      h+='</div>';
+    }else{
+      h+='<input type="text" id="f_'+c.k+'" data-k="'+c.k+'" value="'+esc(v||"")+'" placeholder="'+esc(c.ph||"")+'">';
+    }
+    return h+'</div>';
+  }
+
+  function pinta(){
+    var h='<header><div class="caja"><div class="fila"><div>'+
+      '<span class="mono" style="font-size:10.5px;color:var(--tx4)">INMERSIA SPA · Brief de cliente</span>'+
+      '<h1>'+esc(empresa||"Tu negocio")+'</h1>'+
+      '<div class="sub">Cuéntanos cómo funciona tu negocio y qué esperas de esto. Con esto armamos el contenido, así que mientras más concreto, mejor. Se guarda cuando tú digas, y puedes volver a este mismo enlace a cambiarlo.</div>'+
+      '</div><button class="tema" id="btema" title="Cambiar el tema">'+icono(document.body.getAttribute("data-tema")==="claro"?"luna":"sol")+'</button>'+
+      '</div></div></header><div class="caja">';
+
+    if(enviadoAt){
+      h+='<div class="aviso ok"><b>Ya nos llegó.</b> Lo recibimos el '+esc(fecha(enviadoAt))+
+         '. Si algo cambió, corrígelo y vuelve a guardar — nos avisa de nuevo.</div>';
+    }
+
+    BRIEF.SECCIONES.forEach(function(s){
+      h+='<div class="marco"><div class="tarjeta">'+
+         '<div class="secN mono">'+esc(s.n)+'</div>'+
+         '<div class="secT">'+esc(s.t)+'</div>'+
+         '<div class="secD">'+esc(s.d)+'</div>';
+      s.campos.forEach(function(c){ h+=campoHTML(c); });
+      h+='</div></div>';
+    });
+
+    h+='</div><div class="pie"><div class="caja">'+
+       '<button class="enviar" id="guardar">'+(enviadoAt?"Guardar los cambios":"Enviar el brief")+'</button>'+
+       '<span class="estado" id="estado"></span></div></div>';
+
+    app.className=""; app.innerHTML=h;
+    document.getElementById("btema").onclick=function(){
+      ponTema(document.body.getAttribute("data-tema")==="claro"?"oscuro":"claro");
+    };
+    document.getElementById("guardar").onclick=enviar;
+    app.addEventListener("input",function(e){
+      var k=e.target.getAttribute("data-k"); if(!k)return;
+      datos[k]=e.target.value; borrador();
+    });
+    app.addEventListener("click",function(e){
+      var b=e.target.closest?e.target.closest(".op"):null; if(!b||b.disabled)return;
+      var k=b.getAttribute("data-k"), o=b.getAttribute("data-op");
+      var c=busca(k); if(!c)return;
+      if(c.tipo==="una"){ datos[k]=datos[k]===o?"":o; }
+      else{
+        var l=Array.isArray(datos[k])?datos[k].slice():[];
+        var i=l.indexOf(o);
+        if(i>=0) l.splice(i,1);
+        else{ if(c.max&&l.length>=c.max) return; l.push(o); }
+        datos[k]=l;
+      }
+      borrador(); repintaGrupo(k);
+    });
+  }
+
+  // Repinta SOLO el grupo tocado. Volver a dibujar la página entera en cada clic hace que el
+  // teclado del teléfono se cierre y que la vista salte al principio.
+  function repintaGrupo(k){
+    var c=busca(k), cont=document.getElementById("f_"+k); if(!c||!cont)return;
+    var sel=c.tipo==="varias"?(Array.isArray(datos[k])?datos[k]:[]):(datos[k]?[datos[k]]:[]);
+    var tope=c.tipo==="varias"&&c.max&&sel.length>=c.max;
+    Array.prototype.forEach.call(cont.querySelectorAll(".op"),function(b){
+      var on=sel.indexOf(b.getAttribute("data-op"))>=0;
+      b.setAttribute("aria-pressed",on);
+      b.disabled=!!(tope&&!on);
+    });
+  }
+
+  function busca(k){
+    for(var i=0;i<BRIEF.SECCIONES.length;i++){
+      var c=BRIEF.SECCIONES[i].campos.filter(function(x){return x.k===k;})[0];
+      if(c)return c;
+    }
+    return null;
+  }
+  function fecha(iso){
+    try{ return new Date(iso).toLocaleDateString("es-CL",{day:"numeric",month:"long"}); }
+    catch(e){ return String(iso).slice(0,10); }
+  }
+  // Nada de lo escrito se pierde por cerrar la pestaña sin guardar: son diez minutos de trabajo.
+  function borrador(){ try{ localStorage.setItem(BORRADOR,JSON.stringify(datos)); }catch(e){} }
+
+  function faltan(){
+    var f=[];
+    BRIEF.SECCIONES.forEach(function(s){ s.campos.forEach(function(c){
+      if(!c.req)return;
+      var v=datos[c.k];
+      var vacio=c.tipo==="varias"?!(Array.isArray(v)&&v.length):!String(v||"").trim();
+      if(vacio) f.push(c.l);
+    });});
+    return f;
+  }
+
+  function enviar(){
+    if(guardando)return;
+    var est=document.getElementById("estado"), bt=document.getElementById("guardar");
+    var f=faltan();
+    if(f.length){
+      est.className="estado mal";
+      est.textContent="Falta "+(f.length===1?"":f.length+" cosas, empezando por ")+"«"+f[0]+"».";
+      var el=document.getElementById("f_"+campoDe(f[0]));
+      if(el&&el.scrollIntoView) el.scrollIntoView({behavior:"smooth",block:"center"});
+      return;
+    }
+    guardando=true; bt.disabled=true;
+    est.className="estado"; est.textContent="Guardando…";
+    fetch("/api/brief/"+encodeURIComponent(token),{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({respuestas:datos})
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+      .then(function(x){
+        guardando=false; bt.disabled=false;
+        if(!x.ok){ est.className="estado mal"; est.textContent=x.j.error||"No se pudo guardar. Inténtalo de nuevo."; return; }
+        enviadoAt=x.j.enviadoAt||new Date().toISOString();
+        try{ localStorage.removeItem(BORRADOR); }catch(e){}
+        var y=window.scrollY;
+        pinta(); window.scrollTo(0,y);
+        var e2=document.getElementById("estado");
+        e2.className="estado bien"; e2.textContent="Listo, ya nos llegó. Gracias.";
+      })
+      .catch(function(){
+        guardando=false; bt.disabled=false;
+        est.className="estado mal"; est.textContent="No se pudo guardar, revisa tu conexión.";
+      });
+  }
+  function campoDe(etiqueta){
+    for(var i=0;i<BRIEF.SECCIONES.length;i++){
+      var c=BRIEF.SECCIONES[i].campos.filter(function(x){return x.l===etiqueta;})[0];
+      if(c)return c.k;
+    }
+    return "";
+  }
+
+  // ── Arranque ────────────────────────────────────────────────────────────────────────────
+  if(!token){ app.textContent="Este enlace no es válido. Pídele uno nuevo a INMERSIA."; return; }
+  fetch("/api/brief/"+encodeURIComponent(token))
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+    .then(function(x){
+      if(!x.ok){ app.textContent=x.j.error||"Este enlace ya no sirve. Pídele uno nuevo a INMERSIA."; return; }
+      empresa=x.j.empresa||""; enviadoAt=x.j.enviadoAt||null;
+      datos=x.j.respuestas||{};
+      // Un borrador local a medio escribir manda sobre lo guardado: es lo más nuevo que hay.
+      try{
+        var b=localStorage.getItem(BORRADOR);
+        if(b&&!enviadoAt) datos=JSON.parse(b)||datos;
+      }catch(e){}
+      pinta();
+    })
+    .catch(function(){ app.textContent="No se pudo cargar. Revisa tu conexión e inténtalo de nuevo."; });
+})();
+</script>
+</body>
+</html>
