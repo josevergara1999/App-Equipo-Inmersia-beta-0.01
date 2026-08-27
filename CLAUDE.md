@@ -193,7 +193,23 @@ es una decisión del equipo, no de la app.
 **Tipos** (`TT`): `post`, `historia`, `reel`, `video_pro`, `visita`, `custom`, `repost`.
 
 **Roles**: `admin`, `editor`, `visualizador`, `Sales` (solo Prospectos), `cliente` (solo su
-portal). Aparte del rol, `vota: true` marca a quienes deciden si una pieza sale al cliente
+portal).
+
+**El acceso al portal se genera desde la ficha de la empresa**, con un botón, y queda escrito en
+la propia empresa (`co.portalEmail`) — que sí se guarda. Antes se creaba solo al dar de alta la
+empresa y el aviso cantaba las credenciales, pero ese usuario se agregaba a `us`, que es
+`useState(INIT_USERS)` y **no se persiste en ninguna parte**: al recargar volvía a las cuatro de
+fábrica y el cliente no podía entrar nunca. El correo es el nombre de la empresa normalizado y la
+clave es la de fábrica (`DEFAULT_PASS`, 1234) mientras no guarde otra.
+
+El login **ya no exige que el cliente esté en `INIT_USERS`**: un correo desconocido se manda igual
+al servidor. No abre nada — la cookie la emitía el servidor de todos modos, y el muro real está en
+`scopeCliente`, que solo entrega la empresa que calce con el correo—, pero es lo que permite que
+una empresa creada desde la app pueda entrar a su portal.
+
+**`_slug` (server.js) y el generador de accesos (frontend) tienen que dar EXACTAMENTE lo mismo.**
+Es lo que empareja el correo del portal con el nombre de la empresa. Si no coinciden, el cliente
+entra y ve una pantalla vacía, porque `scopeCliente` falla cerrado sin decir por qué. Aparte del rol, `vota: true` marca a quienes deciden si una pieza sale al cliente
 (Cleme, Gali, Javi, Jose) — se lee con el helper `votantes()`.
 
 ## Flujo de contenido

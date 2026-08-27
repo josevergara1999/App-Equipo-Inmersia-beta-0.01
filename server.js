@@ -639,7 +639,12 @@ function clienteDe(tok) {
   const esCliente = (email in CLIENTES) || !String(email).includes("@");
   return esCliente ? (CLIENTES[email] || email) : null;
 }
-const _slug = s => String(s || "").toLowerCase().replace(/\s+/g, "");
+// Tiene que dar EXACTAMENTE lo mismo que el generador de accesos del frontend: es lo que hace
+// que el correo del portal calce con el nombre de la empresa. Quitar solo los espacios dejaba
+// fuera cualquier nombre con tilde o con ñ —"Cabañas del Sur" daba "cabañasdelsur", que no se
+// puede teclear como usuario— y ahí el cliente entra pero no ve nada: sin empresa resuelta,
+// scopeCliente no entrega nada. Los cuatro clientes de siempre dan igual con las dos versiones.
+const _slug = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 // companyId (string) de la empresa del cliente, o null si no se resuelve (→ no ve nada).
 async function idEmpresaCliente(coName, companiesArr) {
   const arr = Array.isArray(companiesArr) ? companiesArr : ((await sbGet("companies", [])) || []);

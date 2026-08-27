@@ -1405,6 +1405,13 @@ function MiniVid({src,h=130,style}){
 }
 
 // ═══ LOGIN ══════════════════════════════════════════════════════
+// El cliente que no está en la lista de fábrica, deducido de su correo. La empresa NO se
+// resuelve aquí —la pantalla de login no puede leer `companies`, que va tras la sesión—: la
+// resuelve el servidor por su cuenta y ClientView se queda con la única que le llega.
+function clientePorCorreo(correo){
+  return {id:"cli_"+correo,name:correo,email:correo,role:"cliente",
+    avatar:correo.slice(0,2).toUpperCase(),color:PC.peri,companyName:correo};
+}
 function Login({users:us,onLogin:ol}){
 
   const[e,sE]=useState("");
@@ -1417,14 +1424,25 @@ function Login({users:us,onLogin:ol}){
   const go=async()=>{
     const el=e.toLowerCase().trim();
     const u=us.find(x=>x.email.toLowerCase()===el||x.name.toLowerCase()===el||(x.gmail&&x.gmail.toLowerCase()===el));
-    if(!u)return sEr("Credenciales incorrectas");
+    // Un correo que no está en la lista de fábrica se manda igual al servidor. Antes se
+    // rechazaba aquí mismo, y eso dejaba fuera a TODA empresa creada desde la app: su acceso
+    // de portal no existe en `INIT_USERS` y esa lista no se guarda en ninguna parte, así que
+    // al recargar volvía a las cuatro de siempre. El portal se daba por creado y no se podía
+    // entrar nunca.
+    //
+    // No abre nada que no estuviera abierto: la cookie la emite el servidor, que ya acepta
+    // cualquier correo con la clave de fábrica, y el muro de verdad está detrás —`scopeCliente`
+    // solo entrega la empresa que calce con el correo, y si no calza ninguna, no entrega nada.
     try{
-      const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:u.email,password:p})});
-      if(r.ok)return ol(u);
+      const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:u?u.email:el,password:p})});
+      if(r.ok)return ol(u||clientePorCorreo(el));
       if(r.status===401)return sEr("Credenciales incorrectas");
       throw new Error("servidor");
     }catch(_){
-      if(u.pass===p)ol(u);else sEr("Credenciales incorrectas");
+      // Sin servidor solo se puede comprobar contra la lista local, que a un cliente generado
+      // desde la app no lo tiene. Se dice lo que pasa en vez de «credenciales incorrectas».
+      if(u&&u.pass===p)ol(u);
+      else sEr(u?"Credenciales incorrectas":"Sin conexión con el servidor. Inténtalo de nuevo.");
     }
   };
 
@@ -1773,6 +1791,24 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     return nuevo;
   };
   const abrirBrief=co=>{asegurarBrief(co);sBriefCo(co);};
+  // El acceso al portal se GENERA a mano, no al crear la empresa. Antes se creaba solo y se
+  // anunciaba con sus credenciales, pero el usuario vivía en memoria y desaparecía al recargar:
+  // el aviso prometía un acceso que no existía. Ahora queda escrito en la propia empresa, que
+  // sí se guarda, y por eso sobrevive.
+  const generarAcceso=co=>{
+    // Misma normalización que `_slug` en el servidor, que es quien empareja este correo con la
+    // empresa. Si las dos no coinciden al pie de la letra, el cliente entra y no ve nada.
+    const correo=String(co.name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    if(!correo)return addN("Esta empresa necesita un nombre para generar su acceso");
+    const nuevos=cos.map(c=>c.id===co.id?{...c,portalEmail:correo,portalAt:new Date().toISOString()}:c);
+    sCos(nuevos);DB.save("companies",nuevos);
+    addN("Acceso creado: "+correo+" · 1234");
+  };
+  const copiarAcceso=async co=>{
+    const txt="Portal de "+co.name+": "+location.origin+"\nUsuario: "+co.portalEmail+"\nContraseña: 1234";
+    if(await copiarAlPortapapeles(txt)){sBriefCopiado("acc"+co.id);setTimeout(()=>sBriefCopiado(null),2400);}
+    else addN("No se pudo copiar. Usuario: "+co.portalEmail+" · 1234");
+  };
   const enlaceBrief=co=>location.origin+"/brief/"+asegurarBrief(co).token;
   const copiarBrief=async co=>{
     const url=enlaceBrief(co);
@@ -2043,6 +2079,27 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     </span>
                   </div>);
                 })()}
+                {/* El acceso al portal. Va aquí y no en el alta porque es una decisión aparte:
+                    una empresa puede estar creada semanas antes de que el cliente tenga por qué
+                    entrar. Y una vez generado se queda a la vista, que es lo que hace falta el
+                    día que el cliente dice «perdí la contraseña». */}
+                {(()=>{
+                  const acc=c.portalEmail;
+                  const copiado=briefCopiado==="acc"+c.id;
+                  if(!acc)return(<div style={{marginTop:8}}>
+                    <button onClick={()=>generarAcceso(c)} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px dashed var(--border2)",color:"var(--tx3)",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                      <Ic n="lock" s={13}/>Generar acceso al portal
+                    </button>
+                  </div>);
+                  return(<div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",marginTop:8,padding:"9px 12px",borderRadius:11,background:"rgba(var(--rgb-verde),.05)",border:"1px solid rgba(var(--rgb-verde),.3)"}}>
+                    <Ic n="check" s={13} c={PC.verde}/>
+                    <span style={{fontSize:11.5,fontWeight:700,color:PC.verde}}>Acceso a portal generado</span>
+                    <span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:"var(--tx2)"}}>{acc} · 1234</span>
+                    <button onClick={()=>copiarAcceso(c)} title="Copiar el acceso para mandárselo al cliente" style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:999,background:"transparent",border:"1px solid var(--border2)",color:copiado?PC.verde:"var(--tx3)",fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      <Ic n={copiado?"check":"copy"} s={11}/>{copiado?"Copiado":"Copiar"}
+                    </button>
+                  </div>);
+                })()}
                 <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
                   <button onClick={()=>{if(confirm("¿Borrar los cupos vacíos que dejó el sistema viejo en "+c.name+"?\n\nSon las piezas sin fecha, sin material y sin nada en Org Semanal (\"Post 1 "+c.name+"\", \"Historia 3 "+c.name+"\"…). Ya no hacen falta: los cupos ahora son un número.\n\nLo que tenga cualquier cosa dentro no se toca."))limpiarCupos(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🧹 Limpiar cupos vacíos</button>
                 </div>
@@ -2056,10 +2113,11 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             brief={briefCo?briefs.find(x=>String(x.companyId)===String(briefCo.id)):null}
             onGuardar={guardarBrief} addN={addN}/>
           <Md open={newCo} onClose={()=>sNC(false)} title="Nueva Empresa" width={520}><CoForm onSave={c=>{const nId=Date.now();const nc={...c,id:nId,plan:"custom",hasLoyalty:false,hasMeta:false};const newCos=[...cos,nc];sCos(newCos);DB.save("companies",newCos);
-            // Auto-create client user for this company
-            const clientId=nId+1;const clientUser={id:clientId,name:nc.name,email:nc.name.toLowerCase().replace(/\s+/g,""),role:"cliente",avatar:nc.name.slice(0,2).toUpperCase(),color:nc.color||"#9d6bff",pass:"1234",companyName:nc.name};
-            sGU(prev=>[...prev,clientUser]);
-            addN("Empresa creada: "+nc.name+" (usuario: "+clientUser.email+" / 1234)");sNC(false);}}/></Md>
+            // El acceso al portal ya NO se crea aquí. Se creaba un usuario en memoria y el aviso
+            // cantaba sus credenciales, pero esa lista no se guarda en ningún lado: al recargar
+            // desaparecía y el cliente no podía entrar nunca. Ahora se genera desde su ficha, con
+            // el botón, y queda escrito en la empresa.
+            addN("Empresa creada: "+nc.name+". Genera su acceso al portal desde su ficha.");sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title={"Editar · "+(editCo?.name||"")} width={520}>{editCo&&<div>
             <Fd label="Nombre del plan"><input defaultValue={editCo.planName||PLANS[editCo.plan]?.name||editCo.plan} onChange={e=>{editCo._planName=e.target.value;}} placeholder="Nombre del plan"/></Fd>
             <Fd label="Valor mensual (neto)"><input type="number" defaultValue={editCo.price||editCo.customPrice||PLANS[editCo.plan]?.price||0} onChange={e=>{editCo._price=e.target.value;}} placeholder="690000"/></Fd>
@@ -10373,7 +10431,11 @@ function ClientView({user:cu,onLogout:ol}){
     catch(e){pinta(!fav);sToast("⚠️ No se pudo guardar, revisa tu conexión");}
   };
 
-  const co=cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
+  // El servidor ya entrega SOLO la empresa del cliente (`scopeCliente`), así que si llega una,
+  // es la suya. Calzar por nombre era frágil de más: el correo del portal no lleva espacios ni
+  // tildes y el nombre de la empresa sí, y en cuanto no calzaban el portal salía vacío sin
+  // decir por qué. El calce se queda de respaldo para cuando llega más de una.
+  const co=cos.length===1?cos[0]:cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
   const myTasks=useMemo(()=>tasks.filter(t=>co&&String(t.companyId)===String(co.id)),[tasks,co]);
   const approval=useMemo(()=>myTasks.filter(t=>t.state==="en_aprobacion"&&t.files&&t.files.length),[myTasks]);
   const planItems=useMemo(()=>myTasks.filter(t=>t.state==="aprobado"||t.state==="publicado"),[myTasks]);
