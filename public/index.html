@@ -1506,7 +1506,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
   const canProspectos=isA||cu.role==="Sales";
-  const[pg,sPg]=useState("dashboard");
+  // Un aviso puede pedir una pantalla concreta (?pg=companies), que es lo que hace el push del
+  // brief: si el mensaje dice "ya se puede leer en Empresas", el toque tiene que caer en
+  // Empresas y no en Inicio. Solo se acepta una pantalla que exista, y el parámetro se borra de
+  // la barra: recargar mañana no tiene por qué devolverte al mismo sitio.
+  const[pg,sPg]=useState(()=>{
+    try{
+      const q=new URLSearchParams(window.location.search).get("pg");
+      if(q&&visP[q]){window.history.replaceState({},document.title,window.location.pathname);return q;}
+    }catch(_){}
+    return "dashboard";
+  });
   const[planVista,sPlanVista]=useState("semana");
   const visP={dashboard:["Dashboard","","dashboard"],planner:["Org Semanal","","planner"],companies:["Empresas","","companies"],guionado:["Guionado","","edit"],contenido:["Contenido","","paperclip"],team:["Equipo","","team"],payments:["Pagos","","payments"],metricas:["Métricas","","trend_up"],fidelizacion:["Fidelización","","loyalty"]};
   const irA=k=>sPg(k);

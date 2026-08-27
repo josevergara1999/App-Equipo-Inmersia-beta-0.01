@@ -1637,6 +1637,7 @@ app.post("/api/brief/:token", rateLimit(20, "brief-guardar"), async (req, res) =
           ? nombre + " respondió su brief. Ya se puede leer en Empresas."
           : nombre + " corrigió su brief. Vale la pena repasarlo.",
         to: TEAM.filter(u => u.role === "admin").map(u => u.email),
+        url: "/?pg=companies",
         important: true,
         dedupKey: "brief_" + hecho.brief.companyId + "_" + hecho.enviadoAt.slice(0, 13),
       });
