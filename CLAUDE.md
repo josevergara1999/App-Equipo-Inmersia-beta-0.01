@@ -207,6 +207,17 @@ al servidor. No abre nada — la cookie la emitía el servidor de todos modos, y
 `scopeCliente`, que solo entrega la empresa que calce con el correo—, pero es lo que permite que
 una empresa creada desde la app pueda entrar a su portal.
 
+**Quitar el acceso es `co.portalOff`, y lo comprueba el LOGIN.** Borrar `portalEmail` no revoca
+nada: el servidor acepta cualquier usuario con la clave de fábrica y resuelve la empresa por su
+nombre, así que limpiar el campo deja la puerta igual de abierta. `/api/auth/login` mira
+`portalOff` antes de emitir la cookie. Volver a generar el acceso pone `portalOff:false` — si no,
+escribiría el correo y el login lo seguiría rechazando.
+
+**El cliente pone su correo de contacto desde su portal** (`POST /api/perfil/correo`), y es el
+mismo `co.email` que el equipo ya usaba para avisarle. Ruta propia y estrecha, como la de las
+fotos favoritas: darle la clave `companies` le dejaría reescribir su plan, sus cupos y sus Drive.
+Ese correo entra solo en las invitaciones de Meet al elegir la empresa.
+
 **`_slug` (server.js) y el generador de accesos (frontend) tienen que dar EXACTAMENTE lo mismo.**
 Es lo que empareja el correo del portal con el nombre de la empresa. Si no coinciden, el cliente
 entra y ve una pantalla vacía, porque `scopeCliente` falla cerrado sin decir por qué. Aparte del rol, `vota: true` marca a quienes deciden si una pieza sale al cliente

@@ -692,7 +692,7 @@ const slugEmpresa=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"
 // el suyo escrito ahí desde antes de que el botón existiera. Sin esto, Fauna y Huemul —que
 // llevan meses entrando a su portal— aparecían como si nunca se les hubiera dado acceso.
 const accesoPortal=co=>{
-  if(!co)return null;
+  if(!co||co.portalOff)return null;   // revocado: ni el generado ni el de fábrica valen
   if(co.portalEmail)return co.portalEmail;
   const u=INIT_USERS.find(x=>x.role==="cliente"&&slugEmpresa(x.companyName)===slugEmpresa(co.name));
   return u?u.email:null;
@@ -1817,6 +1817,16 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     return nuevo;
   };
   const abrirBrief=co=>{asegurarBrief(co);sBriefCo(co);};
+  const[quitarAcc,sQuitarAcc]=useState(null);
+  // Revocar NO es borrar el correo y ya: el servidor acepta cualquier usuario con la clave de
+  // fábrica y resuelve la empresa por su nombre, así que limpiar el campo dejaría la puerta
+  // igual de abierta. Lo que cierra es `portalOff`, que el login mira antes de dejar entrar.
+  const revocarAcceso=co=>{
+    const nuevos=cos.map(c=>c.id===co.id?{...c,portalOff:true,portalEmail:"",portalOffAt:new Date().toISOString()}:c);
+    sCos(nuevos);DB.save("companies",nuevos);
+    sQuitarAcc(null);
+    addN("Acceso al portal de "+co.name+" eliminado");
+  };
   // El acceso al portal se GENERA a mano, no al crear la empresa. Antes se creaba solo y se
   // anunciaba con sus credenciales, pero el usuario vivía en memoria y desaparecía al recargar:
   // el aviso prometía un acceso que no existía. Ahora queda escrito en la propia empresa, que
@@ -1824,7 +1834,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const generarAcceso=co=>{
     const correo=slugEmpresa(co.name);
     if(!correo)return addN("Esta empresa necesita un nombre para generar su acceso");
-    const nuevos=cos.map(c=>c.id===co.id?{...c,portalEmail:correo,portalAt:new Date().toISOString()}:c);
+    // `portalOff:false` es obligatorio: si se revocó antes y no se levanta la marca, generar el
+    // acceso de nuevo escribiría el correo pero el login lo seguiría rechazando, y el botón
+    // parecería no hacer nada.
+    const nuevos=cos.map(c=>c.id===co.id?{...c,portalEmail:correo,portalOff:false,portalAt:new Date().toISOString()}:c);
     sCos(nuevos);DB.save("companies",nuevos);
     addN("Acceso creado: "+correo+" · 1234");
   };
@@ -2123,6 +2136,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                     <button onClick={()=>copiarAcceso(c)} title="Copiar el acceso para mandárselo al cliente" style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:999,background:"transparent",border:"1px solid var(--border2)",color:copiado?PC.verde:"var(--tx3)",fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>
                       <Ic n={copiado?"check":"copy"} s={11}/>{copiado?"Copiado":"Copiar"}
                     </button>
+                    <button onClick={()=>sQuitarAcc(c)} title="Quitarle el acceso al portal" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-rojo2),.3)",color:PC.rojo,fontFamily:"inherit",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      <Ic n="trash" s={11}/>Eliminar
+                    </button>
                   </div>);
                 })()}
                 <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
@@ -2134,6 +2150,23 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div>);})}
           </div>
+          {/* Es una puerta que se cierra, no un dato que se borra, así que se dice qué pasa de
+              verdad: deja de poder entrar. Y se dice también lo que NO pasa, que es lo que la
+              gente teme al pulsar un botón rojo — su contenido y sus fotos siguen ahí. */}
+          <Md open={!!quitarAcc} onClose={()=>sQuitarAcc(null)} title="¿Eliminar el acceso al portal?" width={430}>
+            {quitarAcc&&<div>
+              <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 10px",color:"var(--tx2)"}}>
+                <b>{quitarAcc.name}</b> deja de poder entrar a su portal. Si lo intenta, le va a decir que las credenciales no son correctas.
+              </p>
+              <p style={{fontSize:12.5,lineHeight:1.55,margin:"0 0 16px",color:"var(--tx4)"}}>
+                No se borra nada suyo: su contenido, sus fotos y su brief siguen donde están, y tú los sigues viendo. Si algún día vuelven a trabajar juntos, se le genera el acceso de nuevo desde aquí.
+              </p>
+              <div style={{display:"flex",justifyContent:"flex-end",gap:8,flexWrap:"wrap"}}>
+                <Bt v="s" onClick={()=>sQuitarAcc(null)}>Cancelar</Bt>
+                <Bt v="d" onClick={()=>revocarAcceso(quitarAcc)} icon="trash">Eliminar el acceso</Bt>
+              </div>
+            </div>}
+          </Md>
           <BriefModal open={!!briefCo} onClose={()=>sBriefCo(null)} co={briefCo}
             brief={briefCo?briefs.find(x=>String(x.companyId)===String(briefCo.id)):null}
             onGuardar={guardarBrief} addN={addN}/>
@@ -3243,7 +3276,10 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
     const co=cos.find(c=>String(c.id)===String(agF.companyId));
     const gente=users.filter(u=>agF.attendees.includes(u.id));
     const sueltos=agF.extra.split(/[,;\s]+/).map(e=>e.trim()).filter(e=>e.includes("@"));
-    const invitados=[...new Set([...gente.map(u=>u.gmail||u.email),...sueltos].filter(e=>e&&e.includes("@")))];
+    // El correo de la empresa entra solo cuando se elige la empresa. Antes había que acordarse
+    // de teclearlo en "otros invitados" cada vez, y el cliente se quedaba sin su enlace de Meet
+    // en la reunión que era sobre él. Lo pone él mismo desde su portal, así que está bien escrito.
+    const invitados=[...new Set([...gente.map(u=>u.gmail||u.email),...sueltos,co?.email].filter(e=>e&&e.includes("@")))];
     const id=Date.now();
     const cuando=agF.date+" a las "+agF.time;
 
@@ -9234,18 +9270,39 @@ const pcPill=(color,activo)=>({padding:"7px 18px",borderRadius:999,border:"none"
 const pcInput={padding:"11px 14px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)",color:"var(--tx)",fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box",width:"100%"};
 
 // Modal de perfil: correo asignado, cambio de contraseña y accesos a los Drive.
-function PerfilModal({open,onClose,user,co,onToast}){
+function PerfilModal({open,onClose,user,co,onToast,onEmail}){
   const[tab,sTab]=useState("cuenta");
   const[actual,sActual]=useState("");
   const[nueva,sNueva]=useState("");
   const[repite,sRepite]=useState("");
   const[msg,sMsg]=useState(null);          // {texto,ok}
   const[guardando,sGuardando]=useState(false);
-  useEffect(()=>{if(open){sTab("cuenta");sActual("");sNueva("");sRepite("");sMsg(null);}},[open]);
+  const[correo,sCorreo]=useState("");
+  const[correoMsg,sCorreoMsg]=useState(null);
+  const[correoBusy,sCorreoBusy]=useState(false);
+  useEffect(()=>{if(open){sTab("cuenta");sActual("");sNueva("");sRepite("");sMsg(null);sCorreo(co?.email||"");sCorreoMsg(null);}},[open,co]);
   if(!open)return null;
 
   const drives=(co&&co.links)||[];
   const iniciales=(user.companyName||user.name||"?").slice(0,2).toUpperCase();
+
+  // El correo va por su ruta propia: la clave `companies` no se le puede dar a un cliente, que
+  // ahí viven su plan, sus cupos y sus enlaces de Drive.
+  const guardarCorreo=async()=>{
+    sCorreoMsg(null);sCorreoBusy(true);
+    try{
+      const r=await fetch("/api/perfil/correo",{method:"POST",credentials:"include",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({email:correo.trim()})});
+      const j=await r.json();
+      if(!r.ok)throw new Error(j.error||"No se pudo guardar");
+      // Se avisa hacia arriba en vez de tocar `co`: mutar un prop no repinta a quien lo pasó,
+      // y el portal seguiría mostrando el correo viejo en todo lo demás hasta recargar.
+      onEmail&&onEmail(j.email);
+      sCorreoMsg({texto:j.email?"Listo. A este correo van a llegar las invitaciones.":"Correo borrado.",ok:true});
+      onToast&&onToast("Correo guardado");
+    }catch(e){sCorreoMsg({texto:e.message,ok:false});}
+    sCorreoBusy(false);
+  };
 
   const guardar=async()=>{
     sMsg(null);
@@ -9283,13 +9340,35 @@ function PerfilModal({open,onClose,user,co,onToast}){
         </div>
 
         {tab==="cuenta"&&<>
+          {/* Antes esto decía "correo asignado a esta cuenta" y mostraba el nombre de usuario,
+              que no es un correo y no recibe nada. Son dos cosas distintas y ahora se ven como
+              dos: arriba con qué entras —que no se cambia—, abajo a dónde te escribimos, que lo
+              pone el cliente. Ese segundo es el `co.email` que el equipo ya usaba para avisarle
+              cuando le manda una pieza o le entrega fotos; hasta ahora lo tecleaba el equipo de
+              oído, y un correo mal copiado no falla: simplemente no llega nunca. */}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Correo asignado a esta cuenta</label>
+            <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Tu nombre de usuario</label>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderRadius:12,background:PC.panel,border:"1px solid "+PC.line2}}>
-              <Ic n="inbox" s={15} c={PC.peri}/>
+              <Ic n="lock" s={15} c={PC.peri}/>
               <span style={{fontFamily:"var(--font-mono)",fontSize:13.5,color:PC.tx2,wordBreak:"break-all"}}>{user.email}</span>
             </div>
-            <span style={{fontSize:11.5,color:PC.tx4}}>Para cambiarlo, escríbenos a INMERSIA.</span>
+            <span style={{fontSize:11.5,color:PC.tx4}}>Es con lo que entras aquí. Para cambiarlo, escríbenos a INMERSIA.</span>
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Correo de contacto</label>
+            <span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.5,marginTop:-3}}>
+              Aquí te llegan las <b style={{color:PC.tx3}}>invitaciones a reuniones</b> con su enlace de Meet, y los avisos de INMERSIA cuando hay contenido esperándote.
+            </span>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <input type="email" value={correo} onChange={e=>sCorreo(e.target.value)} placeholder="tucorreo@empresa.cl"
+                onKeyDown={e=>{if(e.key==="Enter")guardarCorreo();}}
+                style={{flex:"1 1 210px",minWidth:0,padding:"11px 14px",borderRadius:12,background:"var(--bg3)",border:"1px solid "+PC.line2,color:PC.tx,fontFamily:"inherit",fontSize:13.5,outline:"none"}}/>
+              <Bt v="p" onClick={guardarCorreo} disabled={correoBusy||correo.trim()===(co?.email||"").trim()} icon="save">
+                {correoBusy?"Guardando…":"Guardar"}
+              </Bt>
+            </div>
+            {correoMsg&&<span style={{fontSize:11.5,color:correoMsg.ok?PC.verde:PC.rojo,lineHeight:1.45}}>{correoMsg.texto}</span>}
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -10624,7 +10703,8 @@ function ClientView({user:cu,onLogout:ol}){
       </header>
 
       <ZoomLayer/>
-      <PerfilModal open={perfil} onClose={()=>sPerfil(false)} user={cu} co={co} onToast={sToast}/>
+      <PerfilModal open={perfil} onClose={()=>sPerfil(false)} user={cu} co={co} onToast={sToast}
+        onEmail={correo=>sCos(p=>p.map(c=>c.id===co?.id?{...c,email:correo}:c))}/>
       {busy&&<div className="blink-slow" style={{position:"fixed",top:"env(safe-area-inset-top, 0px)",left:0,right:0,height:3,background:PC.cian,zIndex:200}}/>}
       {toast&&<div style={{position:"fixed",top:"calc(70px + env(safe-area-inset-top, 0px))",left:"50%",transform:"translateX(-50%)",zIndex:300,background:PC.panel,border:"1px solid "+PC.line2,borderRadius:999,padding:"10px 20px",fontSize:13,fontWeight:600,color:PC.tx,boxShadow:"0 8px 28px rgba(var(--rgb-sombra),.5)",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
 

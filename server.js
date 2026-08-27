@@ -367,6 +367,18 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
     const ok = c ? hashPass(pass, c.salt) === c.hash : pass === DEFAULT_PASS;
     if (!ok) return res.status(401).json({ error: "Credenciales incorrectas" });
 
+    // Un cliente al que le quitaron el acceso no entra, aunque la contraseña sea correcta.
+    // Tiene que comprobarse AQUÍ y no solo escondiendo el botón en la app del equipo: el login
+    // acepta cualquier usuario con la clave de fábrica y la empresa se resuelve por su nombre,
+    // así que borrar el campo en la ficha dejaba la puerta exactamente igual de abierta.
+    // Solo aplica a clientes: un correo del equipo lleva "@" y no pasa por aquí.
+    const coCliente = clienteDe({ email });
+    if (coCliente) {
+      const cos = (await sbGet("companies", [])) || [];
+      const suya = cos.find(x => _slug(x.name) === _slug(coCliente));
+      if (!suya || suya.portalOff) return res.status(401).json({ error: "Credenciales incorrectas" });
+    }
+
     setAuthCookie(req, res, email);
     res.json({ ok: true, email, usandoClavePorDefecto: !c });
   } catch (err) { console.error("login:", err); res.status(500).json({ error: err.message }); }
@@ -807,6 +819,52 @@ function esAdminReq(req) {
   const email = norm(authInfo(req)?.email);
   return !!email && TEAM.some(u => u.role === "admin" && (norm(u.email) === email || norm(u.gmail) === email));
 }
+// El cliente pone el correo de su empresa desde su portal. Ruta propia y estrecha, como la de
+// las fotos favoritas: darle la clave `companies` en `/api/data` le dejaría reescribir su plan,
+// sus cupos y sus enlaces de Drive. Aquí solo se acepta UN campo, de SU empresa, y cuál es su
+// empresa lo decide el servidor por la sesión — no viaja en el cuerpo, así que no hay nada que
+// falsear desde el navegador.
+//
+// Es el mismo `co.email` que ya usaba el equipo para avisarle cuando le manda una pieza al portal
+// o le entrega fotos. Lo que cambia es quién lo escribe: hasta ahora lo tecleaba el equipo de
+// oído, y un correo mal copiado no falla, simplemente no llega nunca.
+app.post("/api/perfil/correo", requireAuth, rateLimit(20, "perfil-correo"), async (req, res) => {
+  try {
+    const correo = String((req.body && req.body.email) || "").trim().toLowerCase();
+    if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(correo))
+      return res.status(400).json({ error: "Ese correo no parece válido" });
+
+    const co = clienteDe(authInfo(req));
+    if (!co) return res.status(403).json({ error: "Esto solo lo cambia el cliente desde su portal" });
+    const cid = await idEmpresaCliente(co);
+    if (!cid) return res.status(403).json({ error: "empresa no resuelta" });
+
+    const hecho = await enCola(async () => {
+      const cos = (await sbGet("companies", [])) || [];
+      if (!cos.some(c => String(c.id) === cid)) return { estado: 404, error: "empresa no encontrada" };
+      const nuevas = cos.map(c => String(c.id) === cid ? { ...c, email: correo } : c);
+      if (!(await sbPut("companies", nuevas))) return { estado: 502, error: "No se pudo guardar" };
+      return { estado: 200, nombre: (cos.find(c => String(c.id) === cid) || {}).name };
+    });
+    if (hecho.estado !== 200) return res.status(hecho.estado).json({ error: hecho.error });
+
+    // Al equipo le sirve enterarse: es el correo al que van a salir las invitaciones.
+    try {
+      await crearNotif({
+        type: "perfil",
+        title: (hecho.nombre || "Un cliente") + " puso su correo",
+        body: correo ? (hecho.nombre || "El cliente") + " dejó " + correo + " para las reuniones y los avisos."
+                     : (hecho.nombre || "El cliente") + " borró su correo de contacto.",
+        to: TEAM.filter(u => u.role === "admin").map(u => u.email),
+        url: "/?pg=companies",
+        dedupKey: "correo_" + cid + "_" + correo,
+      });
+    } catch (e) { console.error("aviso correo:", e.message); }
+
+    res.json({ ok: true, email: correo });
+  } catch (e) { console.error("perfil correo:", e.message); res.status(502).json({ error: e.message }); }
+});
+
 app.post("/api/admin/limpiar-contenido", requireAuth, async (req, res) => {
   if (!esAdminReq(req)) return res.status(403).json({ error: "solo un admin puede limpiar el contenido" });
   try {
