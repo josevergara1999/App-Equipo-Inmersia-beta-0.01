@@ -19,3 +19,7 @@ Thumbs.db
 
 # Grafo de graphify — se regenera, no se versiona
 graphify-out/
+
+# Briefs exportados a mano: llevan nombre, teléfono y correo reales de un cliente.
+# Se generan para leerlos cuando la app no está disponible; no van al repo.
+brief-*.txt
