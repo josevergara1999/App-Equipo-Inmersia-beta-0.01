@@ -10852,7 +10852,15 @@ useEffect(() => {
   if (saved && !u) {
     const sl=saved.toLowerCase();
     const found = us.find(x => x.email.toLowerCase()===sl || x.name.toLowerCase()===sl || (x.gmail&&x.gmail.toLowerCase()===sl));
-    sU(found || { id:99, name: saved.split("@")[0], email: saved, role: "admin", avatar: saved.slice(0,2).toUpperCase(), color: "#9d6bff" });
+    // Un correo que NO está en la lista ya no se da por admin. Se daba, y desde que un cliente
+    // puede tener cualquier nombre de usuario, entrar al portal de uno y recargar te dejaba con
+    // la pantalla del equipo y la sesión del cliente: el servidor recorta los datos a los suyos
+    // (scopeCliente) y en la pantalla del equipo parece que faltaran cosas —el brief de una
+    // empresa desaparece, los cupos salen en cero— sin que nada avise. La regla es la misma que
+    // usa el servidor: sin "@" es un cliente.
+    sU(found || (sl.includes("@")
+      ? { id:99, name: saved.split("@")[0], email: saved, role: "admin", avatar: saved.slice(0,2).toUpperCase(), color: "#9d6bff" }
+      : clientePorCorreo(sl)));
   }
 
 }, []);
