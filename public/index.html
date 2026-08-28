@@ -1548,6 +1548,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // encendían a la vez.
   const navActiva=it=>pg===it.k;
   const[cos,sCos]=useState([]);
+  // Pagos se carga bajo demanda. Hasta que llegue, la pantalla no se dibuja: sus dos botones de
+  // guardar escriben la fila ENTERA desde memoria, así que guardar con esto vacío borraría el
+  // historial de pagos completo.
+  const[pagosListo,sPagosListo]=useState(false);
   // Un brief por empresa: {companyId, token, respuestas, enviadoAt, analisis, analisisAt}.
   const[briefs,sBriefs]=useState([]);
   const[briefCo,sBriefCo]=useState(null);
@@ -1664,8 +1668,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.prospects?.length)sPros(d.prospects);
       if(d.galerias?.length)sGal(d.galerias);
       if(d.briefs?.length)sBriefs(d.briefs);
-      if(d.teamPay)sTP(d.teamPay);
-      if(d.billRcpts)sBR(d.billRcpts);
+      // `teamPay` y `billRcpts` NO se cargan aquí: entre las dos pesan 4,6 MB —comprobantes de
+      // pago guardados en base64 dentro de la fila— y solo las mira la pantalla de Pagos, que se
+      // abre de vez en cuando y solo un admin. Traerlas en cada arranque, para todos, era el 62%
+      // de lo que la app descargaba. Se piden al entrar a Pagos.
       sDbLoaded(true);
     }).catch(()=>sDbLoaded(true));
   },[]);
@@ -1861,6 +1867,17 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     sBriefs(nuevos);
     if(!servidor)DB.save("briefs",nuevos);
   };
+  useEffect(()=>{
+    if(pg!=="payments"||pagosListo)return;
+    let vivo=true;
+    Promise.all([DB.load("teamPay"),DB.load("billRcpts")]).then(([tp,br])=>{
+      if(!vivo)return;
+      if(tp)sTP(tp);
+      if(br)sBR(br);
+      sPagosListo(true);
+    }).catch(()=>{if(vivo)addN("No se pudieron cargar los pagos. Recarga la página.");});
+    return()=>{vivo=false;};
+  },[pg,pagosListo]);
   const limpiarCupos=coId=>{const co=cos.find(c=>c.id===coId);if(!co)return;
     sT(p=>{
       // El patrón importa: genTasks creaba exactamente "<Tipo> <n> <Empresa>". Sin exigirlo,
@@ -2263,7 +2280,13 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* PAYMENTS */}
-        {pg==="payments"&&isA&&(<div className="fi" style={{maxWidth:900,margin:"0 auto"}}>
+        {/* Hasta que los pagos lleguen no se dibuja la pantalla: sus dos botones de guardar
+            escriben la fila ENTERA desde memoria, y guardar con esto a medio cargar borraría el
+            historial completo. Es la misma trampa que el CLAUDE.md documenta para `tasks`. */}
+        {pg==="payments"&&isA&&!pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto",textAlign:"center",padding:"70px 20px",color:D.tx3,fontSize:14}}>
+          Cargando los pagos…
+        </div>)}
+        {pg==="payments"&&isA&&pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto"}}>
           <PayBillPg users={users.filter(u=>u.role!=="cliente")} teamPay={teamPay} sTP={sTP} addN={addN} cos={cos} plans={PLANS} billing={mBill} month={MO[cM]} year={cY} remEx={remEx} billRcpts={billRcpts} sBR={sBR} cM={cM} cY={cY} avisar={avisar} correosDe={correosDe} cu={cu}/>
         </div>)}
 

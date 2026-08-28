@@ -649,6 +649,40 @@ dominio, hay que sumarlo ahí y en Google Cloud.
 La web pública (`inmersiaperformance.cl`) es otro repo: `~/GitHub/inmersia-web`, HTML estático
 en GitHub Pages. Tiene el botón "Portal" en la barra superior.
 
+### El plan gratuito también tiene tope de ANCHO DE BANDA, y es el que revienta primero
+
+5 GB/mes por workspace. Al agotarlo Render **suspende el servicio** — no lo duerme: lo apaga, y
+sale un 503 con `x-render-routing: suspend-by-user`. Pasó el **28-ago-2026 a las 8:48**.
+
+Desde fuera parece pérdida de datos, y por eso cuesta reconocerlo: el service worker sigue
+sirviendo la app desde su caché y `DB.loadAll()` devuelve `{}` en silencio, así que la pantalla se
+dibuja entera pero vacía. Las empresas salen del respaldo de `localStorage`, los cupos aparecen en
+cero y un brief respondido figura como "Sin enviar". **Antes de investigar por qué falta un dato,
+comprobar que el servidor responde**: `curl -s -o /dev/null -w "%{http_code}" .../api/health`.
+
+Lo que se comía el cupo era `/api/data`, que enviaba **7,5 MB en cada carga**, y el 96% eran
+archivos en base64 metidos dentro de las filas:
+
+| clave | peso | qué era |
+|---|---|---|
+| `teamPay` | 4,48 MB | 6 comprobantes de pago en base64 — el 100% de la fila |
+| `backup_limpieza_*` | 2,73 MB | un respaldo del 10-ago que viajaba a todos, en cada carga |
+| `billRcpts` | 0,14 MB | 2 comprobantes más |
+
+Son 684 aperturas de la app y se acabó el mes. Dos cambios lo dejaron en **0,14 MB** (54× menos,
+37.000 cargas):
+
+- **Los `backup_*` no se sirven por `/api/data`.** Son una foto para poder deshacer una limpieza
+  desde la base; nadie los lee desde el navegador.
+- **`teamPay` y `billRcpts` se piden al entrar a Pagos**, no al arrancar. Y hasta que llegan, la
+  pantalla no se dibuja: sus dos botones escriben la fila ENTERA desde memoria, así que guardar a
+  medio cargar borraría el historial de pagos completo.
+
+**La causa de fondo sigue ahí**: esos comprobantes son base64 dentro de `app_data`. Es la misma
+trampa que ya está escrita para `tasks` —"nunca guardar binarios en una fila que `loadAll()` trae
+entera"— y a Pagos no se le aplicó. Lo correcto es subirlos a Storage y dejar la URL, como se hizo
+con las fotos de las sesiones.
+
 ### El ping que mantiene despierto Render — no es tráfico raro
 
 Render duerme el plan gratuito tras **15 minutos** sin tráfico y tarda **~1 minuto** en volver.

@@ -689,7 +689,15 @@ async function sbGetAll() {
   const r = await fetch(`${url}/rest/v1/app_data?select=key,value`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
   if (!r.ok) throw new Error("Supabase respondió " + r.status);
   const d = await r.json();
-  const m = {}; (Array.isArray(d) ? d : []).forEach(x => { if (!CLAVES_PRIVADAS.has(x.key)) m[x.key] = x.value; }); return m;
+  // Los respaldos (`backup_limpieza_*`) NO se mandan. Son una foto que se guarda antes de
+  // limpiar contenido de prueba, para poder deshacerlo desde la base si hiciera falta; nadie los
+  // lee desde el navegador. Iban en cada carga de la app, para todos, y el del 10-ago pesaba
+  // 2,73 MB — el 36% de lo que se enviaba. Eso agotó los 5 GB de ancho de banda del plan y
+  // suspendió el servicio el 28-ago-2026.
+  const m = {}; (Array.isArray(d) ? d : []).forEach(x => {
+    if (CLAVES_PRIVADAS.has(x.key) || String(x.key).startsWith("backup_")) return;
+    m[x.key] = x.value;
+  }); return m;
 }
 
 // ── Proxy de datos (app_data) ────────────────────────────────────────────────
