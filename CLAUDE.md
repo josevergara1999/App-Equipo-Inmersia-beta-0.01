@@ -669,19 +669,48 @@ archivos en base64 metidos dentro de las filas:
 | `backup_limpieza_*` | 2,73 MB | un respaldo del 10-ago que viajaba a todos, en cada carga |
 | `billRcpts` | 0,14 MB | 2 comprobantes más |
 
-Son 684 aperturas de la app y se acabó el mes. Dos cambios lo dejaron en **0,14 MB** (54× menos,
-37.000 cargas):
+Son 684 aperturas de la app y se acabó el mes.
 
-- **Los `backup_*` no se sirven por `/api/data`.** Son una foto para poder deshacer una limpieza
-  desde la base; nadie los lee desde el navegador.
-- **`teamPay` y `billRcpts` se piden al entrar a Pagos**, no al arrancar. Y hasta que llegan, la
-  pantalla no se dibuja: sus dos botones escriben la fila ENTERA desde memoria, así que guardar a
-  medio cargar borraría el historial de pagos completo.
+#### Volvió a pasar el 31-ago, y por qué el arreglo del 28 no sirvió
+
+**Quitar el consumidor no baja el tráfico.** El 28-ago se sacaron `teamPay` y `billRcpts` del
+FRONTEND —dejó de leerlas al arrancar— y se dio por hecho que la carga bajaba a 0,14 MB. Pero
+`sbGetAll()` las seguía mandando: el servidor las ponía en la respuesta y el navegador se
+descargaba **4,6 MB en cada carga para tirarlos a la basura**. Solo bajó lo del `backup_*`, que sí
+se filtró en el servidor. Tres días después, el 31-ago, Render volvió a suspender el servicio.
+
+Medido contra los datos reales el 31-ago, y ahora sí desde el cable:
+
+| | antes | ahora |
+|---|---|---|
+| `/api/data` | 4,88 MB | **23 KB** (144 KB, gzip) |
+| `index.html` | 852 KB | **241 KB** (gzip) |
+| por apertura | ~5,7 MB | **~264 KB** — 21× menos |
+
+Tres cambios, todos en el servidor, que es el único sitio donde el tráfico se mide:
+
+- **`CLAVES_PESADAS`** (`teamPay`, `billRcpts`) y los `backup_*` se excluyen **en la consulta a
+  Supabase**, no solo al armar la respuesta: así tampoco viajan de Supabase a Render. Pagos las
+  sigue pidiendo por `/api/data/:key`, que no cambió.
+- **gzip (`compression`) delante de todo.** Faltaba, y pesa: el service worker va a la RED primero
+  a propósito (para no servir una versión vieja tras cada despliegue), así que `index.html` se
+  descargaba entero y en crudo en CADA apertura. La caché no ahorra tráfico; gzip sí.
+- `forceReload` recarga Pagos por su clave, y solo si esa pantalla ya estaba cargada.
+
+**Cómo comprobarlo de verdad**, sin creerle al frontend:
+`curl -s -o /dev/null -w "%{size_download}
+" -H "Accept-Encoding: gzip" .../api/data` con cookie
+de sesión. Lo que cuenta Render es eso, no lo que la app decida usar.
 
 **La causa de fondo sigue ahí**: esos comprobantes son base64 dentro de `app_data`. Es la misma
 trampa que ya está escrita para `tasks` —"nunca guardar binarios en una fila que `loadAll()` trae
 entera"— y a Pagos no se le aplicó. Lo correcto es subirlos a Storage y dejar la URL, como se hizo
-con las fotos de las sesiones.
+con las fotos de las sesiones. Mientras no se haga, la fila crece con cada comprobante y Pagos
+tarda más cada vez.
+
+**Pendiente aparte**: `DB.loadAll()` se llama desde media docena de componentes (Main, Contenido,
+Fotos, Guionado, planners…), así que una sesión pide `/api/data` varias veces. Con 23 KB ya no
+duele, pero sigue siendo trabajo repetido.
 
 ### El ping que mantiene despierto Render — no es tráfico raro
 

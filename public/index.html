@@ -1690,7 +1690,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.tasks?.length){sT(d.tasks);hadData.current.tasks=true;}
       if(d.planners?.length){sPlanners(d.planners);hadData.current.planners=true;}
       if(d.planner_drafts)sPDrafts(d.planner_drafts);
-      if(d.teamPay)sTP(d.teamPay);
+      // Pagos ya no viaja en /api/data (pesa 4,6 MB y solo lo mira esa pantalla). Se recarga
+      // por su clave, y SOLO si ya estaba cargado: si no, este botón se traería los 4,6 MB
+      // para alguien que ni siquiera abrió Pagos.
+      if(pagosListo){const tp=await DB.load("teamPay");if(tp)sTP(tp);}
       addN("✅ Datos recargados desde Supabase");
     }catch(e){addN("❌ Error: "+e.message);}};
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0){console.warn("BLOCKED: refusing to save empty companies");return;}dbSave("companies",cos);localStorage.setItem("inm_companies_backup",JSON.stringify(cos));},[cos,dbLoaded]);

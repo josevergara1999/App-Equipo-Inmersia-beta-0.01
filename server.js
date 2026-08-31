@@ -4,6 +4,7 @@
 try { require("dotenv").config(); } catch (e) { /* dotenv es opcional */ }
 
 const express = require("express");
+const compression = require("compression");
 const path = require("path");
 const multer = require("multer");
 const crypto = require("crypto");
@@ -20,6 +21,13 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 // Límite generoso: los arrays de tareas/planners/prospectos pasan de los 100 KB por defecto de
 // Express, y ahora se guardan a través del servidor (antes iban directos a Supabase sin tope).
 // Los binarios NO van por aquí: se suben a Storage por /api/upload. Todo detrás de requireAuth.
+// Gzip para todo lo que sale. Sin esto, `index.html` viajaba entero y en crudo —863 KB— en cada
+// apertura de la app: el service worker va a la RED primero (a propósito, para no servir una
+// versión vieja tras cada despliegue), así que la caché no ahorra ni un byte de tráfico. Con gzip
+// son 240 KB, 3,6 veces menos, y el JSON de `/api/data` baja aún más porque es texto repetido.
+// Va ANTES de las rutas: comprime tanto `express.static` como las respuestas de la API.
+app.use(compression());
+
 app.use(express.json({ limit: "15mb", verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 // ===============================
@@ -682,11 +690,29 @@ async function scopeCliente(mapa, coName) {
   return { companies: miCo ? [miCo] : [], tasks, galerias };
 }
 
+// Filas PESADAS: existen, pero NO se sirven en el volcado general.
+//
+// `teamPay` y `billRcpts` son comprobantes de pago guardados en base64 dentro de la propia fila
+// —4,6 MB entre las dos— y solo los mira la pantalla de Pagos, que abre un admin de vez en
+// cuando. El 28-ago se sacaron del FRONTEND (dejó de leerlas al arrancar) pero el servidor
+// las seguía mandando: la app se descargaba 4,6 MB en cada carga para tirarlos a la basura.
+// Por eso el ancho de banda no bajó y Render volvió a suspender el servicio el 31-ago, tres
+// días después de darlo por arreglado. Pagos las pide por su clave con `/api/data/:key`, que
+// sigue funcionando; sacarlas de aquí no le quita nada a nadie.
+//
+// La lección: quitar el CONSUMIDOR no baja el tráfico. Solo cuenta lo que sale por el cable.
+const CLAVES_PESADAS = new Set(["teamPay", "billRcpts"]);
+
 // Lee TODA la tabla de una vez (menos las privadas), con la forma { clave: valor } que espera el
 // frontend.
 async function sbGetAll() {
   const { url, key } = SB();
-  const r = await fetch(`${url}/rest/v1/app_data?select=key,value`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  // El filtro va en la CONSULTA, no solo al armar la respuesta: así los 7,3 MB de filas que no
+  // se usan tampoco viajan de Supabase a Render en cada carga. El filtro de JS de abajo se
+  // queda igual, por si algún día se agrega una clave y se olvida esta lista.
+  const excluidas = [...CLAVES_PRIVADAS, ...CLAVES_PESADAS].join(",");
+  const q = `${url}/rest/v1/app_data?select=key,value&key=not.like.backup_*&key=not.in.(${excluidas})`;
+  const r = await fetch(q, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
   if (!r.ok) throw new Error("Supabase respondió " + r.status);
   const d = await r.json();
   // Los respaldos (`backup_limpieza_*`) NO se mandan. Son una foto que se guarda antes de
@@ -695,7 +721,7 @@ async function sbGetAll() {
   // 2,73 MB — el 36% de lo que se enviaba. Eso agotó los 5 GB de ancho de banda del plan y
   // suspendió el servicio el 28-ago-2026.
   const m = {}; (Array.isArray(d) ? d : []).forEach(x => {
-    if (CLAVES_PRIVADAS.has(x.key) || String(x.key).startsWith("backup_")) return;
+    if (CLAVES_PRIVADAS.has(x.key) || CLAVES_PESADAS.has(x.key) || String(x.key).startsWith("backup_")) return;
     m[x.key] = x.value;
   }); return m;
 }
