@@ -1046,6 +1046,13 @@ const horaMinCL = () => {
 };
 const diaMesCL = () => +new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "2-digit" }).format(new Date());
 const enMin = hhmm => { const [h, m] = String(hhmm || "00:00").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+// La hora de Chile EN MINUTOS, que es la unidad de enMin(). horaMinCL() devuelve la hora en
+// DECIMAL (13.5 = 13:30) pese a lo que sugiere su nombre, y el resto del código la multiplica
+// por 60 antes de usarla. Comparar una hora en minutos (670) contra una en decimal (11,9) da
+// siempre 'todavía es futuro': con eso, el motor de programadas no comprobó NUNCA si una
+// publicación había salido, ni publicó nunca una a la que se le pasó la hora. Las unidades a
+// la vista para que no vuelva a pasar.
+const minutosCL = () => Math.round(horaMinCL() * 60);
 const responsablesDe = t => porIds(Array.isArray(t.responsable) ? t.responsable : (t.responsable != null ? [t.responsable] : []));
 
 // ── Repaso diario ─────────────────────────────────────────────────────────────
@@ -1216,7 +1223,7 @@ const enFuturoCL = (fecha, hora, margenMin) => {
   const hoy = hoyCL();
   if (fecha > hoy) return true;
   if (fecha < hoy) return false;
-  return enMin(hora) > horaMinCL() + (margenMin || 0);
+  return enMin(hora) > minutosCL() + (margenMin || 0);
 };
 // 404 = ya no está: para lo que nos importa, es lo mismo que haberla retirado.
 async function retirarDeZernio(id) {
@@ -1280,7 +1287,7 @@ async function _sincronizarProgramadas() {
       spId: (sp && sp.id) || null, programadaPara: (sp && sp.programadaPara) || null,
       leFecha: sp && sp.programadaPara ? String(sp.programadaPara).slice(0, 10) : null,
       leHora: sp && sp.programadaPara ? String(sp.programadaPara).slice(11, 16) : null,
-      hoyCL: hoyCL(), horaMinCL: horaMinCL(),
+      hoyCL: hoyCL(), minutosCL: minutosCL(),
       tocaComprobar: !!(sp && sp.id && sp.programadaPara) && !enFuturoCL(String((sp && sp.programadaPara) || "").slice(0, 10), String((sp && sp.programadaPara) || "").slice(11, 16), -1),
     });
     const ok = programable(t, cuentas);
@@ -1342,7 +1349,7 @@ async function _sincronizarProgramadas() {
       // minuto, o para una hora de la madrugada en la que este proceso estaba dormido (Render
       // duerme de 03:00 a 07:00). Sin esto se quedaba agendada para siempre, sin publicar y sin
       // que nadie lo supiera: exactamente el fallo silencioso que esto viene a cerrar.
-      const minutosTarde = horaMinCL() - enMin(t.publishTime);
+      const minutosTarde = minutosCL() - enMin(t.publishTime);
       if (t.date === hoyCL() && minutosTarde <= 120) {
         // Se le pasó por poco: el cliente pidió esa hora, publicarla con unos minutos de retraso
         // es lo que quería. Sale ahora.
