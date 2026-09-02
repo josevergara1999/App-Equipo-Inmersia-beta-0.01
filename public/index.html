@@ -112,6 +112,14 @@ body{background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;overflo
 ::-webkit-scrollbar-thumb:hover{background:var(--tx3)}
 
 input,textarea,select{background:var(--bg3);border:1px solid var(--border);color:var(--tx);padding:10px 12px;border-radius:var(--r);font-family:inherit;font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%}
+/* iOS Safari HACE ZOOM sobre la página en cuanto se enfoca un campo con menos de 16px, y no
+   vuelve solo. La página queda más ancha que la pantalla y lo que esté a la derecha se sale:
+   el 2-sep-2026 el botón «Guardar» del panel de Planificar quedó fuera del borde derecho con
+   el texto ya escrito, así que no había forma de guardar. No se arregla con maximum-scale ni
+   user-scalable=no —eso mata el zoom con los dedos, que hace falta— sino subiendo el tamaño
+   del texto del campo. 16px es el umbral exacto de iOS. Solo en punteros gruesos: en el PC el
+   tamaño de siempre. */
+@media (pointer:coarse){input,textarea,select{font-size:16px}}
 input:focus,textarea:focus,select:focus{border-color:var(--accent2);box-shadow:0 0 0 3px rgba(123,201,60,.18)}
 input::placeholder,textarea::placeholder{color:var(--tx3)}
 select option{background:var(--bg3);color:var(--tx)}
@@ -9293,7 +9301,10 @@ const dNav=dir=>({width:32,height:32,borderRadius:"50%",display:"flex",alignItem
 const PC_MARCO={borderRadius:26,padding:6,background:"var(--marco-bg)"};
 const PC_CARD={borderRadius:20,background:"var(--card-bg)",border:"1px solid var(--card-bd)",boxShadow:"var(--card-sh)"};
 const pcPill=(color,activo)=>({padding:"7px 18px",borderRadius:999,border:"none",background:activo?color:"transparent",color:activo?PC.bg:PC.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"});
-const pcInput={padding:"11px 14px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)",color:"var(--tx)",fontFamily:"inherit",fontSize:13.5,outline:"none",boxSizing:"border-box",width:"100%"};
+// Un estilo inline gana a cualquier regla de CSS, así que la media query de arriba no llega
+// hasta aquí: el tamaño tiene que decidirse también en el objeto. Mismo motivo, mismo umbral.
+const ES_TACTIL=(()=>{try{return window.matchMedia("(pointer:coarse)").matches;}catch(_){return false;}})();
+const pcInput={padding:"11px 14px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)",color:"var(--tx)",fontFamily:"inherit",fontSize:ES_TACTIL?16:13.5,outline:"none",boxSizing:"border-box",width:"100%"};
 
 // Modal de perfil: correo asignado, cambio de contraseña y accesos a los Drive.
 function PerfilModal({open,onClose,user,co,onToast,onEmail}){
@@ -9745,7 +9756,15 @@ function useTecladoMovil(){
   useEffect(()=>{
     const vv=window.visualViewport;if(!vv)return;
     // El umbral evita confundir el teclado con la barra de direcciones al desplazarse.
-    const medir=()=>{const inset=Math.max(0,window.innerHeight-vv.height-vv.offsetTop);sAlto(inset>90?Math.round(inset):0);};
+    const medir=()=>{
+      // Con la página ampliada (zoom con los dedos, o el que hacía iOS solo antes de subir los
+      // campos a 16px) esta resta no mide el teclado: mide el zoom. Devolvía un hueco enorme y
+      // el panel se iba hacia arriba dejando una franja negra. Mejor no tocar nada.
+      if(vv.scale&&vv.scale>1.01)return sAlto(0);
+      const inset=Math.max(0,window.innerHeight-vv.height-vv.offsetTop);
+      // Un teclado no ocupa media pantalla larga: si sale más, es que se midió otra cosa.
+      sAlto(inset>90&&inset<window.innerHeight*0.6?Math.round(inset):0);
+    };
     medir();
     vv.addEventListener("resize",medir);vv.addEventListener("scroll",medir);
     return()=>{vv.removeEventListener("resize",medir);vv.removeEventListener("scroll",medir);};
