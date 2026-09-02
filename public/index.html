@@ -9921,6 +9921,9 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
     sModal(null);
   };
 
+  // ¿Su momento ya pasó? Entonces no hay nada que programar: lo único que queda es publicarla.
+  const ahoraMismo=!!modal&&modal.state==="aprobado"&&!modal.socialPost&&!!modal.date&&!!modal.time
+    &&new Date(modal.date+"T"+modal.time+":00").getTime()<=Date.now();
   const confirmModal=()=>{
     if(!modal)return;
     const cap=(modal.caption||"").trim();
@@ -9932,9 +9935,23 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
       return;
     }
     const id=modal.id;
+    const datos={date:modal.date,publishTime:modal.time||null,caption:cap};
+    // Un solo botón para las dos cosas, porque para quien lo usa son la misma: decir cuándo sale.
+    // Con la hora por llegar, agendar YA ES publicar — el servidor la deja puesta en Instagram
+    // en un par de minutos y sale sola. Solo cuando la hora ya pasó hay algo distinto que hacer,
+    // y entonces el botón lo dice: se publica al momento. Antes eran dos botones («Agendar» y
+    // «Programar en Instagram») que a ojos del cliente hacían lo mismo, y uno de los dos parecía
+    // el que «de verdad» publicaba.
+    if(ahoraMismo){
+      if(!confirm("Se publicará AHORA en tu Instagram.\n\nUna publicación no se puede deshacer. ¿Seguimos?"))return;
+      sPublicando(true);
+      Promise.resolve(onPublish(id,datos)).then(ok=>{sPublicando(false);if(ok){olvidarBorrador(id);sModal(null);}});
+      sAvisoCap("");
+      return;
+    }
     // El borrador se olvida cuando el servidor confirma, no al pulsar: si la escritura falla, es
     // lo único que queda del texto y tirarlo aquí sería perderlo por segunda vez.
-    Promise.resolve(onSchedule(id,{date:modal.date,publishTime:modal.time||null,caption:cap})).then(ok=>{if(ok)olvidarBorrador(id);});
+    Promise.resolve(onSchedule(id,datos)).then(ok=>{if(ok)olvidarBorrador(id);});
     sAvisoCap("");
     sModal(null);
   };
@@ -10117,6 +10134,13 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
             <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:-10}}>
               {modal.plannedDay&&<span style={{fontSize:11.5,color:PC.cian}}><Ic n="pin" s={11} style={{verticalAlign:"-1px",marginRight:4}}/>El equipo la planificó para el {fechaDia(modal.plannedDay)}. Puedes dejarla ese día o mover la publicación.</span>}
               <span style={{fontSize:11.5,color:PC.tx4}}>Si dejas la hora vacía, la elige el equipo.</span>
+              {/* Lo que más tranquiliza es saber que no hay un segundo paso escondido. */}
+              {modal.state==="aprobado"&&!modal.socialPost&&modal.date&&modal.time&&(
+                <span style={{fontSize:11.5,color:PC.cian,lineHeight:1.45}}>
+                  {ahoraMismo
+                    ?"Ese momento ya pasó, así que al guardar se publica al instante."
+                    :"Se publica sola ese día a esa hora. No hay que hacer nada más."}
+                </span>)}
             </div>
 
             {/* Estado de la automatización de comentarios, para que el cliente sepa que este
@@ -10147,57 +10171,6 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
                 : <span style={{fontSize:11.5,color:PC.tx4}}>Es el texto que saldrá publicado, tal cual lo escribas.</span>}
             </div>
 
-            {/* Publicar desde el portal. Solo con la pieza aprobada, su archivo en el
-                almacenamiento y sin publicación previa: esto no se deshace.
-                Con la hora todavía por llegar NO se publica: se PROGRAMA en Zernio, que la
-                suelta él a esa hora aunque no haya nadie delante. Es lo que convierte «lo
-                agendé» en «va a salir»: antes el día elegido por el cliente solo se cumplía si
-                alguien del equipo se acordaba de pulsar el botón ese día. */}
-            {/* Ya entregada a Instagram. Cambiar el día aquí SÍ la mueve allá: el servidor
-                compara cada 10 minutos lo agendado con lo que Zernio tiene puesto y rehace la
-                programación (retirando siempre la anterior antes de crear la nueva). Se dice
-                para que nadie crea que hay que avisar a alguien. */}
-            {modal.socialPost&&modal.socialPost.programadaPara&&(
-              <div style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.10)",border:"1px solid rgba(var(--rgb-ambar),.35)"}}>
-                <span style={{width:8,height:8,borderRadius:"50%",background:PC.ambar,flexShrink:0,marginTop:5}}/>
-                <span style={{fontSize:12,color:PC.tx2,lineHeight:1.5}}>
-                  Ya está programada en Instagram para el {String(modal.socialPost.programadaPara).replace("T"," ").slice(0,16)}. Si cambias el día, la hora o el texto, se vuelve a programar sola en unos minutos.
-                </span>
-              </div>)}
-
-            {modal.state==="aprobado"&&!modal.socialPost&&(()=>{
-              const f=modal.file;
-              const sinUrl=!f||!/^https?:\/\//i.test(String(f.url||""));
-              const ms=(modal.date&&modal.time)?new Date(modal.date+"T"+modal.time+":00").getTime():null;
-              const futuro=!!ms&&ms>Date.now();
-              const listo=!!pub&&!sinUrl&&!publicando&&!pasado;
-              return(<div style={{display:"flex",flexDirection:"column",gap:9,padding:"14px 15px",borderRadius:14,border:"1px solid "+PC.line2,background:PC.panel}}>
-                <div style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Publicar en Instagram</div>
-                {sinUrl
-                  ?<span style={{fontSize:11.5,color:PC.ambar,lineHeight:1.45}}>El archivo todavía no está listo para publicar. Avísale al equipo.</span>
-                  :pubCarga
-                    ?<span style={{fontSize:11.5,color:PC.tx4}}>Comprobando tu conexión de Instagram…</span>
-                    :!pub
-                      ?<span style={{fontSize:11.5,color:PC.ambar,lineHeight:1.45}}>Tu cuenta de Instagram no está conectada todavía. Conéctala desde el aviso de arriba y vuelve aquí.</span>
-                      :pasado
-                        ?<span style={{fontSize:11.5,color:PC.rojo,lineHeight:1.45}}>Recorta el texto para poder publicar.</span>
-                        :<span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.45}}>
-                           {futuro
-                             ?"Sale sola el "+fechaDia(modal.date)+(modal.time?" a las "+modal.time:"")+", sin que nadie esté pendiente. Si no pulsas nada, se programa igual en unos minutos."
-                             :"Su día y su hora ya pasaron, así que sale ahora mismo."}
-                         </span>}
-                <button disabled={!listo} onClick={async()=>{
-                    if(!confirm((futuro?"Se programará en tu Instagram para el "+modal.date+" a las "+modal.time+".":"Se publicará AHORA en tu Instagram.")+"\n\nUna publicación no se puede deshacer. ¿Seguimos?"))return;
-                    sPublicando(true);
-                    const ok=await onPublish(modal.id,{date:modal.date,publishTime:modal.time||null,caption:(modal.caption||"").trim()});
-                    sPublicando(false);
-                    if(ok)sModal(null);
-                  }}
-                  style={{padding:"11px 18px",borderRadius:999,background:listo?PC.cian:"transparent",border:"1px solid "+(listo?PC.cian:PC.line2),color:listo?PC.bg:PC.tx4,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:listo?"pointer":"default"}}>
-                  {publicando?"Enviando…":futuro?"Programar en Instagram":"Publicar ahora"}
-                </button>
-              </div>);
-            })()}
             </>)}
           </div>
           </div>
@@ -10209,7 +10182,7 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
               : <>
                 {modal.wasScheduled&&<button onClick={()=>{onUnschedule(modal.id);sModal(null);}} style={{padding:"10px 16px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.07)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:PC.rojo,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:"pointer"}}>Quitar</button>}
                 <button onClick={cerrar} style={{marginLeft:"auto",padding:"10px 18px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                <button onClick={confirmModal} style={{padding:"10px 22px",borderRadius:999,background:pasado?"transparent":PC.cian,border:"1px solid "+(pasado?PC.line2:PC.cian),color:pasado?PC.tx4:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{modal.wasScheduled?"Guardar":"Agendar"}</button>
+                <button onClick={confirmModal} disabled={publicando} style={{padding:"10px 22px",borderRadius:999,background:pasado?"transparent":PC.cian,border:"1px solid "+(pasado?PC.line2:PC.cian),color:pasado?PC.tx4:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{publicando?"Publicando…":ahoraMismo?"Publicar ahora":modal.wasScheduled?"Guardar":"Agendar"}</button>
                 </>}
           </div>
         </aside>

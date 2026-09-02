@@ -1255,7 +1255,11 @@ async function _sincronizarProgramadas() {
       // Su hora ya pasó: Zernio tuvo que publicarla. Se comprueba, porque responder 200 al
       // PROGRAMAR no dice nada de lo que ocurrió después. Sin esto, una programación que falla
       // se queda «programada» para siempre y nadie se entera.
-      if (!enFuturoCL(String(sp.programadaPara).slice(0, 10), String(sp.programadaPara).slice(11, 16), -5)) {
+      // Un minuto de cortesía, no cinco: el estado 'publishing' ya se contempla más abajo
+      // (se deja para el repaso siguiente), así que esperar de más solo retrasa el momento en
+      // que la app y la realidad vuelven a decir lo mismo. Con cinco, un tick que cayera treinta
+      // segundos antes del umbral se iba al siguiente turno entero.
+      if (!enFuturoCL(String(sp.programadaPara).slice(0, 10), String(sp.programadaPara).slice(11, 16), -1)) {
         try {
           const d = await zernio(`/posts/${encodeURIComponent(sp.id)}`);
           const post = d && (d.post || d);
