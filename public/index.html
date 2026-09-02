@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="INMERSIA">
@@ -9734,6 +9734,34 @@ function IgPreview({file,files,type,caption,cuenta,color,fecha,hora}){
   </div>);
 }
 
+// Lo que el teclado del teléfono le come a la pantalla. `dvh` descuenta la barra de direcciones
+// —eso ya se arregló— pero NO el teclado, así que un panel anclado a `bottom:0` se queda DEBAJO
+// de él. En el drawer de Planificar eso dejaba el botón «Guardar» fuera de alcance: para llegar
+// había que bajar el teclado, y el gesto para bajarlo —tocar fuera del campo— caía en el fondo
+// oscuro, que cerraba el panel y se llevaba el texto escrito. `visualViewport` es lo único que
+// mide esto en iOS; donde no exista devuelve 0 y todo queda como estaba.
+function useTecladoMovil(){
+  const[alto,sAlto]=useState(0);
+  useEffect(()=>{
+    const vv=window.visualViewport;if(!vv)return;
+    // El umbral evita confundir el teclado con la barra de direcciones al desplazarse.
+    const medir=()=>{const inset=Math.max(0,window.innerHeight-vv.height-vv.offsetTop);sAlto(inset>90?Math.round(inset):0);};
+    medir();
+    vv.addEventListener("resize",medir);vv.addEventListener("scroll",medir);
+    return()=>{vv.removeEventListener("resize",medir);vv.removeEventListener("scroll",medir);};
+  },[]);
+  return alto;
+}
+
+// Borrador local del texto de una publicación, por pieza. Es la segunda red: si el panel se
+// cierra sin guardar —o se cae la pestaña con el teclado abierto—, al reabrir la pieza el texto
+// sigue ahí. Se olvida solo cuando el servidor confirma la escritura, nunca antes: si el guardado
+// falla, el borrador es lo único que queda del texto.
+const capKey=id=>"inm_cap_"+id;
+const leerBorrador=id=>{try{return localStorage.getItem(capKey(id));}catch(_){return null;}};
+const guardarBorrador=(id,v)=>{try{localStorage.setItem(capKey(id),v);}catch(_){}};
+const olvidarBorrador=id=>{try{localStorage.removeItem(capKey(id));}catch(_){}};
+
 // Banco de aprobados + calendario. En PC se arrastra; en móvil el drag&drop HTML5 no
 // dispara con el dedo, así que el mismo flujo funciona tocando la pieza y luego el día.
 function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
@@ -9746,6 +9774,8 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
   const[overDay,sOverDay]=useState(null);
   const[overBank,sOverBank]=useState(false);
   const[modal,sModal]=useState(null);
+  const[avisoCap,sAvisoCap]=useState("");
+  const teclado=useTecladoMovil();
 
   const bank=useMemo(()=>items.filter(t=>!t.date&&t.state!=="publicado"),[items]);
   const byDay=useMemo(()=>{
@@ -9777,7 +9807,14 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
     const t=items.find(x=>String(x.id)===String(id));
     if(!t)return; // publicadas ahora TAMBIÉN abren el drawer (para ver estadísticas + chat)
     sSel(null);
-    sModal({id:t.id,title:t.title,type:t.type,file:archivoDe(t),files:t.files||[],date:ds,caption:t.caption||"",time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null,state:t.state,socialPost:t.socialPost||null});
+    sAvisoCap("");
+    // Si quedó un borrador de un cierre anterior y no dice lo mismo que lo guardado, mandan las
+    // letras que la persona escribió, no el vacío del servidor. `capOrig` es con lo que se abrió:
+    // comparándolo se sabe si hay algo sin guardar que no se puede tirar a la basura en silencio.
+    const capGuardada=t.caption||"";
+    const bo=leerBorrador(t.id);
+    const cap=(bo!==null&&bo!==capGuardada)?bo:capGuardada;
+    sModal({id:t.id,title:t.title,type:t.type,file:archivoDe(t),files:t.files||[],date:ds,caption:cap,capOrig:capGuardada,recuperado:cap!==capGuardada,time:t.publishTime||"",wasScheduled:!!t.date,plannedDay:t.plannedDay||null,autoComentario:!!t.autoComentario,autoEstado:t.autoEstado||null,state:t.state,socialPost:t.socialPost||null});
   };
 
   // El id viaja en el dataTransfer, no en el estado de React: entre dragstart y drop
@@ -9800,9 +9837,32 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
     onDragEnd:()=>{sDragId(null);sOverDay(null);sOverBank(false);},
   });
 
+  // Cerrar no puede llevarse texto escrito sin decir nada. El fondo oscuro, la ✕ y «Cancelar»
+  // pasan todos por aquí. En el teléfono el fondo no es un sitio raro donde tocar: es justo el
+  // gesto para bajar el teclado, y ahí se perdió el pie de una publicación de Huemul el
+  // 2-sep-2026 — se escribió, se cerró solo, y al reabrir el campo estaba vacío.
+  const cerrar=()=>{
+    if(modal&&(modal.caption||"")!==(modal.capOrig||"")
+      &&!confirm("Escribiste texto para esta publicación y todavía no lo has guardado.\n\n¿Cerrar de todas formas? Lo recuperas al volver a abrirla, pero no se publicará mientras no pulses Guardar."))return;
+    sAvisoCap("");
+    sModal(null);
+  };
+
   const confirmModal=()=>{
     if(!modal)return;
-    onSchedule(modal.id,{date:modal.date,publishTime:modal.time||null,caption:(modal.caption||"").trim()});
+    const cap=(modal.caption||"").trim();
+    if(cap.length>IG_CAPTION_MAX){
+      // El botón estaba `disabled`: pulsarlo no hacía absolutamente nada, y el aviso vive arriba
+      // del campo, fuera de la pantalla justo cuando el texto es largo. Un botón que no responde
+      // se lee como «la app no guarda», que es exactamente lo que se reportó.
+      sAvisoCap("El texto pasa de "+IG_CAPTION_MAX+" caracteres (van "+cap.length+"). Recorta "+(cap.length-IG_CAPTION_MAX)+" para poder guardar.");
+      return;
+    }
+    const id=modal.id;
+    // El borrador se olvida cuando el servidor confirma, no al pulsar: si la escritura falla, es
+    // lo único que queda del texto y tirarlo aquí sería perderlo por segunda vez.
+    Promise.resolve(onSchedule(id,{date:modal.date,publishTime:modal.time||null,caption:cap})).then(ok=>{if(ok)olvidarBorrador(id);});
+    sAvisoCap("");
     sModal(null);
   };
 
@@ -9938,10 +9998,10 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
         // direcciones, así que el sheet se extendía por debajo del área visible y el final del
         // contenido + el botón quedaban cortados e inalcanzables (en el PC no pasa porque no hay
         // barra). `dvh` descuenta la barra → el sheet cabe en pantalla y el scroll llega hasta abajo.
-        ? {left:0,right:0,bottom:0,maxHeight:"85dvh",borderRadius:"22px 22px 0 0",borderTop:"1px solid "+PC.line2,animation:"drawerInMob .24s ease-out backwards"}
+        ? {left:0,right:0,bottom:teclado,maxHeight:teclado?("calc(100dvh - "+(teclado+28)+"px)"):"85dvh",borderRadius:"22px 22px 0 0",borderTop:"1px solid "+PC.line2,animation:"drawerInMob .24s ease-out backwards"}
         : {top:0,right:0,bottom:0,width:"min(430px,100%)",borderLeft:"1px solid "+PC.line2,animation:"drawerIn .24s ease-out backwards"};
       return(<Portal>
-        <div onClick={()=>sModal(null)} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(var(--rgb-velo),.66)",backdropFilter:"blur(6px)"}}/>
+        <div onClick={cerrar} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(var(--rgb-velo),.66)",backdropFilter:"blur(6px)"}}/>
         <aside onClick={ev=>ev.stopPropagation()} style={{position:"fixed",zIndex:61,...anclaje,
           background:PC.bg,boxShadow:"0 0 60px rgba(var(--rgb-velo),.75)",display:"flex",flexDirection:"column",boxSizing:"border-box",
           paddingTop:isMob?0:"env(safe-area-inset-top, 0px)",paddingBottom:"env(safe-area-inset-bottom, 0px)"}}>
@@ -9954,7 +10014,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
               <div style={{fontSize:11,fontFamily:"var(--font-mono)",letterSpacing:".14em",textTransform:"uppercase",color:PC.cian}}>{modal.state==="publicado"?"Publicación":"Armar publicación"}</div>
               <div style={{fontSize:14.5,fontWeight:600,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{modal.title}</div>
             </div>
-            <button onClick={()=>sModal(null)} style={{width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
+            <button onClick={cerrar} style={{width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer",flexShrink:0}}>✕</button>
           </div>
 
           {/* Contenedor de SCROLL (bloque) por fuera, y el flex-column por dentro. Si el flex fuera
@@ -10007,7 +10067,8 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
                 <label style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Texto de la publicación</label>
                 <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:11,color:pasado?PC.rojo:PC.tx4}}>{nCap}/{IG_CAPTION_MAX}</span>
               </div>
-              <textarea value={modal.caption} onChange={e=>sModal(m=>({...m,caption:e.target.value}))} placeholder="Escribe aquí el texto que acompañará la publicación…" style={{...pcInput,minHeight:150,lineHeight:1.55,resize:"vertical",borderColor:pasado?PC.rojo:undefined}}/>
+              <textarea value={modal.caption} onChange={e=>{const v=e.target.value;sModal(m=>({...m,caption:v}));guardarBorrador(modal.id,v);}} placeholder="Escribe aquí el texto que acompañará la publicación…" style={{...pcInput,minHeight:150,lineHeight:1.55,resize:"vertical",borderColor:pasado?PC.rojo:undefined}}/>
+              {modal.recuperado&&<span style={{fontSize:11.5,color:PC.cian}}>Recuperamos lo que habías escrito y no llegó a guardarse. Pulsa «{modal.wasScheduled?"Guardar":"Agendar"}» para que quede.</span>}
               {pasado
                 ? <span style={{fontSize:11.5,color:PC.rojo}}>Instagram no acepta más de {IG_CAPTION_MAX} caracteres. Recorta {nCap-IG_CAPTION_MAX} para poder guardar.</span>
                 : <span style={{fontSize:11.5,color:PC.tx4}}>Es el texto que saldrá publicado, tal cual lo escribas.</span>}
@@ -10017,12 +10078,13 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
           </div>
 
           <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"14px 20px",borderTop:"1px solid "+PC.line,flexShrink:0}}>
+            {avisoCap&&<div style={{width:"100%",fontSize:12,color:PC.rojo,lineHeight:1.45}}>{avisoCap}</div>}
             {modal.state==="publicado"
-              ? <button onClick={()=>sModal(null)} style={{marginLeft:"auto",padding:"10px 22px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cerrar</button>
+              ? <button onClick={cerrar} style={{marginLeft:"auto",padding:"10px 22px",borderRadius:999,background:PC.cian,border:"1px solid "+PC.cian,color:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cerrar</button>
               : <>
                 {modal.wasScheduled&&<button onClick={()=>{onUnschedule(modal.id);sModal(null);}} style={{padding:"10px 16px",borderRadius:999,background:"rgba(var(--rgb-rojo2),.07)",border:"1px solid rgba(var(--rgb-rojo2),.35)",color:PC.rojo,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:"pointer"}}>Quitar</button>}
-                <button onClick={()=>sModal(null)} style={{marginLeft:"auto",padding:"10px 18px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                <button onClick={confirmModal} disabled={pasado} style={{padding:"10px 22px",borderRadius:999,background:pasado?"transparent":PC.cian,border:"1px solid "+(pasado?PC.line2:PC.cian),color:pasado?PC.tx4:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:pasado?"default":"pointer"}}>{modal.wasScheduled?"Guardar":"Agendar"}</button>
+                <button onClick={cerrar} style={{marginLeft:"auto",padding:"10px 18px",borderRadius:999,background:"transparent",border:"1px solid "+PC.line2,color:PC.tx2,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={confirmModal} style={{padding:"10px 22px",borderRadius:999,background:pasado?"transparent":PC.cian,border:"1px solid "+(pasado?PC.line2:PC.cian),color:pasado?PC.tx4:PC.bg,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{modal.wasScheduled?"Guardar":"Agendar"}</button>
                 </>}
           </div>
         </aside>
@@ -10645,10 +10707,13 @@ function ClientView({user:cu,onLogout:ol}){
   };
   // Agendar no manda email: el cliente puede mover varias piezas seguidas y serían 7
   // correos al equipo. El equipo lo ve en su calendario y en la pestaña Contenido.
+  // Devuelve si la escritura se confirmó: el drawer solo tira su borrador local del texto cuando
+  // este dice que sí. Antes no devolvía nada y no había forma de distinguir guardado de fallo.
   const schedule=async(id,{date,publishTime,caption})=>{
     const ok=await safeSaveTask(id,{date,publishTime:publishTime||null,caption:caption||""});
-    if(!ok)return;
+    if(!ok)return false;
     sToast("📅 Agendado para "+date+(publishTime?" a las "+publishTime:""));
+    return true;
   };
   const unschedule=async id=>{
     const ok=await safeSaveTask(id,{date:null,publishTime:null});
