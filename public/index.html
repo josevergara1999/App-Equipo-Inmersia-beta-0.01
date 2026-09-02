@@ -9836,7 +9836,7 @@ const olvidarBorrador=id=>{try{localStorage.removeItem(capKey(id));}catch(_){}};
 
 // Banco de aprobados + calendario. En PC se arrastra; en móvil el drag&drop HTML5 no
 // dispara con el dedo, así que el mismo flujo funciona tocando la pieza y luego el día.
-function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
+function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,coColor,cuenta,co}){
   const[view,sView]=useState("semana");
   const[wkOff,sWkOff]=useState(0);
   const[cM,sCM]=useState(new Date().getMonth());
@@ -9847,6 +9847,7 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
   const[overBank,sOverBank]=useState(false);
   const[modal,sModal]=useState(null);
   const[avisoCap,sAvisoCap]=useState("");
+  const[publicando,sPublicando]=useState(false);
   const teclado=useTecladoMovil();
 
   const bank=useMemo(()=>items.filter(t=>!t.date&&t.state!=="publicado"),[items]);
@@ -10145,6 +10146,57 @@ function PlanBoard({items,onSchedule,onUnschedule,isMob,coColor,cuenta,co}){
                 ? <span style={{fontSize:11.5,color:PC.rojo}}>Instagram no acepta más de {IG_CAPTION_MAX} caracteres. Recorta {nCap-IG_CAPTION_MAX} para poder guardar.</span>
                 : <span style={{fontSize:11.5,color:PC.tx4}}>Es el texto que saldrá publicado, tal cual lo escribas.</span>}
             </div>
+
+            {/* Publicar desde el portal. Solo con la pieza aprobada, su archivo en el
+                almacenamiento y sin publicación previa: esto no se deshace.
+                Con la hora todavía por llegar NO se publica: se PROGRAMA en Zernio, que la
+                suelta él a esa hora aunque no haya nadie delante. Es lo que convierte «lo
+                agendé» en «va a salir»: antes el día elegido por el cliente solo se cumplía si
+                alguien del equipo se acordaba de pulsar el botón ese día. */}
+            {/* Ya entregada a Instagram: cambiar el día aquí NO la mueve allá, y callarlo sería
+                prometer algo que no pasa. Deshacer una programación no existe todavía en la app;
+                mientras no exista, lo honesto es decir a quién hay que avisar. */}
+            {modal.socialPost&&modal.socialPost.programadaPara&&(
+              <div style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.10)",border:"1px solid rgba(var(--rgb-ambar),.35)"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:PC.ambar,flexShrink:0,marginTop:5}}/>
+                <span style={{fontSize:12,color:PC.tx2,lineHeight:1.5}}>
+                  Ya está programada en Instagram para el {String(modal.socialPost.programadaPara).replace("T"," ").slice(0,16)}. Si cambias el día o la hora aquí, la publicación <b>no</b> se mueve: avísale al equipo.
+                </span>
+              </div>)}
+
+            {modal.state==="aprobado"&&!modal.socialPost&&(()=>{
+              const f=modal.file;
+              const sinUrl=!f||!/^https?:\/\//i.test(String(f.url||""));
+              const ms=(modal.date&&modal.time)?new Date(modal.date+"T"+modal.time+":00").getTime():null;
+              const futuro=!!ms&&ms>Date.now();
+              const listo=!!pub&&!sinUrl&&!publicando&&!pasado;
+              return(<div style={{display:"flex",flexDirection:"column",gap:9,padding:"14px 15px",borderRadius:14,border:"1px solid "+PC.line2,background:PC.panel}}>
+                <div style={{fontSize:12.5,fontWeight:600,color:PC.tx2}}>Publicar en Instagram</div>
+                {sinUrl
+                  ?<span style={{fontSize:11.5,color:PC.ambar,lineHeight:1.45}}>El archivo todavía no está listo para publicar. Avísale al equipo.</span>
+                  :pubCarga
+                    ?<span style={{fontSize:11.5,color:PC.tx4}}>Comprobando tu conexión de Instagram…</span>
+                    :!pub
+                      ?<span style={{fontSize:11.5,color:PC.ambar,lineHeight:1.45}}>Tu cuenta de Instagram no está conectada todavía. Conéctala desde el aviso de arriba y vuelve aquí.</span>
+                      :pasado
+                        ?<span style={{fontSize:11.5,color:PC.rojo,lineHeight:1.45}}>Recorta el texto para poder publicar.</span>
+                        :<span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.45}}>
+                           {futuro
+                             ?"Queda programada y sale sola el "+fechaDia(modal.date)+(modal.time?" a las "+modal.time:"")+". No hace falta que nadie esté pendiente."
+                             :"Su día y su hora ya pasaron, así que sale ahora mismo."}
+                         </span>}
+                <button disabled={!listo} onClick={async()=>{
+                    if(!confirm((futuro?"Se programará en tu Instagram para el "+modal.date+" a las "+modal.time+".":"Se publicará AHORA en tu Instagram.")+"\n\nUna publicación no se puede deshacer. ¿Seguimos?"))return;
+                    sPublicando(true);
+                    const ok=await onPublish(modal.id,{date:modal.date,publishTime:modal.time||null,caption:(modal.caption||"").trim()});
+                    sPublicando(false);
+                    if(ok)sModal(null);
+                  }}
+                  style={{padding:"11px 18px",borderRadius:999,background:listo?PC.cian:"transparent",border:"1px solid "+(listo?PC.cian:PC.line2),color:listo?PC.bg:PC.tx4,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:listo?"pointer":"default"}}>
+                  {publicando?"Enviando…":futuro?"Programar en Instagram":"Publicar ahora"}
+                </button>
+              </div>);
+            })()}
             </>)}
           </div>
           </div>
@@ -10793,6 +10845,52 @@ function ClientView({user:cu,onLogout:ol}){
     sToast("Devuelto a «listo para agendar»");
   };
 
+  // Publicar desde el propio portal. La cuenta de Instagram es del cliente, así que el momento
+  // exacto en que sale también puede serlo: hasta ahora agendaba un día y una hora, y que eso
+  // se cumpliera dependía de que alguien del equipo se acordara de pulsar el botón ese día.
+  //
+  // Con hora futura NO se publica: se PROGRAMA en Zernio, que la suelta él a esa hora aunque no
+  // haya nadie delante. Es lo que convierte «lo agendé» en «va a salir». Si la hora ya pasó,
+  // sale ahora, que es lo único que queda.
+  //
+  // El companyId que viaja aquí es informativo: el servidor lo ignora para un cliente y usa el
+  // de su sesión, así que desde el portal no se puede publicar en la cuenta de otra empresa.
+  const publicarCliente=async(id,{date,publishTime,caption})=>{
+    const t=tasks.find(x=>String(x.id)===String(id));
+    if(!t)return false;
+    const f=archivoDe(t);
+    if(!f||!/^https?:\/\//i.test(String(f.url||""))){sToast("⚠️ El archivo no está listo para publicar");return false;}
+    // Lo que sale es lo que hay en pantalla: primero se guarda el texto y la fecha, y solo si
+    // esa escritura se confirma se publica. Sin esto saldría el texto anterior.
+    const guardado=await schedule(id,{date,publishTime,caption});
+    if(!guardado)return false;
+    const cuando=(date&&publishTime)?date+"T"+publishTime+":00":null;
+    const programar=!!cuando&&new Date(cuando).getTime()>Date.now();
+    sBusy(true);
+    try{
+      const d=await API.socialPublish({companyId:co?.id,platform:"instagram",caption:(caption||"").trim(),
+        media:[{type:isVid(f)?"video":"image",url:f.url}],
+        ...(programar?{scheduledFor:cuando,timezone:"America/Santiago"}:{})});
+      if(!d||d.error){
+        const msg=(d&&d.error==="no_conectada")?"Tu cuenta de Instagram no está conectada todavía.":((d&&d.error)||"No se pudo publicar");
+        // Queda escrito en la pieza: el equipo lo ve en su tarjeta y se puede contar qué pasó.
+        await safeSaveTask(id,{pubError:{at:new Date().toISOString(),msg:String(msg).slice(0,300)}});
+        sToast("⚠️ "+msg);
+        return false;
+      }
+      if(programar){
+        await safeSaveTask(id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando},pubError:null});
+        sToast("🕐 Programada para el "+date+" a las "+publishTime);
+        avisarEquipo("🕐 "+cu.companyName+" programó una publicación","\""+t.title+"\" queda programada en Instagram para el "+date+" a las "+publishTime+".");
+      }else{
+        await safeSaveTask(id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()},pubError:null});
+        sToast("📸 ¡Publicada en Instagram!");
+        avisarEquipo("📸 "+cu.companyName+" publicó","\""+t.title+"\" ya salió en su Instagram.");
+      }
+      return true;
+    }finally{sBusy(false);}
+  };
+
   // Conexión de Instagram desde el propio portal. Vive aquí y no solo en la vista del equipo
   // porque la autorización la tiene que dar quien está con la sesión de esa marca puesta: si
   // lo hace el equipo, hay que coordinarlo por fuera y eso es justo la fricción a evitar.
@@ -10940,7 +11038,7 @@ function ClientView({user:cu,onLogout:ol}){
               (`pub.username`), que es la que de verdad publica. El nombre de la marca es el último
               recurso: para una maqueta cumple, pero puede llevar espacios/acentos que ningún @
               real tiene. */}
-          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} isMob={isMob} coColor={tono(co?.color)} co={co}
+          <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} onPublish={publicarCliente} pub={pub} pubCarga={pubCarga} isMob={isMob} coColor={tono(co?.color)} co={co}
             cuenta={ig?.username||pub?.username||co?.name||cu.companyName||""}/>
         </>)}
       </div>

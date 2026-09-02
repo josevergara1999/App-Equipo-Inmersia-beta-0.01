@@ -672,6 +672,18 @@ async function idEmpresaCliente(coName, companiesArr) {
   const found = arr.find(c => _slug(c.name) === objetivo);
   return found ? String(found.id) : null;
 }
+// La empresa sobre la que se le permite actuar a quien pide. El EQUIPO manda la que quiera; un
+// CLIENTE siempre la suya, diga lo que diga el cuerpo o la query.
+//
+// Estos endpoints tomaban el companyId del navegador. Mientras el único que publicaba era el
+// equipo eso era un pendiente anotado en CLAUDE.md; desde que el portal del cliente publica en
+// Instagram es la diferencia entre publicar en su cuenta o en la de otra empresa cambiando un
+// número. Devuelve null si es un cliente sin empresa resuelta: fail-closed, como scopeCliente.
+async function empresaPermitida(req, pedida) {
+  const co = clienteDe(authInfo(req));
+  if (!co) return pedida ? String(pedida) : null;
+  return await idEmpresaCliente(co);
+}
 // Claves que un cliente puede LEER (ya scopeadas por scopeCliente). Todo lo demás ni lo ve.
 const CLAVES_CLIENTE = ["companies", "tasks", "galerias"];
 // Recorta el mapa completo a lo único que un cliente puede ver: SU empresa, SUS tareas y SUS
@@ -2785,8 +2797,9 @@ app.get("/api/social/status", requireAuth, async (req, res) => {
 // Devuelve la URL de OAuth. La abre la persona del equipo con la sesión de la marca puesta;
 // Instagram exige cuenta Business o Creator, con una personal el propio Instagram corta.
 app.post("/api/social/connect", requireAuth, async (req, res) => {
-  const { companyId, nombre, platform = "instagram" } = req.body || {};
-  if (!companyId) return res.status(400).json({ error: "companyId requerido" });
+  const { companyId: pedida, nombre, platform = "instagram" } = req.body || {};
+  const companyId = await empresaPermitida(req, pedida);
+  if (!companyId) return res.status(pedida ? 403 : 400).json({ error: pedida ? "no puedes conectar esa empresa" : "companyId requerido" });
   try {
     const profileId = await ensureProfile(companyId, nombre);
     const d = await zernio(`/connect/${encodeURIComponent(platform)}?profileId=${encodeURIComponent(profileId)}`);
@@ -2823,15 +2836,21 @@ app.get("/api/social/accounts", requireAuth, async (req, res) => {
       }
     }
     await saveSocial(s2 => { s2.cuentas = cuentas; return s2; });
-    res.json(req.query.companyId ? (cuentas[req.query.companyId] || {}) : cuentas);
+    // Un cliente solo puede preguntar por la suya. Para el equipo, empresaPermitida devuelve
+    // null y manda la query, que es el comportamiento de siempre.
+    const mia = await empresaPermitida(req, null);
+    const quiere = mia || req.query.companyId;
+    res.json(quiere ? (cuentas[quiere] || {}) : cuentas);
   } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
 });
 
 const IG_CAPTION_MAX = 2200;
 
 app.post("/api/social/publish", requireAuth, async (req, res) => {
-  const { companyId, platform = "instagram", caption = "", media = [], contentType, scheduledFor, timezone } = req.body || {};
-  if (!companyId) return res.status(400).json({ error: "companyId requerido" });
+  const { companyId: pedida, platform = "instagram", caption = "", media = [], contentType, scheduledFor, timezone } = req.body || {};
+  // El companyId del cliente NO se acepta por parámetro: sale de su sesión. Ver empresaPermitida.
+  const companyId = await empresaPermitida(req, pedida);
+  if (!companyId) return res.status(pedida ? 403 : 400).json({ error: pedida ? "no puedes publicar en esa empresa" : "companyId requerido" });
   if (!Array.isArray(media) || !media.length) return res.status(400).json({ error: "hace falta al menos un archivo" });
 
   // Instagram descarga el archivo desde la URL, no se lo mandamos nosotros. Con el respaldo en
