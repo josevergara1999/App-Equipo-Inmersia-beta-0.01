@@ -1224,8 +1224,18 @@ async function retirarDeZernio(id) {
   catch (e) { return e.status === 404; }
 }
 
+// Dos pasadas a la vez NO pueden solaparse: las dos verían la pieza sin programar y las dos
+// crearían su publicación. Con el repaso cada 2 minutos y Zernio tardando lo que tarde, eso
+// deja de ser improbable y pasa a ser cuestión de tiempo. Una pasada lenta simplemente se salta
+// el turno siguiente.
+let progEnCurso = false;
 async function sincronizarProgramadas() {
-  if (!zernioKey()) return;
+  if (!zernioKey() || progEnCurso) return;
+  progEnCurso = true;
+  try { await _sincronizarProgramadas(); }
+  finally { progEnCurso = false; }
+}
+async function _sincronizarProgramadas() {
   const cuentas = (await loadSocial()).cuentas || {};
   const tasks = (await sbGet("tasks", [])) || [];
   const cambios = {};   // id -> {socialPost, state?, pubError?}
@@ -1236,7 +1246,9 @@ async function sincronizarProgramadas() {
     const sp = t.socialPost || null;
     if (t.state === "publicado" || (sp && sp.at)) continue;   // ya salió: no se toca
     const ok = programable(t, cuentas);
-    const futuro = !!(t.date && t.publishTime) && enFuturoCL(t.date, t.publishTime, 5);
+    // 2 minutos, que es lo que tarda en volver a pasar por aquí. Con un margen mayor, una pieza
+    // agendada "para dentro de un rato" caía en el hueco: ni se programaba ni se publicaba.
+    const futuro = !!(t.date && t.publishTime) && enFuturoCL(t.date, t.publishTime, 2);
     const firma = ok ? firmaProg(t) : null;
 
     if (sp && sp.id && sp.programadaPara) {
@@ -1274,7 +1286,42 @@ async function sincronizarProgramadas() {
       }
       // Cambió el día, la hora, el texto o el archivo: primero se retira la vieja.
       if (!(await retirarDeZernio(sp.id))) { console.error("prog: no se pudo retirar", sp.id); continue; }
-    } else if (!ok || !futuro) continue;           // nada puesto y nada que poner
+      // Anotado ya, antes de intentar crear la nueva: si la hora nueva resulta estar pasada, sin
+      // esto la pieza se quedaría apuntando a un post que ya no existe y la rama de "se pasó su
+      // hora" no entraría nunca, porque creería que sigue programada. Si la creación sale bien,
+      // esto se pisa dos líneas más abajo.
+      cambios[String(t.id)] = { socialPost: null };
+    } else if (ok && !futuro) {
+      // Nunca llegó a programarse y su hora ya pasó. Pasa si la agendaron para dentro de un
+      // minuto, o para una hora de la madrugada en la que este proceso estaba dormido (Render
+      // duerme de 03:00 a 07:00). Sin esto se quedaba agendada para siempre, sin publicar y sin
+      // que nadie lo supiera: exactamente el fallo silencioso que esto viene a cerrar.
+      const minutosTarde = horaMinCL() - enMin(t.publishTime);
+      if (t.date === hoyCL() && minutosTarde <= 120) {
+        // Se le pasó por poco: el cliente pidió esa hora, publicarla con unos minutos de retraso
+        // es lo que quería. Sale ahora.
+        try {
+          const d = await zernio("/posts", { method: "POST", body: JSON.stringify({
+            content: String(t.caption || ""),
+            mediaItems: [{ type: /^video/i.test(String(ok.f.type || "")) ? "video" : "image", url: ok.f.url }],
+            platforms: [{ platform: "instagram", accountId: ok.cuenta.accountId }],
+            publishNow: true,
+          }) });
+          const post = d && (d.post || d);
+          cambios[String(t.id)] = { socialPost: { id: (post && (post._id || post.id)) || null, platform: "instagram", at: new Date().toISOString(), sig: firma }, state: "publicado", pubError: null };
+          avisos.push({ t, tipo: "salio" });
+        } catch (e) {
+          console.error("prog: no se pudo publicar con retraso", t.id, e.message);
+          cambios[String(t.id)] = { socialPost: null, pubError: { at: new Date().toISOString(), msg: "Se pasó su hora y tampoco se pudo publicar: " + e.message } };
+          avisos.push({ t, tipo: "fallo", detalle: e.message });
+        }
+      } else {
+        // Hace rato que pasó. No se publica por las bravas algo agendado para otro día: se avisa
+        // una vez al día y lo decide una persona.
+        avisos.push({ t, tipo: "tarde" });
+      }
+      continue;
+    } else if (!ok) continue;                      // nada puesto y nada que poner
 
     if (!ok || !futuro) continue;
     try {
@@ -1322,6 +1369,10 @@ async function sincronizarProgramadas() {
       await crearNotif({ type: "task_status", title: "📸 Publicada en Instagram",
         body: `«${a.t.title}» salió sola a la hora que dejó agendada el cliente.`,
         to: para, url: "/", dedupKey: "salio_" + a.t.id });
+    } else if (a.tipo === "tarde") {
+      await crearNotif({ type: "task_status", title: "⚠️ Se pasó la hora de una publicación",
+        body: `«${a.t.title}» estaba agendada para el ${a.t.date} a las ${a.t.publishTime} y no salió. Hay que publicarla a mano o pedirle al cliente que la reagende.`,
+        to: para, url: "/", important: true, dedupKey: "tarde_" + a.t.id + "_" + hoyCL() });
     } else {
       await crearNotif({ type: "task_status", title: "⚠️ Una publicación programada falló",
         body: `«${a.t.title}» no pudo salir${a.detalle ? ": " + a.detalle : ""}. Hay que publicarla a mano.`,
@@ -1363,14 +1414,16 @@ async function repasoCorto() {
   // Y aquí se arman las automatizaciones cuya pieza ya se publicó: se detecta la publicación y se
   // le pega el mediaId real a la cadena, para que empiece a responder comentarios sola.
   try { await igArmarPendientes(); } catch (e) { console.error("IG armar:", e.message); }
-  // Y aquí se deja puesto en Zernio lo que el cliente agendó, para que salga a su hora sin que
-  // nadie tenga que pulsar nada. Va en su propio try: un fallo aquí no puede tumbar el resto.
-  try { await sincronizarProgramadas(); } catch (e) { console.error("programadas:", e.message); }
 }
 
-setTimeout(() => { repasoDiario(); repasoCorto(); }, 20000);
+setTimeout(() => { repasoDiario(); repasoCorto(); sincronizarProgramadas().catch(e => console.error("programadas:", e.message)); }, 20000);
 setInterval(() => repasoDiario(), 3600000);
 setInterval(() => repasoCorto(), 600000);
+// Las programaciones van en su propio reloj, y más rápido: aquí el desfase se nota —es lo que
+// tarda en quedar puesto en Zernio lo que el cliente acaba de agendar, y lo que tarda en
+// saberse si salió—. Va aparte para no multiplicar por cinco los avisos por horario y las
+// llamadas a Meta del resto del repaso, que no ganan nada con ello.
+setInterval(() => sincronizarProgramadas().catch(e => console.error("programadas:", e.message)), 120000);
 app.post("/api/notifs/repaso", requireAuth, async (req, res) => { const d = await repasoDiario(true); await repasoCorto(); res.json(d); });
 
 // ===============================
