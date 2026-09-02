@@ -5049,16 +5049,23 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         media:[{type:isVid(f)?"video":"image",url:f.url}],
         ...(cuando?{scheduledFor:cuando,timezone:"America/Santiago"}:{})});
       if(!d||d.error){
-        addN("❌ "+(d&&d.error==="no_conectada"?((co?.name||"La empresa")+" no tiene Instagram conectado todavía."):((d&&d.error)||"No se pudo publicar")));
+        const msg=(d&&d.error==="no_conectada")?((co?.name||"La empresa")+" no tiene Instagram conectado todavía."):((d&&d.error)||"No se pudo publicar");
+        addN("❌ "+msg);
+        // El aviso se desvanece en segundos y con él la única pista de por qué no salió. Queda
+        // escrito en la propia pieza: se ve en su tarjeta hasta que se publique de verdad, así
+        // que se puede contar qué falló sin tener que volver a provocarlo. El 2-sep-2026 un reel
+        // de Huemul se quedó sin publicar y no había ni rastro de por qué en ningún sitio.
+        upT(t.id,{pubError:{at:new Date().toISOString(),msg:String(msg).slice(0,300),
+          detalle:(d&&d.detalle)?JSON.stringify(d.detalle).slice(0,300):null}});
         return;
       }
       if(cuando){
         // Programada no es publicada: la pieza sigue su curso y el estado no cambia hasta que
         // Instagram la publique de verdad.
-        upT(t.id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando}});
+        upT(t.id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando},pubError:null});
         addN("🕐 \""+t.title+"\" programada para "+t.date+" a las "+(t.publishTime||"12:00"));
       }else{
-        upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()}});
+        upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()},pubError:null});
         addN("📸 \""+t.title+"\" publicada en Instagram");
         avisarA([...encargados(t),...adminsEq()],"📸 Publicada en Instagram","\""+t.title+"\" ya salió en el Instagram de "+(co?.name||"")+".");
       }
@@ -5489,6 +5496,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                            <button onClick={refrescarIG} style={{background:"transparent",border:"none",color:PC.cian,font:"inherit",fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Reintentar</button>
                          </span>
                         :<span style={{fontSize:11,color:PC.ambar,lineHeight:1.45}}>Esta empresa no tiene Instagram conectado para publicar. Conéctala más arriba, en esta misma pantalla.</span>)}
+                    {t.pubError&&<span style={{fontSize:11,color:PC.rojo,lineHeight:1.45}}>
+                      Último intento fallido ({String(t.pubError.at).replace("T"," ").slice(5,16)}): {t.pubError.msg}
+                    </span>}
                   </>}
               </div>
             </div>);
