@@ -1274,6 +1274,15 @@ async function _sincronizarProgramadas() {
     if (!t || !t.id) continue;
     const sp = t.socialPost || null;
     if (t.state === "publicado" || (sp && sp.at)) continue;   // ya salió: no se toca
+    visto.push({
+      id: t.id, titulo: t.title, estado: t.state,
+      agendada: (t.date || "") + " " + (t.publishTime || ""),
+      spId: (sp && sp.id) || null, programadaPara: (sp && sp.programadaPara) || null,
+      leFecha: sp && sp.programadaPara ? String(sp.programadaPara).slice(0, 10) : null,
+      leHora: sp && sp.programadaPara ? String(sp.programadaPara).slice(11, 16) : null,
+      hoyCL: hoyCL(), horaMinCL: horaMinCL(),
+      tocaComprobar: !!(sp && sp.id && sp.programadaPara) && !enFuturoCL(String((sp && sp.programadaPara) || "").slice(0, 10), String((sp && sp.programadaPara) || "").slice(11, 16), -1),
+    });
     const ok = programable(t, cuentas);
     // 2 minutos, que es lo que tarda en volver a pasar por aquí. Con un margen mayor, una pieza
     // agendada "para dentro de un rato" caía en el hueco: ni se programaba ni se publicaba.
@@ -1293,7 +1302,7 @@ async function _sincronizarProgramadas() {
           const d = await zernio(`/posts/${encodeURIComponent(sp.id)}`);
           const post = d && (d.post || d);
           const estado = String((post && post.status) || "");
-          visto.push({ id: t.id, titulo: t.title, rama: "comprobar", estadoZernio: estado });
+          const v = visto.find(x => x.id === t.id); if (v) v.estadoZernio = estado;
           if (estado === "published") {
             cambios[String(t.id)] = { socialPost: { ...sp, at: new Date().toISOString() }, state: "publicado", pubError: null };
             avisos.push({ t, tipo: "salio" });
@@ -1303,7 +1312,10 @@ async function _sincronizarProgramadas() {
             avisos.push({ t, tipo: "fallo", detalle });
           }
           // publishing / scheduled: sigue en camino, se vuelve a mirar en el próximo repaso.
-        } catch (e) { console.error("prog: no se pudo consultar", sp.id, e.message); }
+        } catch (e) {
+          console.error("prog: no se pudo consultar", sp.id, e.message);
+          const v = visto.find(x => x.id === t.id); if (v) v.errorConsulta = String(e && e.message);
+        }
         continue;
       }
       // Todavía no le toca. ¿Sigue diciendo lo mismo?
