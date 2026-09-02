@@ -1040,8 +1040,59 @@ function Bg({color:cl,bg:b,children,style:s}){return<span style={{display:"inlin
 // position:fixed pase a medirse contra ese ancestro. En Contenido el modal terminaba
 // centrado a media altura del documento —fuera de la pantalla— y solo se veía el fondo
 // borroso. Es la misma razón por la que la barra inferior del celular vive aquí.
+// Lo que el teclado del teléfono le come a la pantalla. `dvh` descuenta la barra de direcciones
+// —eso ya se arregló— pero NO el teclado, así que un panel anclado a `bottom:0` se queda DEBAJO
+// de él. En el drawer de Planificar eso dejaba el botón «Guardar» fuera de alcance: para llegar
+// había que bajar el teclado, y el gesto para bajarlo —tocar fuera del campo— caía en el fondo
+// oscuro, que cerraba el panel y se llevaba el texto escrito. `visualViewport` es lo único que
+// mide esto en iOS; donde no exista devuelve 0 y todo queda como estaba.
+function useTecladoMovil(){
+  const[alto,sAlto]=useState(0);
+  useEffect(()=>{
+    const vv=window.visualViewport;if(!vv)return;
+    // El umbral evita confundir el teclado con la barra de direcciones al desplazarse.
+    const medir=()=>{
+      // Con la página ampliada (zoom con los dedos, o el que hacía iOS solo antes de subir los
+      // campos a 16px) esta resta no mide el teclado: mide el zoom. Devolvía un hueco enorme y
+      // el panel se iba hacia arriba dejando una franja negra. Mejor no tocar nada.
+      if(vv.scale&&vv.scale>1.01)return sAlto(0);
+      const inset=Math.max(0,window.innerHeight-vv.height-vv.offsetTop);
+      // Un teclado no ocupa media pantalla larga: si sale más, es que se midió otra cosa.
+      sAlto(inset>90&&inset<window.innerHeight*0.6?Math.round(inset):0);
+    };
+    medir();
+    vv.addEventListener("resize",medir);vv.addEventListener("scroll",medir);
+    return()=>{vv.removeEventListener("resize",medir);vv.removeEventListener("scroll",medir);};
+  },[]);
+  return alto;
+}
+
 function Portal({children:ch}){return ReactDOM.createPortal(ch,document.body)}
-function Md({open:o,onClose:oc,title:t,children:ch,width:w}){if(!o)return null;return(<Portal><div onClick={oc} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-velo),.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"calc(14px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px))",backdropFilter:"blur(6px)"}}><div className="su" onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(var(--rgb-sombra),.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={oc} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>)}
+// Los diálogos se cierran al tocar el fondo o la ✕, y eso se llevaba por delante lo que
+// hubiera escrito dentro: media ficha de empresa, una descripción larga, un motivo. En el
+// teléfono además el fondo es el gesto natural para bajar el teclado, así que el accidente es
+// el camino normal — pasó en el portal del cliente el 2-sep-2026 con el pie de un reel.
+//
+// «Sucio» no se deduce comparando valores (el contenido de un diálogo puede cambiar solo al
+// llegar datos, y eso preguntaría sin motivo): se marca cuando llega un evento `input`, que
+// solo lo produce alguien escribiendo. Cerrar desde DENTRO —el botón «Guardar» de cada
+// diálogo, que cambia el estado de quien lo abrió— no pasa por aquí y sigue siendo directo.
+function Md({open:o,onClose:oc,title:t,children:ch,width:w}){
+  const sucio=useRef(false);
+  const teclado=useTecladoMovil();
+  useEffect(()=>{if(o)sucio.current=false;},[o]);
+  if(!o)return null;
+  const cerrar=()=>{
+    if(sucio.current&&!confirm("Escribiste cosas en este cuadro y todavía no las has guardado.\n\n¿Cerrar de todas formas? Se pierde lo que hayas puesto."))return;
+    oc&&oc();
+  };
+  return(<Portal><div onClick={cerrar} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-velo),.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",
+    paddingTop:"calc(14px + env(safe-area-inset-top, 0px))",paddingLeft:14,paddingRight:14,
+    // Hueco para el teclado: sin él, el cuadro se centra en la pantalla entera y la mitad de
+    // abajo —donde están siempre los botones de guardar— queda debajo del teclado.
+    paddingBottom:teclado?(teclado+14):"calc(14px + env(safe-area-inset-bottom, 0px))",
+    backdropFilter:"blur(6px)"}}><div className="su" onInput={()=>{sucio.current=true;}} onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:teclado?("calc(100dvh - "+(teclado+48)+"px)"):"88dvh",overflow:"auto",boxShadow:"0 20px 60px rgba(var(--rgb-sombra),.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={cerrar} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>);
+}
 // Menú desplegable al que no lo recorta nadie. Un `position:absolute` colgando del botón
 // queda encerrado en cuanto un ancestro tiene overflow, y la fila de acciones de Org Semanal
 // es un carrusel horizontal (`overflowX:auto`) —que además, al dejar de ser `visible` un eje,
@@ -9660,7 +9711,9 @@ function SwipeDeck({items,onApprove,onReject,isMob,busy,onGoPlan}){
     })()}
 
     {/* Rechazar siempre pide motivo: es lo que le llega al equipo */}
-    {rejFor&&(<Portal><div onClick={()=>sRejFor(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(var(--rgb-velo),.72)",backdropFilter:"blur(8px)"}}>
+    {/* El fondo no puede tragarse el motivo a medio escribir. «Cancelar» sí lo descarta sin
+        preguntar: ahí la intención es explícita. */}
+    {rejFor&&(<Portal><div onClick={()=>{if((rejMsg||"").trim()&&!confirm("Escribiste un motivo y no lo has enviado.\n\n¿Cerrar de todas formas?"))return;sRejFor(null);}} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(var(--rgb-velo),.72)",backdropFilter:"blur(8px)"}}>
       <div onClick={ev=>ev.stopPropagation()} style={{width:"min(440px,100%)",...PC_MARCO,borderRadius:28,boxShadow:"0 30px 80px rgba(var(--rgb-velo),.7)"}}>
         <div style={{...PC_CARD,borderRadius:22,padding:"22px 24px 24px",display:"flex",flexDirection:"column",gap:14}}>
           <div style={{fontSize:17,fontWeight:600,color:PC.tx}}>¿Por qué lo rechazas?</div>
@@ -9743,33 +9796,6 @@ function IgPreview({file,files,type,caption,cuenta,color,fecha,hora}){
       {fecha?fechaDia(fecha)+(hora?" · "+hora:""):"Sin fecha"}
     </div>
   </div>);
-}
-
-// Lo que el teclado del teléfono le come a la pantalla. `dvh` descuenta la barra de direcciones
-// —eso ya se arregló— pero NO el teclado, así que un panel anclado a `bottom:0` se queda DEBAJO
-// de él. En el drawer de Planificar eso dejaba el botón «Guardar» fuera de alcance: para llegar
-// había que bajar el teclado, y el gesto para bajarlo —tocar fuera del campo— caía en el fondo
-// oscuro, que cerraba el panel y se llevaba el texto escrito. `visualViewport` es lo único que
-// mide esto en iOS; donde no exista devuelve 0 y todo queda como estaba.
-function useTecladoMovil(){
-  const[alto,sAlto]=useState(0);
-  useEffect(()=>{
-    const vv=window.visualViewport;if(!vv)return;
-    // El umbral evita confundir el teclado con la barra de direcciones al desplazarse.
-    const medir=()=>{
-      // Con la página ampliada (zoom con los dedos, o el que hacía iOS solo antes de subir los
-      // campos a 16px) esta resta no mide el teclado: mide el zoom. Devolvía un hueco enorme y
-      // el panel se iba hacia arriba dejando una franja negra. Mejor no tocar nada.
-      if(vv.scale&&vv.scale>1.01)return sAlto(0);
-      const inset=Math.max(0,window.innerHeight-vv.height-vv.offsetTop);
-      // Un teclado no ocupa media pantalla larga: si sale más, es que se midió otra cosa.
-      sAlto(inset>90&&inset<window.innerHeight*0.6?Math.round(inset):0);
-    };
-    medir();
-    vv.addEventListener("resize",medir);vv.addEventListener("scroll",medir);
-    return()=>{vv.removeEventListener("resize",medir);vv.removeEventListener("scroll",medir);};
-  },[]);
-  return alto;
 }
 
 // Borrador local del texto de una publicación, por pieza. Es la segunda red: si el panel se
