@@ -713,7 +713,7 @@ async function scopeCliente(mapa, coName) {
 // sigue funcionando; sacarlas de aquí no le quita nada a nadie.
 //
 // La lección: quitar el CONSUMIDOR no baja el tráfico. Solo cuenta lo que sale por el cable.
-const CLAVES_PESADAS = new Set(["teamPay", "billRcpts"]);
+const CLAVES_PESADAS = new Set(["teamPay", "billRcpts", "prog_estado"]);
 
 // Lee TODA la tabla de una vez (menos las privadas), con la forma { clave: valor } que espera el
 // frontend.
@@ -1235,8 +1235,19 @@ let progEnCurso = false;
 // publicada. Aquí el único escritor es este motor, y ya va serializado por progEnCurso.
 let colaProg = Promise.resolve();
 const enColaProg = fn => { const p = colaProg.then(() => fn()); colaProg = p.catch(() => {}); return p; };
+// Pulso del motor. Sin esto, cuando no hace lo que debería no hay absolutamente nada que
+// mirar: ni error, ni log accesible, ni rastro. El 2-sep-2026 una publicación salió en
+// Instagram y la pieza se quedó en «aprobado» dentro de la app, y no había forma de saber si
+// el motor no corría, si no entraba en la rama, o si la escritura fallaba en silencio.
+// Es una fila diminuta y va en CLAVES_PRIVADAS: no viaja a ningún navegador.
+const pulso = async (fase, extra) => {
+  try { await sbPut("prog_estado", { at: new Date().toISOString(), fase, ...(extra || {}) }); }
+  catch (e) { console.error("pulso:", e.message); }
+};
+
 async function sincronizarProgramadas() {
-  if (!zernioKey() || progEnCurso) return;
+  if (!zernioKey()) { await pulso("sin_llave"); return; }
+  if (progEnCurso) { await pulso("saltada_porque_la_anterior_sigue"); return; }
   progEnCurso = true;
   try {
     // La guarda de reentrada, sin un tiempo límite, convierte UN cuelgue en una parada
@@ -1248,12 +1259,14 @@ async function sincronizarProgramadas() {
       _sincronizarProgramadas(),
       new Promise((_, rechaza) => setTimeout(() => rechaza(new Error("la pasada pasó de 90 s")), 90000)),
     ]);
-  } catch (e) { console.error("programadas:", e.message); }
+  } catch (e) { console.error("programadas:", e.message); await pulso("error", { error: String(e && e.message) }); }
   finally { progEnCurso = false; }
 }
 async function _sincronizarProgramadas() {
+  await pulso("empieza");
   const cuentas = (await loadSocial()).cuentas || {};
   const tasks = (await sbGet("tasks", [])) || [];
+  const visto = [];   // qué vio de cada pieza candidata, para poder mirarlo desde fuera
   const cambios = {};   // id -> {socialPost, state?, pubError?}
   const avisos = [];
 
@@ -1280,6 +1293,7 @@ async function _sincronizarProgramadas() {
           const d = await zernio(`/posts/${encodeURIComponent(sp.id)}`);
           const post = d && (d.post || d);
           const estado = String((post && post.status) || "");
+          visto.push({ id: t.id, titulo: t.title, rama: "comprobar", estadoZernio: estado });
           if (estado === "published") {
             cambios[String(t.id)] = { socialPost: { ...sp, at: new Date().toISOString() }, state: "publicado", pubError: null };
             avisos.push({ t, tipo: "salio" });
@@ -1363,12 +1377,13 @@ async function _sincronizarProgramadas() {
     }
   }
 
+  await pulso("recorrido", { tareas: tasks.length, visto, cambios: Object.keys(cambios) });
   const ids = Object.keys(cambios);
   if (ids.length) {
     // Relectura fresca y cola: esta fila la escriben también las dos puntas de la app.
     await enColaProg(async () => {
       const fresh = (await sbGet("tasks", [])) || [];
-      await sbPut("tasks", fresh.map(x => {
+      const guardado = await sbPut("tasks", fresh.map(x => {
         const c = cambios[String(x && x.id)];
         if (!c) return x;
         const y = { ...x, socialPost: c.socialPost || null };
@@ -1376,6 +1391,8 @@ async function _sincronizarProgramadas() {
         if ("pubError" in c) y.pubError = c.pubError;
         return y;
       }));
+      // sbPut devuelve si de verdad escribió. No mirarlo era otra forma de fallar en silencio.
+      await pulso("guardado", { ids, guardado: !!guardado, tareasEnFresh: fresh.length });
     });
   }
 
