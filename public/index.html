@@ -612,7 +612,10 @@ const API={
   // ── Publicación en redes (Zernio) ──
   // Un profile de Zernio por empresa: la cuenta de cada marca vive en el suyo. Todo pasa por
   // el servidor porque la llave de Zernio no puede bajar al navegador.
-  async socialAccounts(companyId){try{const r=await fetch("/api/social/accounts"+(companyId?"?companyId="+encodeURIComponent(companyId):""));if(!r.ok)return{};return await r.json();}catch(e){return{};}},
+  // Un fallo aquí NO puede devolver {}: quien llama no puede distinguir «esta empresa no tiene
+  // Instagram conectado» de «no se pudo preguntar», y con las dos cosas apaga el botón de
+  // publicar exactamente igual, sin decir nada. Zernio caído se veía como cuenta desconectada.
+  async socialAccounts(companyId){try{const r=await fetch("/api/social/accounts"+(companyId?"?companyId="+encodeURIComponent(companyId):""));const d=await r.json().catch(()=>({}));if(!r.ok)return{error:(d&&d.error)||("el servidor respondió "+r.status)};return d;}catch(e){return{error:e.message};}},
   async socialConnect(companyId,nombre,platform){try{const r=await fetch("/api/social/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId,nombre,platform:platform||"instagram"})});return await r.json();}catch(e){return{error:e.message};}},
   async socialPublish(d){try{const r=await fetch("/api/social/publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});return await r.json();}catch(e){return{error:e.message};}},
   // 200 al publicar no significa publicado: Instagram procesa el archivo después.
@@ -4563,9 +4566,12 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   // vive en Zernio: si el cliente la corta desde allá, aquí tiene que dejar de ofrecerse.
   const [ig,sIg]=useState(null);
   const [igCarga,sIgCarga]=useState(true);
+  // Por qué no hay cuenta: vacío si de verdad no está conectada, y el motivo si no se pudo
+  // comprobar. Sin esta distinción los botones de publicar se apagaban en los dos casos.
+  const [igErr,sIgErr]=useState("");
   const [pubId,sPubId]=useState(null);
-  useEffect(()=>{let vivo=true;sIgCarga(true);sIg(null);
-    API.socialAccounts(selCo).then(d=>{if(!vivo)return;sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);});
+  useEffect(()=>{let vivo=true;sIgCarga(true);sIg(null);sIgErr("");
+    API.socialAccounts(selCo).then(d=>{if(!vivo)return;sIg(d&&d.instagram?d.instagram:null);sIgErr(d&&d.error?String(d.error):"");sIgCarga(false);});
     return()=>{vivo=false;};},[selCo]);
 
   // Producción, publicación y automatización son tres trabajos distintos y se pisaban en la
@@ -5004,9 +5010,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     }else addN("❌ "+((d&&d.error)||"Zernio no devolvió la URL de autorización"));
   };
   const refrescarIG=async()=>{
-    sIgCarga(true);
+    sIgCarga(true);sIgErr("");
     const d=await API.socialAccounts(selCo);
-    sIg(d&&d.instagram?d.instagram:null);sIgCarga(false);
+    sIg(d&&d.instagram?d.instagram:null);sIgErr(d&&d.error?String(d.error):"");sIgCarga(false);
   };
   // Instagram descarga el archivo desde su URL: una pieza que quedó en base64 porque Storage
   // estaba caído no se puede publicar, y más vale decirlo aquí que dejar que falle del otro lado.
@@ -5472,6 +5478,17 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                         {pasado&&<span style={{fontSize:11,color:D.tx5,lineHeight:1.45}}>Su día ya pasó. Publica ahora, o pide al cliente que la reagende.</span>}
                       </>);})()}
                     {sinUrl&&<span style={{fontSize:11,color:PC.ambar,lineHeight:1.45}}>El archivo no está en el almacenamiento: Instagram necesita una URL pública.</span>}
+                    {/* Un botón apagado que no explica nada se lee como «la app no funciona»: es
+                        lo que pasó el 2-sep-2026 con el reel de Huemul, con todo listo para
+                        publicar. Los tres motivos por los que puede estar apagado son distintos
+                        y solo uno lo arregla el equipo desde aquí. */}
+                    {!sinUrl&&!ig&&(igCarga
+                      ?<span style={{fontSize:11,color:D.tx5,lineHeight:1.45}}>Comprobando la conexión de Instagram…</span>
+                      :igErr
+                        ?<span style={{fontSize:11,color:PC.ambar,lineHeight:1.45}}>No se pudo comprobar la conexión de Instagram ({igErr}). La cuenta puede estar bien: vuelve a intentarlo.{" "}
+                           <button onClick={refrescarIG} style={{background:"transparent",border:"none",color:PC.cian,font:"inherit",fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Reintentar</button>
+                         </span>
+                        :<span style={{fontSize:11,color:PC.ambar,lineHeight:1.45}}>Esta empresa no tiene Instagram conectado para publicar. Conéctala más arriba, en esta misma pantalla.</span>)}
                   </>}
               </div>
             </div>);
