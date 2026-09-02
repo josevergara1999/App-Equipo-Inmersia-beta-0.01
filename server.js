@@ -1177,6 +1177,159 @@ async function repasoDiario(forzar) {
   } catch (e) { console.error("repaso diario:", e.message); return { error: e.message }; }
 }
 
+
+// ── Lo que el cliente agenda se programa SOLO en Instagram ────────────────────
+// Elegir día y hora en el portal no publicaba nada: era un dato esperando a que alguien
+// pulsara un botón ese día. El 2-sep-2026 un reel de Huemul agendado a las 10:04 salió a las
+// 10:24 porque alguien se acordó a tiempo. Eso no es una programación, es un recordatorio.
+//
+// Cada 10 minutos se compara lo agendado con lo que Zernio tiene puesto, y se corrige la
+// diferencia. Zernio publica a su hora aunque este proceso esté dormido —que lo está de 03:00
+// a 07:00—, así que basta con dejárselo puesto con antelación.
+//
+// LA REGLA QUE EVITA PUBLICAR DOS VECES: nunca se crea sin haber podido retirar lo anterior.
+// Si el borrado falla se deja como está y se reintenta en el repaso siguiente. Una publicación
+// de más en el Instagram de un cliente no se deshace; una desactualizada sí.
+const archivoDeT = t => {
+  const arr = (t && t.files) || [];
+  if (t && t.varianteElegida) { const e = arr.find(f => f && f.url === t.varianteElegida); if (e) return e; }
+  return arr[0];
+};
+// Lo que, si cambia, obliga a rehacer la programación.
+const firmaProg = t => JSON.stringify([t.date, t.publishTime || "", String(t.caption || "").trim(), (archivoDeT(t) || {}).url || ""]);
+const momentoProg = t => `${t.date}T${t.publishTime}:00`;
+
+// Aprobada, con día y hora, con archivo público y sin ambigüedad de versión.
+function programable(t, cuentas) {
+  if (!t || t.state !== "aprobado" || !t.date || !t.publishTime) return null;
+  const f = archivoDeT(t);
+  if (!f || !/^https?:\/\//i.test(String(f.url || ""))) return null;
+  // Con varias versiones y ninguna elegida, publicar tomaría una por descarte y podría salir
+  // justo la que el cliente descartó. Es la misma guarda que el botón del equipo.
+  if ((t.files || []).length > 1 && t.materialAdjunto !== true && !t.varianteElegida) return null;
+  const cuenta = (cuentas || {})[String(t.companyId)] && (cuentas || {})[String(t.companyId)].instagram;
+  if (!cuenta || !cuenta.accountId) return null;
+  return { f, cuenta };
+}
+// Comparado en hora de Chile, que es la que ve el cliente al elegirla.
+const enFuturoCL = (fecha, hora, margenMin) => {
+  const hoy = hoyCL();
+  if (fecha > hoy) return true;
+  if (fecha < hoy) return false;
+  return enMin(hora) > horaMinCL() + (margenMin || 0);
+};
+// 404 = ya no está: para lo que nos importa, es lo mismo que haberla retirado.
+async function retirarDeZernio(id) {
+  try { await zernio(`/posts/${encodeURIComponent(id)}`, { method: "DELETE" }); return true; }
+  catch (e) { return e.status === 404; }
+}
+
+async function sincronizarProgramadas() {
+  if (!zernioKey()) return;
+  const cuentas = (await loadSocial()).cuentas || {};
+  const tasks = (await sbGet("tasks", [])) || [];
+  const cambios = {};   // id -> {socialPost, state?, pubError?}
+  const avisos = [];
+
+  for (const t of tasks) {
+    if (!t || !t.id) continue;
+    const sp = t.socialPost || null;
+    if (t.state === "publicado" || (sp && sp.at)) continue;   // ya salió: no se toca
+    const ok = programable(t, cuentas);
+    const futuro = !!(t.date && t.publishTime) && enFuturoCL(t.date, t.publishTime, 5);
+    const firma = ok ? firmaProg(t) : null;
+
+    if (sp && sp.id && sp.programadaPara) {
+      // Su hora ya pasó: Zernio tuvo que publicarla. Se comprueba, porque responder 200 al
+      // PROGRAMAR no dice nada de lo que ocurrió después. Sin esto, una programación que falla
+      // se queda «programada» para siempre y nadie se entera.
+      if (!enFuturoCL(String(sp.programadaPara).slice(0, 10), String(sp.programadaPara).slice(11, 16), -5)) {
+        try {
+          const d = await zernio(`/posts/${encodeURIComponent(sp.id)}`);
+          const post = d && (d.post || d);
+          const estado = String((post && post.status) || "");
+          if (estado === "published") {
+            cambios[String(t.id)] = { socialPost: { ...sp, at: new Date().toISOString() }, state: "publicado", pubError: null };
+            avisos.push({ t, tipo: "salio" });
+          } else if (estado === "failed" || estado === "error") {
+            const detalle = ((post && (post.platforms || post.results)) || []).map(x => x && (x.error || x.errorMessage)).filter(Boolean).join(" · ");
+            cambios[String(t.id)] = { socialPost: sp, pubError: { at: new Date().toISOString(), msg: "Instagram rechazó la publicación programada" + (detalle ? ": " + detalle : "") } };
+            avisos.push({ t, tipo: "fallo", detalle });
+          }
+          // publishing / scheduled: sigue en camino, se vuelve a mirar en el próximo repaso.
+        } catch (e) { console.error("prog: no se pudo consultar", sp.id, e.message); }
+        continue;
+      }
+      // Todavía no le toca. ¿Sigue diciendo lo mismo?
+      if (!ok) {                                   // la desagendaron o la rechazaron
+        if (await retirarDeZernio(sp.id)) cambios[String(t.id)] = { socialPost: null };
+        continue;
+      }
+      if (sp.sig === firma) continue;              // idéntica: nada que hacer
+      if (!sp.sig && String(sp.programadaPara) === momentoProg(t)) {
+        // La puso una persona con el botón y coincide con lo agendado: se adopta anotando la
+        // firma, en vez de borrarla y crear otra igual.
+        cambios[String(t.id)] = { socialPost: { ...sp, sig: firma } };
+        continue;
+      }
+      // Cambió el día, la hora, el texto o el archivo: primero se retira la vieja.
+      if (!(await retirarDeZernio(sp.id))) { console.error("prog: no se pudo retirar", sp.id); continue; }
+    } else if (!ok || !futuro) continue;           // nada puesto y nada que poner
+
+    if (!ok || !futuro) continue;
+    try {
+      const d = await zernio("/posts", { method: "POST", body: JSON.stringify({
+        content: String(t.caption || ""),
+        mediaItems: [{ type: /^video/i.test(String(ok.f.type || "")) ? "video" : "image", url: ok.f.url }],
+        platforms: [{ platform: "instagram", accountId: ok.cuenta.accountId }],
+        scheduledFor: momentoProg(t), timezone: TZ,
+      }) });
+      const post = d && (d.post || d);
+      const id = post && (post._id || post.id);
+      if (!id) { console.error("prog: Zernio no devolvió id", t.id); continue; }
+      cambios[String(t.id)] = { socialPost: { id, platform: "instagram", programadaPara: momentoProg(t), sig: firma, auto: true }, pubError: null };
+      avisos.push({ t, tipo: "programada" });
+    } catch (e) {
+      console.error("prog: no se pudo programar", t.id, e.message);
+      cambios[String(t.id)] = { socialPost: sp || null, pubError: { at: new Date().toISOString(), msg: "No se pudo programar en Instagram: " + e.message } };
+      avisos.push({ t, tipo: "fallo", detalle: e.message });
+    }
+  }
+
+  const ids = Object.keys(cambios);
+  if (ids.length) {
+    // Relectura fresca y cola: esta fila la escriben también las dos puntas de la app.
+    await enCola(async () => {
+      const fresh = (await sbGet("tasks", [])) || [];
+      await sbPut("tasks", fresh.map(x => {
+        const c = cambios[String(x && x.id)];
+        if (!c) return x;
+        const y = { ...x, socialPost: c.socialPost || null };
+        if (c.state) y.state = c.state;
+        if ("pubError" in c) y.pubError = c.pubError;
+        return y;
+      }));
+    });
+  }
+
+  for (const a of avisos) {
+    const para = correosDe(masAdmins(porIds(a.t.responsable || [])));
+    if (a.tipo === "programada") {
+      await crearNotif({ type: "task_status", title: "🕐 Programada en Instagram",
+        body: `«${a.t.title}» sale sola el ${a.t.date} a las ${a.t.publishTime}. No hay que pulsar nada.`,
+        to: para, url: "/", dedupKey: "prog_" + a.t.id + "_" + momentoProg(a.t) });
+    } else if (a.tipo === "salio") {
+      await crearNotif({ type: "task_status", title: "📸 Publicada en Instagram",
+        body: `«${a.t.title}» salió sola a la hora que dejó agendada el cliente.`,
+        to: para, url: "/", dedupKey: "salio_" + a.t.id });
+    } else {
+      await crearNotif({ type: "task_status", title: "⚠️ Una publicación programada falló",
+        body: `«${a.t.title}» no pudo salir${a.detalle ? ": " + a.detalle : ""}. Hay que publicarla a mano.`,
+        to: para, url: "/", important: true, dedupKey: "progfallo_" + a.t.id + "_" + hoyCL() });
+    }
+  }
+}
+
 // ── Repaso corto: "empieza en una hora" ───────────────────────────────────────
 // Cada 10 minutos se busca lo que arranca dentro de 45–75 min. La ventana es ancha a
 // propósito: si el servidor estuvo dormido un rato, el aviso sale igual. El dedupKey
@@ -1210,6 +1363,9 @@ async function repasoCorto() {
   // Y aquí se arman las automatizaciones cuya pieza ya se publicó: se detecta la publicación y se
   // le pega el mediaId real a la cadena, para que empiece a responder comentarios sola.
   try { await igArmarPendientes(); } catch (e) { console.error("IG armar:", e.message); }
+  // Y aquí se deja puesto en Zernio lo que el cliente agendó, para que salga a su hora sin que
+  // nadie tenga que pulsar nada. Va en su propio try: un fallo aquí no puede tumbar el resto.
+  try { await sincronizarProgramadas(); } catch (e) { console.error("programadas:", e.message); }
 }
 
 setTimeout(() => { repasoDiario(); repasoCorto(); }, 20000);

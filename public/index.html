@@ -10153,14 +10153,15 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
                 suelta él a esa hora aunque no haya nadie delante. Es lo que convierte «lo
                 agendé» en «va a salir»: antes el día elegido por el cliente solo se cumplía si
                 alguien del equipo se acordaba de pulsar el botón ese día. */}
-            {/* Ya entregada a Instagram: cambiar el día aquí NO la mueve allá, y callarlo sería
-                prometer algo que no pasa. Deshacer una programación no existe todavía en la app;
-                mientras no exista, lo honesto es decir a quién hay que avisar. */}
+            {/* Ya entregada a Instagram. Cambiar el día aquí SÍ la mueve allá: el servidor
+                compara cada 10 minutos lo agendado con lo que Zernio tiene puesto y rehace la
+                programación (retirando siempre la anterior antes de crear la nueva). Se dice
+                para que nadie crea que hay que avisar a alguien. */}
             {modal.socialPost&&modal.socialPost.programadaPara&&(
               <div style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:12,background:"rgba(var(--rgb-ambar),.10)",border:"1px solid rgba(var(--rgb-ambar),.35)"}}>
                 <span style={{width:8,height:8,borderRadius:"50%",background:PC.ambar,flexShrink:0,marginTop:5}}/>
                 <span style={{fontSize:12,color:PC.tx2,lineHeight:1.5}}>
-                  Ya está programada en Instagram para el {String(modal.socialPost.programadaPara).replace("T"," ").slice(0,16)}. Si cambias el día o la hora aquí, la publicación <b>no</b> se mueve: avísale al equipo.
+                  Ya está programada en Instagram para el {String(modal.socialPost.programadaPara).replace("T"," ").slice(0,16)}. Si cambias el día, la hora o el texto, se vuelve a programar sola en unos minutos.
                 </span>
               </div>)}
 
@@ -10182,7 +10183,7 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
                         ?<span style={{fontSize:11.5,color:PC.rojo,lineHeight:1.45}}>Recorta el texto para poder publicar.</span>
                         :<span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.45}}>
                            {futuro
-                             ?"Queda programada y sale sola el "+fechaDia(modal.date)+(modal.time?" a las "+modal.time:"")+". No hace falta que nadie esté pendiente."
+                             ?"Sale sola el "+fechaDia(modal.date)+(modal.time?" a las "+modal.time:"")+", sin que nadie esté pendiente. Si no pulsas nada, se programa igual en unos minutos."
                              :"Su día y su hora ya pasaron, así que sale ahora mismo."}
                          </span>}
                 <button disabled={!listo} onClick={async()=>{
