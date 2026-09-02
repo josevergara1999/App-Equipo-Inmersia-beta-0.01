@@ -1229,10 +1229,26 @@ async function retirarDeZernio(id) {
 // deja de ser improbable y pasa a ser cuestión de tiempo. Una pasada lenta simplemente se salta
 // el turno siguiente.
 let progEnCurso = false;
+// Cola PROPIA, y no la de los avisos (`enCola`). Esa es una cadena global: todo lo que se
+// encola espera a lo anterior, así que un push a un endpoint muerto —fetch no tiene tiempo
+// límite propio— deja detrás de sí, para siempre, la escritura que marca una pieza como
+// publicada. Aquí el único escritor es este motor, y ya va serializado por progEnCurso.
+let colaProg = Promise.resolve();
+const enColaProg = fn => { const p = colaProg.then(() => fn()); colaProg = p.catch(() => {}); return p; };
 async function sincronizarProgramadas() {
   if (!zernioKey() || progEnCurso) return;
   progEnCurso = true;
-  try { await _sincronizarProgramadas(); }
+  try {
+    // La guarda de reentrada, sin un tiempo límite, convierte UN cuelgue en una parada
+    // definitiva: la pasada colgada nunca suelta la bandera y todas las siguientes se van sin
+    // hacer nada. Pasó el 2-sep-2026 — la publicación salió en Instagram a su hora y la pieza
+    // se quedó en «aprobado» dentro de la app, sin un solo error por ninguna parte.
+    // La carrera no cancela lo colgado, pero libera la bandera: el turno siguiente lo reintenta.
+    await Promise.race([
+      _sincronizarProgramadas(),
+      new Promise((_, rechaza) => setTimeout(() => rechaza(new Error("la pasada pasó de 90 s")), 90000)),
+    ]);
+  } catch (e) { console.error("programadas:", e.message); }
   finally { progEnCurso = false; }
 }
 async function _sincronizarProgramadas() {
@@ -1350,7 +1366,7 @@ async function _sincronizarProgramadas() {
   const ids = Object.keys(cambios);
   if (ids.length) {
     // Relectura fresca y cola: esta fila la escriben también las dos puntas de la app.
-    await enCola(async () => {
+    await enColaProg(async () => {
       const fresh = (await sbGet("tasks", [])) || [];
       await sbPut("tasks", fresh.map(x => {
         const c = cambios[String(x && x.id)];
@@ -2959,6 +2975,9 @@ async function zernio(ruta, opts = {}) {
   if (!key) throw new Error("falta ZERNIO_API_KEY en el servidor");
   const r = await fetch(ZERNIO_API + ruta, {
     ...opts,
+    // Sin esto una conexión que no cierra deja la petición esperando indefinidamente, y con
+    // ella todo lo que venga detrás. 20 s es de sobra para cualquiera de estas llamadas.
+    ...(typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {}),
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(opts.headers || {}) },
   });
   const txt = await r.text();
