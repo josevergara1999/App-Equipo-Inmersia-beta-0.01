@@ -868,9 +868,40 @@ devuelve booleanos de configuración y no toca Supabase.
 NO al custom `portal.inmersiaperformance.cl`: el custom va por Cloudflare y cuando Render está
 dormido/desplegando devuelve un 5xx rápido, que cron-job.org cuenta como fallo. El 10-ago-2026 el
 job se había **auto-deshabilitado** por acumular fallos de ese tipo (Render llevaba días
-durmiéndose); se reactivó, se cambió la URL al dominio directo y se movió la ventana. Si vuelve a
-caerse, cron-job.org avisa por email ("cuando el cronjob se deshabilite por demasiados fallos"
-está activo) — revisar spam.
+durmiéndose); se reactivó, se cambió la URL al dominio directo y se movió la ventana. Volvió a caerse a finales de agosto y siguió deshabilitado
+hasta el 3-sep — ver el apartado de abajo, que es el que explica por qué esto se repite.
+
+#### El keep-alive NO sobrevive a un arranque en frío, y por eso se auto-deshabilita
+
+Comprobado el 3-sep-2026 en el panel: **el tiempo de espera máximo del plan gratuito de
+cron-job.org son 30 segundos** —el campo rechaza cualquier valor mayor: «El tiempo máximo es 30
+segundos»— y **Render tarda ~60 en despertar**. O sea que cualquier ping que pille el servicio
+dormido está condenado a fallar. El servicio SÍ despierta —la petición llega y arranca el
+proceso, es cron-job.org quien deja de esperar—, así que el ping de las 07:00 falla y el de las
+07:10 ya responde. Funciona, pero deja **un fallo apuntado cada mañana**.
+
+Eso solo no tumba el job. Lo que lo tumba es sumarlo a una caída larga: cuando Render suspendió
+el servicio a finales de agosto, los 503 se acumularon, **cron-job.org deshabilitó el job**, y ahí
+se quedó. El síntoma no es que el cron falle: es que **deja de existir**, y a partir de ese día la
+app se duerme a diario. La caída se arregla sola y el keep-alive no vuelve.
+
+**Cuando la app se comporte mal «casi todos los días», mirar primero si el cron sigue habilitado**
+(`console.cron-job.org` → el panel canta «cronjobs habilitados: 0»). Ya pasó dos veces, el
+10-ago-2026 y a finales de agosto.
+
+Config que tiene que estar puesta, y que el 3-sep no lo estaba entera:
+
+- **«cuando el cronjob se deshabilite por demasiados fallos»** — avisa por correo cuando se rinde.
+  Estaba activo las dos veces; el correo llega y se pierde. **Revisar spam.**
+- **«cuando la ejecución del cronjob falle», tras 3 fallos CONSECUTIVOS** — estaba apagado, así que
+  no había ningún aviso temprano. Tres seguidos son 30 minutos caído de verdad, y el fallo suelto
+  de cada mañana no manda correo.
+- **«Guardar respuestas en el historial de jobs»** — estaba apagado, y por eso no quedó ni rastro
+  de por qué falló. El historial de un job deshabilitado además caduca: se llega tarde.
+
+**La salida definitiva es no depender de esto.** Con el servicio en un *instance type* de pago no
+hay siesta, no hay arranque en frío, no hace falta cron, no hay ventana y no hay presupuesto de
+horas que cuadrar. Todo este apartado desaparece.
 
 La ventana no es capricho, es presupuesto: el tier gratuito da **750 h/mes por workspace** y al
 agotarlas Render **suspende** el servicio hasta el mes siguiente.
