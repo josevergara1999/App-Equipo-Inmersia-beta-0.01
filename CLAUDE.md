@@ -83,6 +83,22 @@ Standalone vienen de CDN.
 Alias de componentes: `Ic` (icono), `Av` (avatar), `Bt` (botón), `Bg` (píldora), `Md` (modal),
 `Fd` (campo de formulario).
 
+### Las páginas
+
+`NAV` en `Main` las agrupa en tres bloques, y **cada entrada es su propia página** (`pg===it.k`):
+
+- **Básicas**: Dashboard, Org Semanal, Contenido, Guionado.
+- **Pro**: Automatizaciones, Fidelización, Programar publicaciones, Métricas.
+- **Administrativas**: Equipo, Empresas, Pagos, Prospectos (solo `admin` y `Sales`).
+
+Automatizaciones, Programar y Métricas **eran pestañas dentro de Contenido**. Al separarlas basta
+comparar `pg` para saber cuál está activa; cuando eran pestañas había que mirar además en cuál
+estabas, y las tres se encendían a la vez en la barra.
+
+Componentes de página: `DashboardPg`, `ContenidoPg`, `GuionadoPg`, `FidelizacionPg`, `MetricasPg`,
+`PayBillPg`, `ProspectosPg` e `InformePg` — este último **no es una página del equipo**, es una
+pestaña del portal del cliente (ver *Métricas e informes*).
+
 ### Diseño visual
 
 Paleta en las constantes `PC` / `D` (fondo `#05060B`, cian `#6FE7F2`, peri `#9BB4FF`, lavanda
@@ -525,6 +541,61 @@ empresa → profile → cuenta vive en `app_data.social`, y lo escribe `/api/soc
 Las escrituras pasan por la cola `enCola`, la misma de los avisos: es la misma fila única y el
 mismo *lost update*.
 
+## Programar publicaciones — lo que agenda el cliente se programa solo
+
+Elegir día y hora en el portal **no publicaba nada**: era un dato esperando a que alguien pulsara
+un botón ese día. El 2-sep-2026 un reel de Huemul agendado a las 10:04 salió a las 10:24 porque
+alguien se acordó a tiempo. Eso no es una programación, es un recordatorio.
+
+`sincronizarProgramadas()` (server.js) compara **cada 2 minutos** lo que el cliente agendó contra
+lo que Zernio tiene puesto, y corrige la diferencia. Zernio publica a su hora aunque este proceso
+esté dormido —que lo está de 03:00 a 07:00—, así que basta con dejárselo puesto con antelación.
+
+**La regla que evita publicar dos veces: nunca se crea sin haber podido retirar lo anterior.** Si
+el borrado falla se deja como está y se reintenta en el repaso siguiente. Una publicación de más
+en el Instagram de un cliente no se deshace; una desactualizada sí. `retirarDeZernio` trata el 404
+como éxito: ya no está, que es lo que queríamos.
+
+- **`programable(t, cuentas)`** es el filtro: aprobada, con `date` y `publishTime`, con archivo de
+  URL pública, con cuenta de Instagram conectada, y **sin ambigüedad de versión** — con varias
+  versiones y ninguna elegida se publicaría una por descarte y podría salir justo la que el
+  cliente descartó. Es la misma guarda que el botón del equipo.
+- **`firmaProg(t)`** es lo que, si cambia, obliga a rehacer la programación: día, hora, texto y URL
+  del archivo. Si la firma calza, no se toca nada.
+- Una programación puesta a mano (sin firma) que coincida con lo agendado **se adopta** anotándole
+  la firma, en vez de borrarla y crear otra igual.
+- **200 al programar no dice nada de lo que pasó después.** Cuando su hora ya pasó se consulta
+  `GET /posts/:id` de Zernio: `published` cierra la pieza (`state:"publicado"`), `failed`/`error`
+  escribe el motivo en `task.pubError`, y `publishing`/`scheduled` se deja para el repaso
+  siguiente. Sin esta comprobación, una programación fallida se queda «programada» para siempre.
+- **Se le pasó la hora y nunca llegó a programarse** (la agendaron para dentro de un minuto, o
+  para una hora en la que el proceso estaba dormido): si es de hoy y lleva menos de 2 h de retraso
+  se publica **ahora** —el cliente pidió esa hora, unos minutos tarde es lo que quería—; si hace
+  más, no se publica por las bravas algo de otro día: se avisa y lo decide una persona.
+
+### Las unidades, y por qué el motor no comprobó nada durante horas
+
+`horaMinCL()` devuelve la hora **en decimal** (13.5 = 13:30) pese a lo que sugiere su nombre, y
+`enMin()` devuelve **minutos** (810). Comparar una contra otra da siempre «todavía es futuro», así
+que el motor **no comprobó nunca** si una publicación había salido ni publicó ninguna a la que se
+le pasó la hora. Por eso existe `minutosCL()`, con las unidades a la vista.
+
+### Guardas del propio motor
+
+- **`progEnCurso` con tiempo límite de 90 s.** Una guarda de reentrada sin límite convierte UN
+  cuelgue en una parada definitiva: la pasada colgada nunca suelta la bandera y todas las
+  siguientes se van sin hacer nada. Pasó el 2-sep-2026 — la publicación salió en Instagram a su
+  hora y la pieza se quedó en «aprobado» dentro de la app, sin un solo error por ninguna parte.
+  La carrera no cancela lo colgado, pero libera la bandera y el turno siguiente lo reintenta.
+- **Cola propia (`enColaProg`), no la de los avisos.** `enCola` es una cadena global: un push a un
+  endpoint muerto —`fetch` no tiene tiempo límite propio— dejaría detrás de sí, para siempre, la
+  escritura que marca una pieza como publicada.
+- **Pulso en `app_data.prog_estado`** (`pulso()`), y se anota **antes** de preguntar, no después.
+  Sin esto, cuando el motor no hace lo que debería no hay absolutamente nada que mirar: ni error,
+  ni log accesible, ni rastro. Guarda la fase, qué vio de cada pieza candidata y qué cambió. Es
+  una fila diminuta y va en `CLAVES_PRIVADAS`: no viaja a ningún navegador. **Es el primer sitio a
+  mirar cuando una programada no sale.**
+
 ## Comentario → DM (Meta directo, sin Zernio)
 
 **Zernio no sirve para esto y está comprobado:** su `POST /inbox/comments/reply` devuelve un
@@ -638,6 +709,48 @@ ciclo:
    conectada por Meta directo (comentario→DM), o sea Advanced Access para clientes; funciona hoy
    en cuentas propias.**
 
+## Fidelización — tarjetas de sellos
+
+Página propia (`FidelizacionPg`), y el **primer servicio pensado para vender la app a otras
+agencias**, no solo para los clientes propios.
+
+**Rompe el patrón `app_data` a propósito.** Tiene tablas reales en `db/loyalty.sql`
+—`loyalty_programs`, `loyalty_members`, `loyalty_events`, `loyalty_apple_devices`— con RLS activo
+y sin policies: el navegador nunca las toca, todo pasa por `/api/loyalty/*`. El patrón clave-valor
+con `DB.loadAll()` trayendo la fila entera no aguanta N agencias con M clientes y miles de socios.
+
+- Un programa por empresa: `tipo` (sellos / puntos / niveles), `meta`, `premio`, y el diseño del
+  pase (colores, logo, banda, icono de sello).
+- El socio se da de alta por `/unirse/:id` y su tarjeta vive en `/tarjeta/:codigo`. Son **HTML
+  plano, sin React ni Babel**, servidas por handlers propios y reconocidas por prefijo en `sw.js`:
+  las abre un cliente final en el mesón, con la conexión que haya.
+- El escáner del equipo lee el código y sella o canjea en la misma ventana. **Idempotencia real**:
+  cada lectura manda `idemKey` y el índice único de `loyalty_events` impide el doble sello.
+- `loyalty_events` guarda `saldo_despues`, una foto del saldo tras aplicar el evento, para que el
+  libro se pueda leer sin recalcular.
+- La banda de la tarjeta se genera con Gemini (`/api/loyalty/strip-ia`), ~US$0,067 por imagen.
+
+**Wallet nativo no existe todavía.** No hay una línea de `walletobjects` en `server.js`. Las
+columnas (`apple_pass_type`, `apple_serial`, `apple_auth_token`, `google_class_id`,
+`google_object_id`) y `loyalty_apple_devices` están creadas y vacías, para no migrar después.
+Mientras tanto, «guardar la tarjeta» es agregar `/tarjeta/:codigo` a la pantalla de inicio.
+El orden acordado es Google Wallet primero (gratis, se valida en iPhone con la app de Google
+Wallet) y Apple el último, porque sus US$99/año no compran nada verificable hasta que el resto
+funcione.
+
+## Métricas e informes
+
+- **`MetricasPg`** (página del equipo) lee Instagram por `/api/meta/insights-full?igId=&days=`,
+  con periodo de 30 / 90 / 180 días y comparación contra el periodo anterior. Solo lista las
+  empresas que tienen `igId`. Cuando la serie pasa de 35 puntos se agrega por semanas: un gráfico
+  de 180 barras en un teléfono no se lee.
+- **`InformePg`** NO es una página del equipo: es la pestaña **«Informe del mes»** del portal del
+  cliente, y sus datos están **escritos a mano** en la constante `CAMP` (campaña de junio de
+  Huemul contra la de verano). Está limitada a una empresa por nombre
+  (`tieneInforme = /huemul/i.test(co.name)`), así que ningún otro cliente ve esos números — pero
+  **no se actualiza sola**: mientras la pestaña siga encendida, Huemul ve un informe de junio.
+  Es un entregable hecho a mano, no una funcionalidad.
+
 ## Dominios y despliegue
 
 Render, con despliegue automático al hacer push a `main`. La app responde en **dos dominios a
@@ -648,6 +761,32 @@ dominio, hay que sumarlo ahí y en Google Cloud.
 
 La web pública (`inmersiaperformance.cl`) es otro repo: `~/GitHub/inmersia-web`, HTML estático
 en GitHub Pages. Tiene el botón "Portal" en la barra superior.
+
+### Son DOS proveedores y DOS cuotas: no confundirlas
+
+La app se apoya en Render (el proceso) y en Supabase (base y Storage). Cada uno tiene sus propios
+límites, y los tres cortes de agosto-septiembre de 2026 se repartieron entre los dos:
+
+| Proveedor | Qué se agotó | Cómo se ve desde fuera | Cuándo |
+|---|---|---|---|
+| Render | 5 GB/mes de ancho de banda | 503 con `x-render-routing: suspend-by-user` | 28 y 31-ago-2026 |
+| Supabase | tráfico de salida del plan gratuito | **402** en todo: base *y* Storage | 2-sep-2026 |
+
+**Supabase pasó a plan de pago el 3-sep-2026**, así que el 402 deja de ser el corte del día a día.
+**Render sigue en el plan gratuito**, con su tope de ancho de banda, sus 750 h/mes y su siesta de
+15 minutos. Pagar uno no arregla al otro, y el síntoma de los dos se parece demasiado: la pantalla
+se dibuja entera y vacía.
+
+**Antes de investigar por qué falta un dato, averiguar cuál de los dos es.** El código ya distingue
+—`explicarStorage()` y `estadoStorage()` nombran el 402 como restricción de plan y no como problema
+del archivo, que fue el aviso equivocado que mandó a mirar donde no era—, pero desde el navegador
+se comprueba así:
+
+```
+curl -s -o /dev/null -w "%{http_code}" https://portal.inmersiaperformance.cl/api/health   # Render
+```
+
+Si `/api/health` responde 200 y aun así no hay datos, el que está restringido es Supabase.
 
 ### El plan gratuito también tiene tope de ANCHO DE BANDA, y es el que revienta primero
 
@@ -806,6 +945,25 @@ Rediseño aplicado a Dashboard, Org Semanal, Guionado y Contenido. **Faltan Pago
 del cliente** (export en `~/Downloads/Inmersia Portal Cliente.dc.html`).
 
 Sin probar con uso real: las invitaciones de Meet.
+
+**Pendientes conocidos, por orden de lo que duele:**
+
+- **Render sigue en el plan gratuito.** Es el que duerme el proceso, el que suspende el servicio
+  al agotar los 5 GB y el que obliga a la ventana del cron. Pasarlo a Starter (US$7/mes) es el
+  paso marcado como obligatorio antes del primer cliente real de fidelización — un sello que no
+  se registra delante del cliente es inaceptable. **Ojo: subir el plan del *workspace* no quita
+  las limitaciones de las instancias Free; hay que cambiar el *instance type* del servicio.**
+- **Los comprobantes de pago siguen en base64 dentro de `app_data`** (`teamPay`, `billRcpts`). Es
+  la misma trampa ya escrita para `tasks` —nunca guardar binarios en una fila que se lee entera—
+  y a Pagos no se le aplicó. Hoy no viajan al navegador (`CLAVES_PESADAS`), pero la fila crece con
+  cada comprobante y Pagos tarda más cada vez. Lo correcto es Storage y guardar la URL, como se
+  hizo con las fotos.
+- **`/api/ig/*` y `/api/social/*` toman `companyId` del request.** Un cliente con sesión podría
+  consultar o editar la conexión y las reglas de otra empresa. Cerrar forzando `companyId` = su
+  empresa en esos handlers.
+- **`DB.loadAll()` se llama desde media docena de componentes**, así que una sesión pide
+  `/api/data` varias veces. Con 23 KB ya no duele, pero sigue siendo trabajo repetido.
+- **Google Wallet y Apple Wallet** en Fidelización: nada escrito todavía.
 
 **Storage funciona en producción** (comprobado en agosto de 2026 con una subida real, no con
 `/api/upload/status`). El bucket `contenido` existe, es público, sin tope propio ni lista de

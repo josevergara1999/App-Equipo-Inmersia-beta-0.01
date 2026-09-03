@@ -1190,7 +1190,7 @@ async function repasoDiario(forzar) {
 // pulsara un botón ese día. El 2-sep-2026 un reel de Huemul agendado a las 10:04 salió a las
 // 10:24 porque alguien se acordó a tiempo. Eso no es una programación, es un recordatorio.
 //
-// Cada 10 minutos se compara lo agendado con lo que Zernio tiene puesto, y se corrige la
+// Cada 2 minutos se compara lo agendado con lo que Zernio tiene puesto, y se corrige la
 // diferencia. Zernio publica a su hora aunque este proceso esté dormido —que lo está de 03:00
 // a 07:00—, así que basta con dejárselo puesto con antelación.
 //
