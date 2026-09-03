@@ -2827,6 +2827,12 @@ function explicarStorage(status, detail) {
   let d = {};
   try { d = JSON.parse(detail); } catch (_) {}
   const m = `${d.error || ""} ${d.message || ""}`.toLowerCase();
+  // 402 = Supabase restringió el PROYECTO entero por pasarse de los límites del plan (tráfico
+  // de salida o espacio). No tiene nada que ver con el archivo, pero sin este caso caía en el
+  // genérico, estadoStorage lo daba por 'no disponible' y la app avisaba del tope de 3 MB del
+  // respaldo: un aviso de ESPACIO para un problema de CUOTA, que manda a mirar donde no es.
+  if (status === 402 || m.includes('exceed_egress_quota') || m.includes('exceeded_quota') || m.includes('restricted due to'))
+    return 'Supabase restringió el proyecto por pasarse de los límites del plan gratuito (tráfico de salida o almacenamiento). No es el archivo ni su tamaño: hasta que se suba de plan o empiece el siguiente ciclo, no se puede leer ni escribir nada.';
   if (m.includes("bucket not found"))
     return `El bucket "${CONTENT_BUCKET}" no existe en Supabase Storage. Hay que crearlo y marcarlo como público.`;
   if (m.includes("mime"))
@@ -2969,7 +2975,9 @@ async function estadoStorage() {
       if (r.status === 404) {
         data = { ready: false, bucket: CONTENT_BUCKET, motivo: `el bucket "${CONTENT_BUCKET}" no existe en Supabase Storage` };
       } else if (!r.ok) {
-        data = { ready: false, bucket: CONTENT_BUCKET, motivo: `Supabase respondió ${r.status} al consultar el bucket` };
+        data = { ready: false, bucket: CONTENT_BUCKET, motivo: r.status === 402
+          ? 'Supabase restringió el proyecto por pasarse de los límites del plan (tráfico o espacio). No es un problema del bucket ni del tamaño de los archivos.'
+          : `Supabase respondió ${r.status} al consultar el bucket` };
       } else {
         const b = await r.json().catch(() => ({}));
         data = {
