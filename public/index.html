@@ -4354,15 +4354,21 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
               // Los botones de antes no tienen `modo`; se deduce de si llevan enlace.
               const esEnlace=(b.modo||(b.url?"enlace":"bloque"))==="enlace";
               const urlOk=/^https?:\/\/\S+$/i.test(b.url||"");
+              const tituloOk=!!String(b.titulo||"").trim();
               return(
               <div key={b.id} style={{display:"flex",flexDirection:"column",gap:7,padding:"10px 11px",borderRadius:11,background:PC.panel,border:"1px solid var(--border)"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <input value={b.titulo} maxLength={20} onChange={e=>edBot("titulo",e.target.value)}
                     placeholder="Ya te sigo"
-                    style={{flex:1,minWidth:0,padding:"7px 10px",borderRadius:9,background:PC.bg,border:"1px solid var(--border2)",color:PC.tx,fontFamily:"inherit",fontSize:12.5,fontWeight:600,outline:"none"}}/>
+                    style={{flex:1,minWidth:0,padding:"7px 10px",borderRadius:9,background:PC.bg,border:"1px solid "+(tituloOk?"var(--border2)":"rgba(var(--rgb-rojo),.45)"),color:PC.tx,fontFamily:"inherit",fontSize:12.5,fontWeight:600,outline:"none"}}/>
                   <button onClick={()=>editPaso(nSel.id,"botones",(nSel.botones||[]).filter((_,n)=>n!==k))}
                     style={{width:24,height:24,borderRadius:7,background:"transparent",border:"none",color:PC.tx5,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕</button>
                 </div>
+                {/* El nombre no es decorativo: es el texto que se lee DENTRO del botón, e
+                    Instagram no admite plantillas con botones sin texto. Sin él el servidor
+                    descarta el botón entero al guardar —y hasta ahora lo hacía callado, así que
+                    la cadena volvía con un botón menos y sin ninguna pista de por qué. */}
+                {!tituloOk&&<span style={{fontSize:11,color:PC.rojo,lineHeight:1.45}}>Ponle nombre: es lo que se lee dentro del botón. Sin nombre no se guarda.</span>}
 
                 {/* Un botón hace UNA de las dos cosas, no las dos: o sigue la cadena, o abre una
                     web. Al elegir enlace se borra el destino y al revés, porque guardar los dos
@@ -4623,6 +4629,36 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     const sinPalabra=reglas.filter(r=>!String(r.palabra||"").trim()).length;
     if(sinPalabra){
       addN("⚠️ "+sinPalabra+(sinPalabra===1?" cadena no se guarda: le falta la palabra clave.":" cadenas no se guardan: les falta la palabra clave."));
+      return;
+    }
+    // Lo mismo con los botones, que es donde más se notaba: se armaba la cadena entera, se
+    // pulsaba Guardar, y el botón recién creado no estaba. Tres formas de desaparecer, las
+    // tres mudas hasta ahora:
+    //   · sin nombre → el servidor lo descarta (`filter(b => b.titulo)`), porque Instagram no
+    //     admite un botón sin texto. Es el caso de un enlace de WhatsApp pegado con prisa: se
+    //     elige "Abre un enlace", se pega el wa.me y el nombre se queda vacío.
+    //   · de enlace con una dirección que no pasa el filtro → se guarda con la url en blanco.
+    //     Un `?text=` con espacios sin codificar basta para que no pase.
+    //   · de bloque sin destino → se guarda, pero el motor no lo envía nunca.
+    // Se avisa antes y no se guarda nada: media cadena guardada es peor que ninguna.
+    const problemas=[];
+    reglas.forEach(r=>{
+      const donde=r.nombre||(r.palabra?("la cadena de “"+r.palabra+"”"):"la cadena sin nombre");
+      (r.pasos||[]).forEach(p=>{
+        if(p.tipo!=="mensaje")return;
+        (p.botones||[]).forEach((b,k)=>{
+          const bloque=p.titulo||"un mensaje";
+          const nombre=String(b.titulo||"").trim();
+          const cual=nombre?("«"+nombre+"»"):("el botón "+(k+1));
+          const esEnlace=(b.modo||(b.url?"enlace":"bloque"))==="enlace";
+          if(!nombre)problemas.push(donde+", en «"+bloque+"»: "+cual+" no tiene nombre. Instagram no admite botones sin texto, así que se perdería al guardar.");
+          else if(esEnlace&&!/^https?:\/\/\S+$/i.test(String(b.url||"").trim()))problemas.push(donde+", en «"+bloque+"»: "+cual+" abre un enlace, pero la dirección no vale. Tiene que empezar por http:// o https:// y no llevar espacios (en un wa.me, el texto del ?text= va codificado).");
+          else if(!esEnlace&&!String(b.siguiente||"").trim())problemas.push(donde+", en «"+bloque+"»: "+cual+" no lleva a ningún bloque, así que no se enviaría.");
+        });
+      });
+    });
+    if(problemas.length){
+      addN("⚠️ No se guardó nada — "+problemas[0]+(problemas.length>1?" (y "+(problemas.length-1)+(problemas.length===2?" aviso más)":" avisos más)"):""));
       return;
     }
     sGuardando(true);
