@@ -8930,7 +8930,9 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
     </div>
 
     {i===0&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <input autoFocus value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
+      {/* En el teléfono el foco automático abría el teclado de golpe, tapando el asistente
+          antes de que se entendiera qué había pasado: ahí se abre solo al tocar el campo. */}
+      <input autoFocus={!(window.matchMedia&&window.matchMedia("(pointer: coarse)").matches)} value={it.title||""} onChange={e=>onCambio({title:e.target.value})}
         onKeyDown={e=>{if(e.key==="Enter"&&puedeSeguir)sI(1);}}
         placeholder="Título" style={campo}/>
       {/* Las tres del mismo ancho (`flex:1 1 0`): con el ancho según el texto, "Historia" salía
@@ -9473,6 +9475,27 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // Días desplegados. Cerrados por defecto: siete cajas abiertas con sus botones ocupaban
   // varias pantallas. Se abren tocándolos y se cierran tocando cualquier parte libre del cuadro.
   const [diaAbierto,sDiaAbierto]=useState({});
+  // Abrir y plegar un día con animación: el cuadro crece desde la altura de la fila plegada
+  // hasta su alto real (medido), y al plegar hace lo inverso antes de cambiar el estado.
+  // Antes se abría de golpe. Sin animación si el sistema pide movimiento reducido.
+  const ALTO_PLEGADO=58;
+  const sinMovimiento=()=>typeof window!=="undefined"&&window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const animarApertura=el=>{
+    if(!el||el.dataset.anim==="1")return;
+    el.dataset.anim="1";
+    if(sinMovimiento()||!el.animate)return;
+    const h=el.scrollHeight;if(h<=ALTO_PLEGADO+4)return;
+    el.style.overflow="hidden";
+    const an=el.animate([{height:ALTO_PLEGADO+"px",opacity:.7},{height:h+"px",opacity:1}],{duration:Math.min(420,220+h/6),easing:"cubic-bezier(.22,.8,.24,1)"});
+    an.onfinish=an.oncancel=()=>{el.style.overflow="";};
+  };
+  const animarCierre=(el,luego)=>{
+    if(!el||sinMovimiento()||!el.animate){luego();return;}
+    const h=el.getBoundingClientRect().height;
+    el.style.overflow="hidden";
+    const an=el.animate([{height:h+"px",opacity:1},{height:ALTO_PLEGADO+"px",opacity:.7}],{duration:Math.min(320,180+h/8),easing:"cubic-bezier(.4,0,.6,1)",fill:"forwards"});
+    an.onfinish=()=>{luego();requestAnimationFrame(()=>{an.cancel();el.style.overflow="";});};
+  };
 
   // Los archivos van a Supabase Storage y en el item queda solo la URL. Antes se guardaban
   // en base64 dentro del propio item, o sea dentro de la fila `planners`, que `DB.loadAll()`
@@ -9736,7 +9759,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       if(!exp){
         // ── Día plegado: una sola fila. Las piezas se ven como píldoras de su color. ──
         return(
-        <div key={wd.ds} {...dropProps} onClick={()=>sDiaAbierto(o=>({...o,[wd.ds]:true}))} title="Toca para abrir el día"
+        <div key={wd.ds} {...dropProps} ref={el=>{if(el)el.dataset.anim="";}} onClick={()=>sDiaAbierto(o=>({...o,[wd.ds]:true}))} title="Toca para abrir el día"
           style={{display:"flex",alignItems:"center",gap:12,padding:movil?"8px 10px":"9px 14px",borderRadius:14,cursor:"pointer",
             background:soltando?"rgba(var(--rgb-peri),.12)":conContenido?"linear-gradient(100deg, "+colDia+"1c, "+colDia+"06 55%, transparent)":D.panel,
             border:"1px solid "+(soltando?D.peri:conContenido?colDia+"55":wd.isToday?"rgba(var(--rgb-acento),.45)":D.line3),
@@ -9763,14 +9786,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       }
 
       return(
-      <div key={wd.ds} {...dropProps}
+      <div key={wd.ds} {...dropProps} ref={animarApertura}
         // Tocar cualquier parte LIBRE del cuadro lo vuelve a plegar. Lo que se puede tocar
         // (botones, campos, enlaces) y las propias piezas no cuentan; y un clic que llega por
         // un Portal (un modal abierto desde la pieza) tampoco, porque no está dentro del cuadro.
         onClick={e=>{
           if(!e.currentTarget.contains(e.target))return;
           if(e.target.closest("button,a,input,textarea,select,label,video,img,[data-pieza]"))return;
-          cerrarDia();
+          animarCierre(e.currentTarget,cerrarDia);
         }}
         style={{borderRadius:20,padding:4,cursor:"default",background:"linear-gradient(160deg, "+colDia+"66, "+colDia+"14 45%, rgba(var(--rgb-peri),.18))",boxShadow:"0 10px 28px rgba(var(--rgb-sombra),.10)"}}>
         <div style={{borderRadius:16,border:"1px solid "+colDia+"40",background:"linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99))",display:"flex",flexDirection:"column",overflow:"hidden"}}>
