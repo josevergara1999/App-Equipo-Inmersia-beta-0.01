@@ -11,7 +11,7 @@
 
   A diferencia de `unirse.html`, esta sí lleva la marca de INMERSIA: quien la abre es cliente
   NUESTRO, no cliente de un cliente. Por eso repite la piel de la app —las dos paletas enteras,
-  DM Sans y JetBrains Mono, las tarjetas con su marco— y respeta el tema del sistema, con el
+  Inter, las tarjetas con su marco— y respeta el tema del sistema, con el
   mismo conmutador y la misma clave de localStorage (`inm_tema`) que la app: si esta persona
   entra después a su portal, se lo encuentra como lo dejó.
 
@@ -20,11 +20,11 @@
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* Las dos paletas de la app, copiadas tal cual. */
   :root{
-    --font-mono:'JetBrains Mono',ui-monospace,monospace;
+    --font-mono:'Inter',system-ui,sans-serif;
     --bg:#05060B;--bg2:#0B0E17;--bg3:#0D111B;--bg4:#07090F;
     --border:#161B2A;--border2:#262D40;--border3:#1E2536;
     --tx:#F4F2ED;--tx2:#C9CFDC;--tx3:#8E93A6;--tx4:#6B7484;--tx5:#4A5265;
@@ -50,7 +50,7 @@
   html,body{margin:0;padding:0}
   body{
     background:var(--bg);color:var(--tx2);
-    font-family:'DM Sans',system-ui,-apple-system,sans-serif;
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
     -webkit-font-smoothing:antialiased;
     padding:0 0 60px;
     transition:background .25s ease,color .25s ease;
@@ -187,7 +187,7 @@
 
     if(enviadoAt){
       h+='<div class="aviso ok"><b>Ya nos llegó.</b> Lo recibimos el '+esc(fecha(enviadoAt))+
-         '. Si algo cambió, corrígelo y vuelve a guardar — nos avisa de nuevo.</div>';
+         '. Si algo cambió, corrígelo y vuelve a guardar, nos avisa de nuevo.</div>';
     }
 
     BRIEF.SECCIONES.forEach(function(s){

@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="/icon-180.png?v=2">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=2">
 <title>INMERSIA · Content Management Platform</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <!-- Las preguntas del brief. El MISMO archivo que dibuja el formulario público (brief.html) y
      que valida el servidor: una pregunta se escribe una sola vez. Va antes del script de Babel
      porque solo define el global `BRIEF`. -->
@@ -36,9 +36,12 @@
    algunos Android. El salto de ancho es un problema de escritorio. */
 @media (min-width:769px){ html{scrollbar-gutter:stable;overflow-y:scroll} }
 html,body{min-height:100%}
-body{font-family:'DM Sans',system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-family:'Inter',system-ui,sans-serif;font-feature-settings:"cv11","ss03";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
-:root{--r:10px;--r-lg:14px;--font-mono:'JetBrains Mono',monospace}
+:root{--r:10px;--r-lg:14px;--font-mono:'Inter',system-ui,sans-serif}
+/* Rótulos y cifras: antes JetBrains Mono. Con Inter se conserva el ancho fijo de los números para que las columnas sigan alineadas. */
+[style*="--font-mono"]{font-variant-numeric:tabular-nums}
+@media(max-width:760px){.cot-grid{grid-template-columns:1fr!important}}
 
 /* ─── REDISEÑO 2026 ───────────────────────────────────────────────
    Estas variables se remapearon a la paleta nueva en vez de reescribir cada sección:
@@ -476,7 +479,7 @@ function encolarGuardado(key,local,contra){
     let ok=false;
     try{ok=await guardarDiff(key,local,base);}
     catch(e){console.error("guardarDiff "+key+":",e);ok=false;}
-    if(!ok&&avisarFalloGuardado)avisarFalloGuardado("⚠️ No se pudo guardar "+(NOMBRE_LISTA[key]||key)+" — recarga la página y compruébalo antes de seguir");
+    if(!ok&&avisarFalloGuardado)avisarFalloGuardado("⚠️ No se pudo guardar "+(NOMBRE_LISTA[key]||key)+"-— recarga la página y compruébalo antes de seguir");
     return ok;
   };
   const prev=saveQueues[key]||Promise.resolve();
@@ -678,11 +681,11 @@ const INIT_USERS=[
   // históricos siguen guardados bajo esa clave en `teamPay` y deben seguir sumando.
   // `vota:true` = decide si una pieza puede salir al portal del cliente. Es aparte del rol:
   // el resto del equipo ve y trabaja el contenido, pero no cuenta para la votación.
-  {id:2,name:"Cleme",email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234",vota:true},
+  {id:2,name:"Cleme",superadmin:true,email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234",vota:true},
   {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b",pass:"1234"},
   {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"Sales",avatar:"GA",color:"#ffd93d",pass:"1234",vota:true},
-  {id:5,name:"Javi",email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234",vota:true},
-  {id:6,name:"Jose",email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234",vota:true},
+  {id:5,name:"Javi",superadmin:true,email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234",vota:true},
+  {id:6,name:"Jose",superadmin:true,email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234",vota:true},
   {id:7,name:"INMERSIA",email:"inmersiatours@gmail.com",gmail:"inmersiatours@gmail.com",role:"admin",avatar:"IN",color:"#c9a0ff",pass:"1234"},
   {id:100,name:"Huemul",email:"huemul",role:"cliente",avatar:"HU",color:"#9d6bff",pass:"1234",companyName:"Huemul"},
   {id:101,name:"Fauna",email:"fauna",role:"cliente",avatar:"FA",color:"#4ecdc4",pass:"1234",companyName:"Fauna"},
@@ -1150,6 +1153,65 @@ function useMenuFlotante(abierto,cerrar,anchoMax){
 }
 // Barra de cupos del mes. Se usa igual en Contenido y en Org Semanal: es el mismo dato y
 // tiene que decir lo mismo en los dos sitios.
+// Permisos de un miembro: qué páginas puede usar. Parte de lo que hoy le da su rol, y
+// «Volver a su rol» borra la entrada para que siga al rol si después se lo cambian.
+function PermisosModal({user,onClose,nav,visP,actual,porRolDe,onGuardar}){
+  const todas=nav.flatMap(([,items])=>items.map(it=>it.k));
+  const[sel,sSel]=useState([]);
+  useEffect(()=>{if(!user)return;const r=porRolDe(user);sSel(actual&&Array.isArray(actual.paginas)?actual.paginas:todas.filter(r));},[user,actual]);
+  if(!user)return null;
+  const tog=k=>sSel(p=>p.includes(k)?p.filter(x=>x!==k):[...p,k]);
+  return(<Md open={!!user} onClose={onClose} title={"Permisos · "+user.name} width={520}>
+    <p style={{fontSize:12.5,color:"var(--tx3)",lineHeight:1.55,margin:"0 0 14px"}}>
+      Marca las funciones que {user.name} puede usar. Lo que no esté marcado desaparece de su menú y no puede abrirlo.
+      {actual?" Ahora tiene permisos a medida.":" Ahora sigue lo de su rol ("+user.role+")."}
+    </p>
+    {nav.map(([titulo,items])=>(<div key={titulo} style={{marginBottom:12}}>
+      <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:"var(--tx4)",marginBottom:6}}>{titulo}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {items.map(it=>{const on=sel.includes(it.k);return(
+          <button key={it.k} onClick={()=>tog(it.k)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,padding:"7px 11px",borderRadius:8,border:"1px solid "+(on?"var(--accent)":"var(--border)"),background:on?"var(--accent)":"var(--bg3)",color:on?"var(--bg)":"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>
+            <Ic n={on?"check":(it.ic||"dashboard")} s={12}/>{it.l||visP[it.k]?.[0]||it.k}</button>);})}
+      </div>
+    </div>))}
+    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginTop:16}}>
+      <Bt v="s" onClick={()=>onGuardar(user.id,null)}>Volver a su rol</Bt>
+      <div style={{display:"flex",gap:8}}>
+        <Bt v="s" onClick={onClose}>Cancelar</Bt>
+        <Bt v="p" icon="save" disabled={!sel.length} onClick={()=>onGuardar(user.id,sel)}>Guardar permisos</Bt>
+      </div>
+    </div>
+  </Md>);
+}
+
+// Selector de personas del equipo (chips). Lleva su propio estado para que el modal de la
+// empresa, que trabaja con campos no controlados, pueda pintarlo encendido/apagado.
+function EncargadosSel({users,inicial,onChange}){
+  const[sel,sSel]=useState(inicial||[]);
+  const tog=id=>{const n=sel.includes(id)?sel.filter(x=>x!==id):[...sel,id];sSel(n);onChange&&onChange(n);};
+  return(<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+    {users.map(u=>{const on=sel.includes(u.id);return(
+      <button key={u.id} type="button" onClick={()=>tog(u.id)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,padding:"6px 10px",borderRadius:7,border:"1px solid "+(on?"var(--accent)":"var(--border)"),background:on?"var(--accent)":"var(--bg3)",color:on?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit"}}><Av u={u} sz={18}/>{u.name}</button>);})}
+  </div>);
+}
+
+// Alertas de cupo para el Dashboard: por cliente, cuánto queda del mes y si va atrasado.
+// "Atrasado" es quedar con más de la mitad del cupo sin empezar pasada la mitad del mes: a ese
+// ritmo no se alcanza a producir lo que el cliente ya pagó.
+const alertasCupo=(cos,tasks)=>{
+  const h=new Date(),y=h.getFullYear(),m=h.getMonth();
+  const diasMes=new Date(y,m+1,0).getDate(),quedanDias=diasMes-h.getDate();
+  const avanceMes=h.getDate()/diasMes;
+  return (cos||[]).map(co=>{
+    const saldo=saldoDe(co,tasks,y,m).filter(s=>s.incluido>0);
+    const incluido=saldo.reduce((a,s)=>a+s.incluido,0);
+    const libre=saldo.reduce((a,s)=>a+Math.max(0,s.libre),0);
+    const agotados=saldo.filter(s=>s.libre<=0).map(s=>s.tipo);
+    const nivel=!incluido?"sin_plan":(avanceMes>.5&&libre/incluido>.5)?"atrasado":libre===0?"completo":"ok";
+    return{co,saldo,incluido,libre,agotados,nivel,quedanDias};
+  }).filter(a=>a.nivel!=="sin_plan");
+};
+
 function Cupos({co,tasks,y,m,compact}){
   const saldo=useMemo(()=>co?saldoDe(co,tasks,y,m):[],[co,tasks,y,m]);
   // En Org Semanal el saldo del plan deja de ser una franja y pasa a ser un botón más de la
@@ -1568,6 +1630,18 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const cu=users.find(u=>u.id===iu.id)||iu;
   const isA=cu.role==="admin";
   const canProspectos=isA||cu.role==="Sales";
+  // Permisos por usuario. Sin entrada en `permisos`, cada uno ve lo de su rol, igual que
+  // siempre. Con entrada, ve exactamente las páginas que el superadministrador le marcó. El
+  // superadministrador lo ve todo: si pudiera quitarse el acceso a Equipo, no habría forma de
+  // devolvérselo desde la app. El servidor solo acepta escribir `permisos` a un superadmin.
+  const[permisos,sPermisos]=useState({});
+  const esSuper=!!cu.superadmin;
+  const porRol=k=>(k==="companies"||k==="payments")?isA:(k==="prospectos"||k==="cotizaciones")?canProspectos:true;
+  const puede=k=>{
+    if(esSuper)return true;
+    const p=permisos[cu.id];
+    return p&&Array.isArray(p.paginas)?p.paginas.includes(k):porRol(k);
+  };
   // Un aviso puede pedir una pantalla concreta (?pg=companies), que es lo que hace el push del
   // brief: si el mensaje dice "ya se puede leer en Empresas", el toque tiene que caer en
   // Empresas y no en Inicio. Solo se acepta una pantalla que exista, y el parámetro se borra de
@@ -1595,7 +1669,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // UNA sola definición para los dos menús, el de la barra lateral y el del teléfono. Antes el
   // teléfono llevaba su propia lista a mano —seis baldosas de las trece pantallas— y por eso
   // faltaban cosas ahí que sí estaban en el escritorio.
-  const NAV=[
+  const NAV_BASE=[
     ["Básicas",[{k:"dashboard",ic:"dashboard"},{k:"planner",ic:"planner"},{k:"contenido",ic:"paperclip"},{k:"guionado",ic:"edit"}]],
     ["Pro",[
       {k:"automatizaciones",l:"Automatizaciones",ic:"chat",lCorta:"Automatiz."},
@@ -1603,8 +1677,24 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {k:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
       {k:"metricas",ic:"trend_up"},
     ]],
-    ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin",ver:canProspectos}]],
+    ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin"},{k:"cotizaciones",l:"Cotizaciones",ic:"file"},{k:"avances",l:"Avances",ic:"trend_up"}]],
   ];
+  const NAV=NAV_BASE.map(([t,items])=>[t,items.map(it=>({...it,ver:it.ver!==false&&puede(it.k)}))]);
+  // Una página que ya no tiene permitida (le quitaron el acceso, o llegó por un enlace) lo lleva
+  // a la primera que sí. Sin esto se quedaba mirando una pantalla en blanco.
+  useEffect(()=>{
+    if(puede(pg))return;
+    const primera=NAV.flatMap(([,items])=>items).find(it=>it.ver);
+    if(primera&&primera.k!==pg)sPg(primera.k);
+  },[pg,permisos]);
+  const[permUser,sPermUser]=useState(null);
+  const guardarPermisos=(uid,paginas)=>{
+    const n={...permisos};
+    if(paginas===null)delete n[uid];else n[uid]={paginas,por:cu.id,at:new Date().toISOString()};
+    sPermisos(n);
+    DB.save("permisos",n).then(ok=>addN(ok?"🔐 Permisos guardados":"❌ El servidor no guardó los permisos"));
+    sPermUser(null);
+  };
   // Cada entrada es su propia página, así que basta comparar. Cuando Automatizaciones y
   // Programar eran pestañas de Contenido había que mirar además en cuál estabas, y las tres se
   // encendían a la vez.
@@ -1728,6 +1818,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.planners?.length)sPlanners(d.planners);
       if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
       if(d.prospects?.length)sPros(d.prospects);
+      if(d.permisos&&typeof d.permisos==="object"&&!Array.isArray(d.permisos))sPermisos(d.permisos);
       if(d.galerias?.length)sGal(d.galerias);
       if(d.briefs?.length)sBriefs(d.briefs);
       // `teamPay` y `billRcpts` NO se cargan aquí: entre las dos pesan 4,6 MB —comprobantes de
@@ -2015,7 +2106,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   if(!dbLoaded)return(<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:D.bg,flexDirection:"column",gap:12}}><div className="blink-slow" style={{width:40,height:40,borderRadius:11,background:"linear-gradient(140deg,"+D.cian+","+D.peri+")",display:"flex",alignItems:"center",justifyContent:"center",color:D.bg,fontWeight:700,fontSize:16}}>IN</div><div style={{color:D.tx3,fontSize:13}}>Cargando datos…</div></div>);
 
   return(
-    <div style={{display:"flex",flexDirection:isMob?"column":"row",minHeight:"100vh",color:D.tx,fontFamily:"'Instrument Sans','Outfit',system-ui,sans-serif",background:"radial-gradient(900px 420px at 60% -140px, rgba(var(--rgb-acento),.06), transparent 70%), "+D.bg}}>
+    <div style={{display:"flex",flexDirection:isMob?"column":"row",minHeight:"100vh",color:D.tx,fontFamily:"'Inter',system-ui,sans-serif",background:"radial-gradient(900px 420px at 60% -140px, rgba(var(--rgb-acento),.06), transparent 70%), "+D.bg}}>
       {/* SIDEBAR - desktop only */}
       {!isMob&&<nav className="sidebar" style={{width:216,flexShrink:0,display:"flex",flexDirection:"column",gap:4,padding:"18px 12px",borderRight:"1px solid "+D.line,boxSizing:"border-box",position:"sticky",top:0,height:"100vh"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"4px 10px 16px"}}>
@@ -2115,8 +2206,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         <div style={{flex:1,width:"100%",maxWidth:1120,boxSizing:"border-box",padding:isMob?"22px 16px calc(96px + env(safe-area-inset-bottom, 0px))":"28px 32px 80px"}}>
 
         {/* DASHBOARD */}
-        {pg==="dashboard"&&<DashboardPg cu={cu} isA={isA} tasks={tasks} sT={sT} cos={cos} users={users} stats={stats} myTd={myTd} pDrafts={pDrafts} sPg={sPg} sMd2={sMd2} addN={addN} avisar={avisar} correosDe={correosDe}/>}
-        {pg==="companies"&&isA&&(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
+        {pg==="dashboard"&&puede("dashboard")&&<DashboardPg cu={cu} isA={isA} tasks={tasks} sT={sT} cos={cos} users={users} stats={stats} myTd={myTd} pDrafts={pDrafts} sPg={sPg} sMd2={sMd2} addN={addN} avisar={avisar} correosDe={correosDe}/>}
+        {pg==="companies"&&puede("companies")&&(<div className="fi" style={{maxWidth:1200,margin:"0 auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
             <div>
               <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Empresas</h1>
@@ -2259,6 +2350,14 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             // el botón, y queda escrito en la empresa.
             addN("Empresa creada: "+nc.name+". Genera su acceso al portal desde su ficha.");sNC(false);}}/></Md>
           <Md open={!!editCo} onClose={()=>sEC(null)} title={"Editar · "+(editCo?.name||"")} width={520}>{editCo&&<div>
+            {/* El nombre no se podía cambiar desde la app. El acceso al portal no depende de él:
+                el servidor reconoce también el usuario guardado en `portalEmail`. */}
+            <Fd label="Nombre de la empresa"><input defaultValue={editCo.name} onChange={e=>{editCo._name=e.target.value;}} placeholder="Nombre de la empresa"/></Fd>
+            {/* Encargados: quiénes del equipo llevan esta cuenta. Son los que ven primero el
+                cupo de este cliente en las alertas del Dashboard. */}
+            <Fd label="Encargados de la cuenta" hint="Les aparece el cupo disponible de este cliente como alerta en su Dashboard.">
+              <EncargadosSel users={users.filter(u=>u.role!=="cliente")} inicial={editCo.encargados||[]} onChange={v=>{editCo._encargados=v;}}/>
+            </Fd>
             <Fd label="Nombre del plan"><input defaultValue={editCo.planName||PLANS[editCo.plan]?.name||editCo.plan} onChange={e=>{editCo._planName=e.target.value;}} placeholder="Nombre del plan"/></Fd>
             <Fd label="Valor mensual (neto)"><input type="number" defaultValue={editCo.price||editCo.customPrice||PLANS[editCo.plan]?.price||0} onChange={e=>{editCo._price=e.target.value;}} placeholder="690000"/></Fd>
             <div style={{fontSize:12,fontWeight:600,marginBottom:8,marginTop:8}}>Contenidos mensuales</div>
@@ -2289,6 +2388,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               <Bt v="s" onClick={()=>sEC(null)}>Cancelar</Bt>
               <Bt v="p" icon="save" onClick={()=>{
                 const updates={};
+                if(editCo._name!==undefined&&editCo._name.trim()&&editCo._name.trim()!==editCo.name)updates.name=editCo._name.trim();
+                if(editCo._encargados)updates.encargados=editCo._encargados;
                 if(editCo._planName)updates.planName=editCo._planName;
                 if(editCo._price)updates.price=parseInt(editCo._price);
                 if(editCo._tasks)updates.tasks=editCo._tasks;
@@ -2305,24 +2406,27 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         </div>)}
 
         {/* PROSPECTOS */}
-        {pg==="prospectos"&&canProspectos&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu}/>}
+        {pg==="prospectos"&&puede("prospectos")&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu} avisar={avisar} correosDe={correosDe}/>}
+
+        {pg==="cotizaciones"&&puede("cotizaciones")&&<CotizacionesPg cos={cos} pros={pros} sPros={sPros} users={users} cu={cu} addN={addN}/>}
+        {pg==="avances"&&puede("avances")&&<AvancesPg users={users} tasks={tasks} pros={pros} cu={cu} isA={isA}/>}
 
         {/* TASKS */}
         {/* PLANNER */}
-        {pg==="planner"&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} pDrafts={pDrafts} sPDrafts={sPDrafts} fCo={fCo} addN={addN} avisar={avisar} correosDe={correosDe} cu={cu}/>}
+        {pg==="planner"&&puede("planner")&&<WeekPlanner tasks={tasks} sT={sT} cos={cos} users={users.filter(u=>u.role!=="cliente")} planners={planners} sPlanners={sPlanners} pDrafts={pDrafts} sPDrafts={sPDrafts} fCo={fCo} addN={addN} avisar={avisar} correosDe={correosDe} cu={cu}/>}
 
         {/* TASKS */}
         {/* GUIONADO */}
-        {pg==="guionado"&&<GuionadoPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN} tasks={tasks} sT={sT} planners={planners}/>}
+        {pg==="guionado"&&puede("guionado")&&<GuionadoPg cos={cos} users={users.filter(u=>u.role!=="cliente")} addN={addN} tasks={tasks} sT={sT} planners={planners}/>}
 
 
         {/* MÉTRICAS */}
-        {pg==="metricas"&&<MetricasPg cos={cos} addN={addN}/>}
-        {pg==="fidelizacion"&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
-        {["contenido","automatizaciones","publicar"].includes(pg)&&<ContenidoPg key={pg} cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} modo={pg}/>}
+        {pg==="metricas"&&puede("metricas")&&<MetricasPg cos={cos} addN={addN}/>}
+        {pg==="fidelizacion"&&puede("fidelizacion")&&<FidelizacionPg cos={cos} cu={cu} addN={addN}/>}
+        {["contenido","automatizaciones","publicar"].includes(pg)&&puede(pg)&&<ContenidoPg key={pg} cos={cos} tasks={tasks} sT={sT} addN={addN} users={users} avisar={avisar} correosDe={correosDe} cu={cu} planners={planners} sPlanners={sPlanners} galerias={galerias} sGal={sGal} modo={pg}/>}
 
         {/* TEAM */}
-        {pg==="team"&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
+        {pg==="team"&&puede("team")&&(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
           {isA&&<CargaEquipo users={users} tasks={tasks}/>}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
             <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Equipo</h1><div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{users.filter(u=>u.role!=="cliente").length} miembros</div></div>
@@ -2339,19 +2443,24 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   <div><div className="num" style={{fontSize:22,fontWeight:600,color:tono(u.color)}}>{ut.length}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Asignadas</div></div>
                   <div><div className="num" style={{fontSize:22,fontWeight:600,color:"var(--success)"}}>{dn}</div><div style={{fontSize:11,color:"var(--tx3)"}}>Listas</div></div>
                 </div>
+                {esSuper&&!u.superadmin&&<button onClick={()=>sPermUser(u)} style={{marginTop:12,display:"inline-flex",alignItems:"center",gap:6,padding:"6px 13px",borderRadius:999,background:permisos[u.id]?"rgba(var(--rgb-acento),.08)":"transparent",border:"1px solid "+(permisos[u.id]?"var(--accent)":"var(--border)"),color:permisos[u.id]?"var(--accent)":"var(--tx3)",fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}><Ic n="lock" s={12}/>{permisos[u.id]?"Permisos a medida":"Permisos según rol"}</button>}
+                {u.superadmin&&<div style={{marginTop:10,fontSize:11,color:"var(--tx4)"}}>Superadministrador</div>}
                 {u.id===cu.id&&myPays.length>0&&<div style={{marginTop:10,borderTop:"1px solid var(--border)",paddingTop:8,textAlign:"left"}}><div style={{fontSize:11,fontWeight:600,color:"var(--gold)",marginBottom:4}}>Mis pagos</div>{myPays.slice(0,3).map(p=>(<div key={p.id} style={{fontSize:11,display:"flex",justifyContent:"space-between",color:"var(--tx2)",marginBottom:2}}><span>{p.concept||"Pago"}</span><span className="num" style={{color:"var(--success)"}}>{fP(p.amount)}</span></div>))}</div>}
               </div>
             </div>);})}</div>
+          <PermisosModal user={permUser} onClose={()=>sPermUser(null)} nav={NAV_BASE} visP={visP}
+            actual={permUser?permisos[permUser.id]:null} porRolDe={u=>k=>(k==="companies"||k==="payments")?u.role==="admin":(k==="prospectos"||k==="cotizaciones")?(u.role==="admin"||u.role==="Sales"):true}
+            onGuardar={guardarPermisos}/>
         </div>)}
 
         {/* PAYMENTS */}
         {/* Hasta que los pagos lleguen no se dibuja la pantalla: sus dos botones de guardar
             escriben la fila ENTERA desde memoria, y guardar con esto a medio cargar borraría el
             historial completo. Es la misma trampa que el CLAUDE.md documenta para `tasks`. */}
-        {pg==="payments"&&isA&&!pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto",textAlign:"center",padding:"70px 20px",color:D.tx3,fontSize:14}}>
+        {pg==="payments"&&puede("payments")&&!pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto",textAlign:"center",padding:"70px 20px",color:D.tx3,fontSize:14}}>
           Cargando los pagos…
         </div>)}
-        {pg==="payments"&&isA&&pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto"}}>
+        {pg==="payments"&&puede("payments")&&pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto"}}>
           <PayBillPg users={users.filter(u=>u.role!=="cliente")} teamPay={teamPay} sTP={sTP} addN={addN} cos={cos} plans={PLANS} billing={mBill} month={MO[cM]} year={cY} remEx={remEx} billRcpts={billRcpts} sBR={sBR} cM={cM} cY={cY} avisar={avisar} correosDe={correosDe} cu={cu}/>
         </div>)}
 
@@ -2564,7 +2673,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           // instante a la pestaña vieja —`pg` todavía no cambió— y se vería rebotar. Se limpia
           // en el mismo lote que `irA`, cuando la página ya es la nueva.
           const elegirTab=(i,movido)=>{
-            if(i===3){ponDragBarra(null);sMobMenu(o=>!o);return;}
+            // Una pestaña fija cuya página no tiene permitida abre el menú en vez de navegar.
+            if(i===3||!puede(TABS[i][0])){ponDragBarra(null);sMobMenu(o=>!o);return;}
             const ir=()=>{irA(TABS[i][0]);sMobMenu(false);ponDragBarra(null);};
             setTimeout(ir,movido?0:220);
           };
@@ -2747,6 +2857,7 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
   const[analizando,sAnalizando]=useState(false);
   const[copiado,sCopiado]=useState(false);
   const[analisis,sAnalisis]=useState(null);
+  const[importando,sImportando]=useState(false);
   useEffect(()=>{
     if(!open)return;
     sNotas(BRIEF.CLAVES_EQUIPO.reduce((a,k)=>({...a,[k]:(brief?.respuestas||{})[k]||""}),{}));
@@ -2773,6 +2884,25 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
       onGuardar({...brief,analisis:j.analisis,analisisAt:j.analisisAt},true);
     }catch(e){addN&&addN("No se pudo analizar: "+e.message);}
     sAnalizando(false);
+  };
+
+  // El documento base del brief (el Word de la reunión, un PDF): la IA lo reparte en las
+  // preguntas y el brief queda rellenado. Lo guarda el servidor, así que aquí solo se refleja.
+  const importar=async e=>{
+    const f=e.target.files&&e.target.files[0];e.target.value="";
+    if(!f)return;
+    if(f.size>20*1024*1024)return addN&&addN("El documento pesa más de 20 MB");
+    sImportando(true);
+    try{
+      const fd=new FormData();fd.append("archivo",f,f.name);
+      const r=await fetch("/api/brief/"+encodeURIComponent(co.id)+"/importar",{method:"POST",credentials:"include",body:fd});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||"no se pudo leer");
+      onGuardar(j.brief,true);
+      sAnalisis(null);
+      addN&&addN("📄 Brief actualizado desde «"+f.name+"»: "+j.campos+" respuestas");
+    }catch(err){addN&&addN("No se pudo cargar el documento: "+err.message);}
+    sImportando(false);
   };
 
   const guardarNotas=()=>{
@@ -2806,6 +2936,17 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
         <Ic n={copiado?"check":"copy"} s={13}/>{copiado?"Copiado":"Copiar enlace"}
       </button>
     </div>
+
+    {/* Documento base: si el brief ya existe escrito en otro lado, se sube y se reparte solo. */}
+    <label style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"11px 14px",borderRadius:12,border:"1px dashed "+D.line2,marginBottom:16,cursor:importando?"progress":"pointer"}}>
+      <Ic n="file" s={15} c={D.cian}/>
+      <span style={{flex:"1 1 220px",minWidth:0,fontSize:12.5,color:D.tx3,lineHeight:1.5}}>
+        <b style={{color:D.tx2}}>{importando?"Leyendo el documento…":"Cargar documento base"}</b>
+        {" "}PDF, Word o texto. La IA lo reparte en las preguntas y el brief se actualiza solo; lo que el documento no diga se deja como está.
+        {brief.importadoAt&&<span style={{display:"block",fontSize:11.5,color:D.tx4,marginTop:2}}>Último: «{brief.importadoDe}», el {fechaDia(brief.importadoAt)}.</span>}
+      </span>
+      <input type="file" accept=".pdf,.docx,.txt,.md,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={importar} disabled={importando} style={{display:"none"}}/>
+    </label>
 
     {!respondido&&<div style={{fontSize:12.5,color:D.tx4,lineHeight:1.6,padding:"14px 2px 4px"}}>
       Cuando lo responda te llega un aviso y las respuestas aparecen aquí.
@@ -2868,7 +3009,420 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
     </div>
   </Md>);
 }
-function ProspectosPg({pros,sPros,users,addN,currentUser}){
+// ═══ COTIZACIONES ═══════════════════════════════════════════════
+// Antes una cotización era un PDF hecho fuera de la app y subido al prospecto: cada vendedor
+// partía de su propia copia, los precios se tecleaban de memoria y un pack que cambiaba de
+// precio seguía saliendo con el valor viejo en el Word de alguien. Ahora hay UNA plantilla base
+// (los datos de Inmersia, el texto y las condiciones), un catálogo de packs mensuales y uno de
+// servicios con su valor unitario, y la cotización se arma eligiendo de ahí.
+//
+// `cot_config` = {plantilla, packs, servicios}; `cotizaciones` = la lista de las emitidas.
+// Los packs y servicios nacen de PLANS y EXTRAS la primera vez, y desde ahí se editan aquí.
+const IVA_CL=0.19;
+const cotConfigInicial=()=>({
+  plantilla:{
+    emisor:"INMERSIA Performance",rut:"",contacto:"",email:"inmersiatours@gmail.com",telefono:"",web:"inmersiaperformance.cl",
+    intro:"Gracias por la oportunidad de trabajar juntos. Esta es nuestra propuesta para potenciar la presencia digital de tu negocio.",
+    condiciones:"Valores netos mensuales. Se factura a inicio de cada mes.\nLa producción comienza una vez recibido el brief y el pago del primer mes.\nLos contenidos no usados en el mes no son acumulables.",
+    validezDias:15,conIva:true,pie:"INMERSIA Performance · Ñuble, Chile",
+  },
+  packs:Object.entries(PLANS).filter(([k])=>k!=="custom").map(([k,p])=>({id:k,nombre:p.name,precio:p.price,incluye:{...p.tasks},descripcion:""})),
+  servicios:EXTRAS.filter(e=>e.price>0).map(e=>({id:e.id,nombre:e.name,unidad:e.unit,precio:e.price})),
+});
+const escHtml=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const totalesCot=c=>{
+  const packs=(c.packs||[]).reduce((a,p)=>a+(+p.precio||0)*(+p.meses||1),0);
+  const serv=(c.servicios||[]).reduce((a,s)=>a+(+s.precio||0)*(+s.cantidad||0),0);
+  const bruto=packs+serv;
+  const desc=Math.round(bruto*((+c.descuento||0)/100));
+  const neto=bruto-desc;
+  const iva=c.conIva?Math.round(neto*IVA_CL):0;
+  return{packs,serv,bruto,desc,neto,iva,total:neto+iva};
+};
+// La cotización como documento: se abre en una ventana y se imprime o se guarda como PDF desde
+// el diálogo del navegador. Sin librerías de PDF: el navegador ya sabe hacerlo, y bien.
+function imprimirCotizacion(c,pl){
+  const t=totalesCot(c);
+  const $=n=>"$"+Math.round(n||0).toLocaleString("es-CL");
+  const tipos=inc=>Object.entries(inc||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k).toLowerCase()+(n>1&&!/s$|\s/.test(TT[k]?.l||k)?"s":"")).join(" · ");
+  const filasPacks=(c.packs||[]).map(p=>`<tr><td><b>${escHtml(p.nombre)}</b><div class="d">${escHtml(tipos(p.incluye))}${p.descripcion?"<br>"+escHtml(p.descripcion):""}</div></td><td class="n">${p.meses||1} ${(p.meses||1)>1?"meses":"mes"}</td><td class="n">${$(p.precio)}</td><td class="n">${$(p.precio*(p.meses||1))}</td></tr>`).join("");
+  const filasServ=(c.servicios||[]).filter(s=>+s.cantidad>0).map(s=>`<tr><td>${escHtml(s.nombre)}${s.unidad?` <span class="d">(${escHtml(s.unidad)})</span>`:""}</td><td class="n">${s.cantidad}</td><td class="n">${$(s.precio)}</td><td class="n">${$(s.precio*s.cantidad)}</td></tr>`).join("");
+  const vence=(()=>{try{const d=new Date(c.fecha+"T12:00:00");d.setDate(d.getDate()+(+c.validezDias||0));return d.toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"});}catch(_){return"";}})();
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cotización N° ${c.numero} · ${escHtml(c.cliente)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{font:14px/1.55 Inter,system-ui,sans-serif;color:#14181f;margin:0;padding:40px;max-width:820px;margin:auto}
+h1{font-size:26px;margin:0}.top{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #0f9e9a;padding-bottom:18px;margin-bottom:22px}
+.m{color:#5d6573;font-size:12.5px}.d{color:#5d6573;font-size:12px;font-weight:400}table{width:100%;border-collapse:collapse;margin:14px 0}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5d6573;text-align:left;border-bottom:1px solid #e3e6eb;padding:8px 6px}
+td{border-bottom:1px solid #eef0f3;padding:10px 6px;vertical-align:top}.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tot{margin-left:auto;width:300px}.tot td{border:none;padding:4px 6px}.tot .g td{font-size:17px;font-weight:700;border-top:2px solid #14181f;padding-top:8px}
+.box{background:#f5f6f8;border-radius:10px;padding:14px 16px;margin-top:18px;white-space:pre-wrap;font-size:12.5px}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#0f9e9a;margin:22px 0 4px}footer{margin-top:30px;color:#5d6573;font-size:11.5px;text-align:center}
+@media print{body{padding:0}.noprint{display:none}}</style></head><body>
+<div class="noprint" style="text-align:right;margin-bottom:14px"><button onclick="print()" style="font:600 13px Inter,sans-serif;padding:9px 18px;border-radius:999px;border:0;background:#0f9e9a;color:#fff;cursor:pointer">Imprimir o guardar PDF</button></div>
+<div class="top"><div><h1>${escHtml(pl.emisor)}</h1><div class="m">${[pl.rut&&"RUT "+escHtml(pl.rut),escHtml(pl.web),escHtml(pl.email),escHtml(pl.telefono)].filter(Boolean).join(" · ")}</div></div>
+<div style="text-align:right"><div style="font-size:18px;font-weight:700">Cotización N° ${c.numero}</div><div class="m">${escHtml(new Date(c.fecha+"T12:00:00").toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"}))}${vence?"<br>Válida hasta el "+escHtml(vence):""}</div></div></div>
+<div class="m">Para</div><div style="font-size:17px;font-weight:600">${escHtml(c.cliente)}</div>${c.contactoCliente?`<div class="m">${escHtml(c.contactoCliente)}</div>`:""}
+${pl.intro?`<p>${escHtml(pl.intro)}</p>`:""}
+${filasPacks?`<h3>Plan mensual</h3><table><tr><th>Pack</th><th class="n">Duración</th><th class="n">Valor mensual</th><th class="n">Subtotal</th></tr>${filasPacks}</table>`:""}
+${filasServ?`<h3>Servicios</h3><table><tr><th>Servicio</th><th class="n">Cantidad</th><th class="n">Valor unitario</th><th class="n">Subtotal</th></tr>${filasServ}</table>`:""}
+<table class="tot"><tr><td>Subtotal</td><td class="n">${$(t.bruto)}</td></tr>${t.desc?`<tr><td>Descuento ${c.descuento}%</td><td class="n">-${$(t.desc)}</td></tr>`:""}<tr><td>Neto</td><td class="n">${$(t.neto)}</td></tr>${c.conIva?`<tr><td>IVA 19%</td><td class="n">${$(t.iva)}</td></tr>`:""}<tr class="g"><td>Total</td><td class="n">${$(t.total)}</td></tr></table>
+${c.notas?`<h3>Notas</h3><div class="box">${escHtml(c.notas)}</div>`:""}
+${pl.condiciones?`<h3>Condiciones</h3><div class="box">${escHtml(pl.condiciones)}</div>`:""}
+<footer>${escHtml(pl.pie)}${c.creadoPorNombre?" · Preparada por "+escHtml(c.creadoPorNombre):""}</footer></body></html>`;
+  const w=window.open("","_blank");
+  if(!w){alert("El navegador bloqueó la ventana. Permite ventanas emergentes para este sitio.");return;}
+  w.document.open();w.document.write(html);w.document.close();
+}
+
+function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
+  const[cfg,sCfg]=useState(null);
+  const[lista,sLista]=useState([]);
+  const[tab,sTab]=useState("nueva");
+  const[busy,sBusy]=useState(false);
+  const vacia=c=>({id:null,numero:null,fecha:td(),destino:"",cliente:"",contactoCliente:"",companyId:"",prospectId:"",
+    packs:[],servicios:[],descuento:0,conIva:c?.plantilla?.conIva!==false,validezDias:c?.plantilla?.validezDias||15,notas:"",estado:"borrador"});
+  const[f,sF]=useState(vacia(null));
+
+  useEffect(()=>{DB.loadAll().then(d=>{
+    const c=d.cot_config&&d.cot_config.plantilla?d.cot_config:cotConfigInicial();
+    sCfg(c);sF(vacia(c));
+    if(Array.isArray(d.cotizaciones))sLista(d.cotizaciones);
+  });},[]);
+  if(!cfg)return<div style={{textAlign:"center",padding:50,color:D.tx3}}>Cargando cotizaciones…</div>;
+
+  const guardarCfg=c=>{sCfg(c);DB.save("cot_config",c);};
+  // Relee antes de escribir y reemplaza solo la suya: dos vendedores cotizando a la vez no se pisan.
+  const guardarCot=async c=>{
+    const fresh=await DB.loadAllStrict();
+    const l=Array.isArray(fresh.cotizaciones)?fresh.cotizaciones:[];
+    const numero=c.numero||((l.reduce((a,x)=>Math.max(a,+x.numero||0),0))+1);
+    const item={...c,id:c.id||uid(),numero,actualizadoAt:new Date().toISOString(),
+      creadoPor:c.creadoPor||cu.id,creadoPorNombre:c.creadoPorNombre||cu.name,creadoAt:c.creadoAt||new Date().toISOString()};
+    const nl=l.some(x=>x.id===item.id)?l.map(x=>x.id===item.id?item:x):[...l,item];
+    if(!(await DB.save("cotizaciones",nl)))throw new Error("el servidor no la guardó");
+    sLista(nl);return item;
+  };
+  const t=totalesCot(f);
+  const fijarDestino=v=>{
+    const[tipo,id]=v.split(":");
+    if(tipo==="co"){const co=cos.find(c=>String(c.id)===id);sF(x=>({...x,destino:v,companyId:id,prospectId:"",cliente:co?.name||""}));}
+    else if(tipo==="pr"){const p=(pros||[]).find(p=>String(p.id)===id);sF(x=>({...x,destino:v,prospectId:id,companyId:"",cliente:p?.name||""}));}
+    else sF(x=>({...x,destino:"",prospectId:"",companyId:""}));
+  };
+  const togPack=p=>sF(x=>({...x,packs:x.packs.some(y=>y.id===p.id)?x.packs.filter(y=>y.id!==p.id):[...x.packs,{...p,meses:1}]}));
+  const setServ=(s,cant)=>sF(x=>{
+    const n=Math.max(0,cant|0);const otros=x.servicios.filter(y=>y.id!==s.id);
+    return{...x,servicios:n?[...otros,{...(x.servicios.find(y=>y.id===s.id)||s),cantidad:n}]:otros};});
+  const guardar=async(imprimir)=>{
+    if(!f.cliente.trim())return addN("❌ ¿Para quién es la cotización?");
+    if(!f.packs.length&&!f.servicios.length)return addN("❌ Elige al menos un pack o un servicio");
+    sBusy(true);
+    try{
+      const item=await guardarCot(f);sF(item);
+      // Atada a un prospecto, lo mueve a «Cotización lista» y deja quién la hizo, que es lo que
+      // cuenta en los avances de ventas.
+      if(item.prospectId&&sPros){
+        const nl=(pros||[]).map(p=>String(p.id)!==String(item.prospectId)?p:{...p,cotizacion_id:item.id,cotizacion_num:item.numero,
+          etapa:["contactado","en_respuesta","reunion_agendada","preparando_cotizacion"].includes(p.etapa||"contactado")?"cotizacion_lista":p.etapa,
+          historial:[...(p.historial||[]),{etapa:"cotizacion_lista",at:new Date().toISOString(),por:cu.id}]});
+        sPros(nl);DB.save("prospects",nl);
+      }
+      addN("📄 Cotización N° "+item.numero+" guardada");
+      if(imprimir)imprimirCotizacion(item,cfg.plantilla);
+    }catch(e){addN("❌ No se pudo guardar: "+e.message);}
+    sBusy(false);
+  };
+  const cambiarEstado=async(c,estado)=>{try{await guardarCot({...c,estado});}catch(e){addN("❌ "+e.message);}};
+
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3,marginBottom:14};
+  const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,marginBottom:10,display:"block"};
+  const num={width:90,textAlign:"right"};
+  const ESTADOS=[["borrador","Borrador",D.tx3],["enviada","Enviada",D.peri],["aceptada","Aceptada",PC.verde],["rechazada","Rechazada",PC.rojo]];
+
+  return(<div className="d-in" style={{maxWidth:1100,margin:"0 auto"}}>
+    <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:18}}>
+      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Cotizaciones</h1>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{lista.length} emitidas · plantilla, packs y servicios en un solo lugar</div></div>
+    </div>
+    <div style={{display:"flex",gap:24,marginBottom:16,borderBottom:"1px solid var(--border)"}}>
+      {[["nueva",f.id?"Cotización N° "+f.numero:"Nueva cotización"],["historial","Historial"],["plantilla","Plantilla y precios"]].map(([k,l])=>(
+        <button key={k} onClick={()=>sTab(k)} style={{padding:"0 2px 10px",background:"transparent",border:"none",borderBottom:"2px solid "+(tab===k?"var(--accent)":"transparent"),marginBottom:-1,color:tab===k?"var(--tx)":"var(--tx4)",fontFamily:"inherit",fontSize:14,fontWeight:tab===k?700:600,cursor:"pointer"}}>{l}</button>))}
+    </div>
+
+    {tab==="nueva"&&<div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:16,alignItems:"start"}} className="cot-grid">
+      <div>
+        <div style={caja}>
+          <span style={rot}>Cliente</span>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <select value={f.destino} onChange={e=>fijarDestino(e.target.value)} style={{flex:"1 1 220px"}}>
+              <option value="">Escribir a mano…</option>
+              <optgroup label="Empresas">{cos.map(c=><option key={c.id} value={"co:"+c.id}>{c.name}</option>)}</optgroup>
+              <optgroup label="Prospectos aprobados">{(pros||[]).filter(p=>p.status==="aprobado").map(p=><option key={p.id} value={"pr:"+p.id}>{p.name}</option>)}</optgroup>
+            </select>
+            <input value={f.cliente} onChange={e=>sF(x=>({...x,cliente:e.target.value}))} placeholder="Nombre del cliente" style={{flex:"1 1 220px"}}/>
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
+            <input value={f.contactoCliente} onChange={e=>sF(x=>({...x,contactoCliente:e.target.value}))} placeholder="Contacto (opcional)" style={{flex:"2 1 220px"}}/>
+            <input type="date" value={f.fecha} onChange={e=>sF(x=>({...x,fecha:e.target.value}))} style={{flex:"1 1 140px"}}/>
+          </div>
+        </div>
+
+        <div style={caja}>
+          <span style={rot}>Packs mensuales · elige uno o más</span>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
+            {cfg.packs.map(p=>{const elegido=f.packs.find(y=>y.id===p.id);return(
+              <div key={p.id} onClick={()=>togPack(p)} style={{cursor:"pointer",padding:"11px 12px",borderRadius:12,border:"1px solid "+(elegido?"var(--accent)":D.line2),background:elegido?"rgba(var(--rgb-acento),.07)":"transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <Ic n={elegido?"check":"plus"} s={12} c={elegido?D.cian:D.tx4}/>
+                  <b style={{fontSize:13,flex:1}}>{p.nombre}</b>
+                  <span className="num" style={{fontSize:12.5,fontWeight:700,color:elegido?D.cian:D.tx2}}>{fP(+p.precio||0)}</span>
+                </div>
+                <div style={{fontSize:11,color:D.tx4,marginTop:5,lineHeight:1.45}}>{Object.entries(p.incluye||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k)).join(" · ")||"Sin contenidos definidos"}</div>
+                {elegido&&<div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:6,marginTop:8,fontSize:11.5,color:D.tx3}}>
+                  Meses <input type="number" min="1" value={elegido.meses} onChange={e=>sF(x=>({...x,packs:x.packs.map(y=>y.id===p.id?{...y,meses:Math.max(1,+e.target.value||1)}:y)}))} style={{width:56,padding:"3px 6px",textAlign:"center"}}/>
+                  Valor <input type="number" min="0" value={elegido.precio} onChange={e=>sF(x=>({...x,packs:x.packs.map(y=>y.id===p.id?{...y,precio:+e.target.value||0}:y)}))} style={{width:0,flex:"1 1 70px",minWidth:0,padding:"3px 6px",textAlign:"right"}}/>
+                </div>}
+              </div>);})}
+          </div>
+        </div>
+
+        <div style={caja}>
+          <span style={rot}>Servicios · valor unitario</span>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {cfg.servicios.map(s=>{const l=f.servicios.find(y=>y.id===s.id);const n=l?.cantidad||0;return(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"6px 0",borderBottom:"1px solid "+D.line3}}>
+                <span style={{flex:"1 1 160px",fontSize:13,fontWeight:600,color:n?D.tx:D.tx2}}>{s.nombre} <span style={{fontWeight:400,color:D.tx4,fontSize:11.5}}>/ {s.unidad||"unidad"}</span></span>
+                {n>0?<input type="number" min="0" value={l.precio} onChange={e=>sF(x=>({...x,servicios:x.servicios.map(y=>y.id===s.id?{...y,precio:+e.target.value||0}:y)}))} style={{...num,padding:"4px 8px"}} title="Valor unitario para esta cotización"/>
+                  :<span className="num" style={{fontSize:12.5,color:D.tx3,width:90,textAlign:"right"}}>{fP(+s.precio||0)}</span>}
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <button onClick={()=>setServ(s,n-1)} style={{width:26,height:26,borderRadius:7,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer"}}>−</button>
+                  <span className="num" style={{minWidth:24,textAlign:"center",fontWeight:700}}>{n}</span>
+                  <button onClick={()=>setServ(s,n+1)} style={{width:26,height:26,borderRadius:7,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer"}}>+</button>
+                </div>
+                <span className="num" style={{width:96,textAlign:"right",fontSize:12.5,fontWeight:700,color:n?D.tx:D.tx5}}>{n?fP((l.precio||0)*n):""}</span>
+              </div>);})}
+          </div>
+        </div>
+
+        <div style={caja}>
+          <span style={rot}>Notas para el cliente</span>
+          <textarea value={f.notas} onChange={e=>sF(x=>({...x,notas:e.target.value}))} rows={3} placeholder="Algo propio de esta propuesta (opcional)" style={{width:"100%",boxSizing:"border-box",resize:"vertical"}}/>
+        </div>
+      </div>
+
+      {/* Resumen pegado a la derecha: el total se ve mientras se arma. */}
+      <div style={{...caja,position:"sticky",top:16}}>
+        <span style={rot}>Resumen</span>
+        {[["Packs",t.packs],["Servicios",t.serv]].map(([l,v])=>(<div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,color:D.tx3,marginBottom:4}}><span>{l}</span><span className="num">{fP(v)}</span></div>))}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:13,color:D.tx3,margin:"8px 0"}}>
+          <span>Descuento %</span><input type="number" min="0" max="100" value={f.descuento} onChange={e=>sF(x=>({...x,descuento:Math.min(100,Math.max(0,+e.target.value||0))}))} style={{width:70,padding:"4px 8px",textAlign:"right"}}/>
+        </div>
+        {t.desc>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:PC.rojo,marginBottom:4}}><span>Descuento</span><span className="num">-{fP(t.desc)}</span></div>}
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:D.tx2,marginBottom:4}}><span>Neto</span><span className="num">{fP(t.neto)}</span></div>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:D.tx3,margin:"6px 0",cursor:"pointer"}}>
+          <input type="checkbox" checked={f.conIva} onChange={e=>sF(x=>({...x,conIva:e.target.checked}))} style={{width:"auto"}}/>Sumar IVA 19%{f.conIva&&<span className="num" style={{marginLeft:"auto"}}>{fP(t.iva)}</span>}
+        </label>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderTop:"1px solid "+D.line2,paddingTop:10,marginTop:8}}>
+          <b style={{fontSize:14}}>Total</b><b className="num" style={{fontSize:22,color:D.cian}}>{fP(t.total)}</b>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:14}}>
+          <Bt v="p" disabled={busy} onClick={()=>guardar(true)} icon="file">{busy?"Guardando…":"Guardar y ver PDF"}</Bt>
+          <Bt v="s" disabled={busy} onClick={()=>guardar(false)} icon="save">Solo guardar</Bt>
+          {f.id&&<Bt v="s" onClick={()=>{sF(vacia(cfg));}} icon="plus">Empezar otra</Bt>}
+        </div>
+        {f.prospectId&&<div style={{fontSize:11,color:D.tx4,marginTop:10,lineHeight:1.45}}>Al guardar, el prospecto pasa a «Cotización lista».</div>}
+      </div>
+    </div>}
+
+    {tab==="historial"&&<div style={caja}>
+      {!lista.length&&<div style={{fontSize:13,color:D.tx4}}>Todavía no hay cotizaciones emitidas.</div>}
+      {[...lista].sort((a,b)=>(b.numero||0)-(a.numero||0)).map(c=>{const tt=totalesCot(c);const es=ESTADOS.find(e=>e[0]===c.estado)||ESTADOS[0];return(
+        <div key={c.id} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:"10px 0",borderBottom:"1px solid "+D.line3}}>
+          <b className="num" style={{width:54,color:D.tx3}}>N° {c.numero}</b>
+          <div style={{flex:"1 1 200px",minWidth:0}}>
+            <div style={{fontSize:13.5,fontWeight:600}}>{c.cliente}</div>
+            <div style={{fontSize:11.5,color:D.tx4}}>{c.fecha} · {c.creadoPorNombre||"-"} · {(c.packs||[]).map(p=>p.nombre).join(", ")||"solo servicios"}</div>
+          </div>
+          <b className="num" style={{fontSize:14}}>{fP(tt.total)}</b>
+          <select value={c.estado||"borrador"} onChange={e=>cambiarEstado(c,e.target.value)} style={{width:"auto",color:es[2],fontWeight:600}}>
+            {ESTADOS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+          </select>
+          <button onClick={()=>imprimirCotizacion(c,cfg.plantilla)} title="Ver o imprimir" style={{padding:"6px 12px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>PDF</button>
+          <button onClick={()=>{sF({...vacia(cfg),...c});sTab("nueva");}} style={{padding:"6px 12px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>Editar</button>
+        </div>);})}
+    </div>}
+
+    {tab==="plantilla"&&<CotPlantilla cfg={cfg} onGuardar={c=>{guardarCfg(c);addN("✅ Plantilla y precios guardados");}}/>}
+  </div>);
+}
+
+// La plantilla base y los catálogos. Se edita en una copia y se guarda de una vez: con cada tecla
+// guardando, cambiar un precio de 350.000 a 390.000 pasaba por 3, 39 y 390.
+function CotPlantilla({cfg,onGuardar}){
+  const[c,sC]=useState(cfg);
+  useEffect(()=>sC(cfg),[cfg]);
+  const pl=c.plantilla;
+  const setPl=(k,v)=>sC(x=>({...x,plantilla:{...x.plantilla,[k]:v}}));
+  const setPack=(i,k,v)=>sC(x=>({...x,packs:x.packs.map((p,j)=>j===i?{...p,[k]:v}:p)}));
+  const setServ=(i,k,v)=>sC(x=>({...x,servicios:x.servicios.map((s,j)=>j===i?{...s,[k]:v}:s)}));
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3,marginBottom:14};
+  const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,marginBottom:10,display:"block"};
+  const quitar={background:"transparent",border:"none",color:D.tx4,cursor:"pointer",fontSize:13,padding:4};
+  return(<div>
+    <div style={caja}>
+      <span style={rot}>Plantilla base</span>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
+        {[["emisor","Nombre que emite"],["rut","RUT"],["contacto","Contacto"],["email","Correo"],["telefono","Teléfono"],["web","Sitio web"]].map(([k,l])=>(
+          <Fd key={k} label={l}><input value={pl[k]||""} onChange={e=>setPl(k,e.target.value)}/></Fd>))}
+      </div>
+      <Fd label="Texto de introducción"><textarea rows={2} value={pl.intro||""} onChange={e=>setPl("intro",e.target.value)} style={{width:"100%",boxSizing:"border-box"}}/></Fd>
+      <Fd label="Condiciones"><textarea rows={4} value={pl.condiciones||""} onChange={e=>setPl("condiciones",e.target.value)} style={{width:"100%",boxSizing:"border-box"}}/></Fd>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
+        <Fd label="Validez (días)"><input type="number" min="1" value={pl.validezDias||15} onChange={e=>setPl("validezDias",+e.target.value||15)} style={{width:90}}/></Fd>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:D.tx3,cursor:"pointer"}}><input type="checkbox" checked={pl.conIva!==false} onChange={e=>setPl("conIva",e.target.checked)} style={{width:"auto"}}/>Sumar IVA por defecto</label>
+        <div style={{flex:"1 1 240px"}}><Fd label="Pie de página"><input value={pl.pie||""} onChange={e=>setPl("pie",e.target.value)}/></Fd></div>
+      </div>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Packs mensuales</span>
+      {c.packs.map((p,i)=>(<div key={p.id} style={{padding:"10px 0",borderBottom:"1px solid "+D.line3}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <input value={p.nombre} onChange={e=>setPack(i,"nombre",e.target.value)} placeholder="Nombre del pack" style={{flex:"1 1 160px",fontWeight:600}}/>
+          <input type="number" min="0" value={p.precio} onChange={e=>setPack(i,"precio",+e.target.value||0)} style={{width:120,textAlign:"right"}} title="Valor mensual neto"/>
+          <button onClick={()=>sC(x=>({...x,packs:x.packs.filter((_,j)=>j!==i)}))} style={quitar} title="Quitar pack">✕</button>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:7}}>
+          {Object.keys(TT).filter(k=>k!=="repost").map(k=>(<label key={k} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,color:D.tx3}}>
+            {TT[k].l}<input type="number" min="0" value={(p.incluye||{})[k]||0} onChange={e=>setPack(i,"incluye",{...(p.incluye||{}),[k]:Math.max(0,+e.target.value||0)})} style={{width:48,padding:"2px 5px",textAlign:"center"}}/>
+          </label>))}
+        </div>
+        <input value={p.descripcion||""} onChange={e=>setPack(i,"descripcion",e.target.value)} placeholder="Descripción que sale en la cotización (opcional)" style={{width:"100%",boxSizing:"border-box",marginTop:7,fontSize:12}}/>
+      </div>))}
+      <button onClick={()=>sC(x=>({...x,packs:[...x.packs,{id:uid(),nombre:"Nuevo pack",precio:0,incluye:{},descripcion:""}]}))} style={{marginTop:10,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Agregar pack</button>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Servicios con valor unitario</span>
+      {c.servicios.map((s,i)=>(<div key={s.id} style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+D.line3}}>
+        <input value={s.nombre} onChange={e=>setServ(i,"nombre",e.target.value)} style={{flex:"2 1 180px"}}/>
+        <input value={s.unidad||""} onChange={e=>setServ(i,"unidad",e.target.value)} placeholder="unidad" style={{flex:"1 1 90px"}}/>
+        <input type="number" min="0" value={s.precio} onChange={e=>setServ(i,"precio",+e.target.value||0)} style={{width:120,textAlign:"right"}}/>
+        <button onClick={()=>sC(x=>({...x,servicios:x.servicios.filter((_,j)=>j!==i)}))} style={quitar} title="Quitar servicio">✕</button>
+      </div>))}
+      <button onClick={()=>sC(x=>({...x,servicios:[...x.servicios,{id:uid(),nombre:"Nuevo servicio",unidad:"unidad",precio:0}]}))} style={{marginTop:10,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Agregar servicio</button>
+    </div>
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+      <Bt v="s" onClick={()=>sC(cfg)}>Descartar cambios</Bt>
+      <Bt v="p" icon="save" onClick={()=>onGuardar(c)}>Guardar plantilla y precios</Bt>
+    </div>
+  </div>);
+}
+
+// ═══ AVANCES DEL EQUIPO ═════════════════════════════════════════
+// Lo que cada colaborador movió en el mes, con números que se pueden comprobar. Producción se
+// cuenta de las piezas (encargado = `responsable`); ventas, del historial de los prospectos,
+// de las cotizaciones y de las reuniones. Las metas son opcionales y por persona: sin meta se
+// ve el número; con meta, además, cuánto falta.
+//
+// El historial de prospectos (`p.historial`) empezó a escribirse el 28-oct-2026: lo de antes no
+// tiene autor y no se le puede atribuir a nadie, así que no cuenta.
+const METRICAS_AV=[
+  {k:"asignadas",l:"Piezas asignadas",g:"Producción"},
+  {k:"conMaterial",l:"Con material entregado",g:"Producción"},
+  {k:"aprobadas",l:"Aprobadas por cliente",g:"Producción"},
+  {k:"rechazos",l:"Rechazos del cliente",g:"Producción",malo:true},
+  {k:"contactos",l:"Prospectos contactados",g:"Ventas"},
+  {k:"reuniones",l:"Reuniones agendadas",g:"Ventas"},
+  {k:"cotizaciones",l:"Cotizaciones emitidas",g:"Ventas"},
+  {k:"cierres",l:"Clientes cerrados",g:"Ventas"},
+];
+function AvancesPg({users,tasks,pros,cu,isA}){
+  const h=new Date();
+  const[ym,sYm]=useState({y:h.getFullYear(),m:h.getMonth()});
+  const[extra,sExtra]=useState({reuniones:[],cotizaciones:[],metas:{}});
+  const[editMetas,sEditMetas]=useState(null);
+  useEffect(()=>{DB.loadAll().then(d=>sExtra({
+    reuniones:Array.isArray(d.reuniones)?d.reuniones:[],
+    cotizaciones:Array.isArray(d.cotizaciones)?d.cotizaciones:[],
+    metas:(d.metas_equipo&&typeof d.metas_equipo==="object"&&!Array.isArray(d.metas_equipo))?d.metas_equipo:{}}));},[]);
+  const enMes=iso=>{if(!iso)return false;const p=String(iso).slice(0,10).split("-");return +p[0]===ym.y&&+p[1]===ym.m+1;};
+  const esMesActual=ym.y===h.getFullYear()&&ym.m===h.getMonth();
+  const delUsuario=(t,uid)=>Array.isArray(t.responsable)?t.responsable.includes(uid):t.responsable===uid;
+  const visibles=users.filter(u=>u.role!=="cliente"&&(isA||u.id===cu.id));
+  const datos=useMemo(()=>visibles.map(u=>{
+    const mias=(tasks||[]).filter(t=>delUsuario(t,u.id)).filter(t=>{const ref=t.plannedDay||t.date;return ref?enMes(ref):esMesActual;});
+    const hist=(pros||[]).flatMap(p=>(p.historial||[]).map(e=>({...e,p})));
+    const histMes=etapa=>new Set(hist.filter(e=>e.por===u.id&&e.etapa===etapa&&enMes(e.at)).map(e=>e.p.id)).size;
+    const v={
+      asignadas:mias.length,
+      conMaterial:mias.filter(t=>(t.files||[]).length).length,
+      aprobadas:mias.filter(t=>["aprobado","publicado"].includes(t.state)).length,
+      rechazos:mias.filter(t=>t.clientApproval?.status==="rechazado"||(t.revisions||[]).length).length,
+      contactos:histMes("contactado"),
+      reuniones:extra.reuniones.filter(r=>r.creadoPor===u.id&&enMes(r.date)).length,
+      cotizaciones:extra.cotizaciones.filter(c=>c.creadoPor===u.id&&enMes(c.fecha)).length,
+      cierres:histMes("cliente_cerrado"),
+    };
+    return{u,v,metas:(extra.metas[u.id]||{})};
+  }),[visibles,tasks,pros,extra,ym]);
+  const guardarMetas=(uid,m)=>{const n={...extra.metas,[uid]:m};sExtra(x=>({...x,metas:n}));DB.save("metas_equipo",n);sEditMetas(null);};
+  const mover=d=>sYm(({y,m})=>{const nm=m+d;return{y:y+Math.floor(nm/12),m:((nm%12)+12)%12};});
+  return(<div className="d-in" style={{maxWidth:1200,margin:"0 auto"}}>
+    <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:18}}>
+      <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Avances del equipo</h1>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Lo que cada colaborador avanzó en el mes, medido desde la app</div></div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <button onClick={()=>mover(-1)} style={{width:32,height:32,borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,cursor:"pointer"}}>‹</button>
+        <b style={{minWidth:130,textAlign:"center"}}>{MO[ym.m]} {ym.y}</b>
+        <button onClick={()=>mover(1)} style={{width:32,height:32,borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,cursor:"pointer"}}>›</button>
+      </div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+      {datos.map(({u,v,metas})=>{
+        const ventas=u.role==="Sales"||METRICAS_AV.some(x=>x.g==="Ventas"&&(v[x.k]>0||metas[x.k]));
+        const prod=u.role!=="Sales"||METRICAS_AV.some(x=>x.g==="Producción"&&v[x.k]>0);
+        const grupos=[prod&&"Producción",ventas&&"Ventas"].filter(Boolean);
+        return(<div key={u.id} style={{padding:"16px 18px",borderRadius:16,background:D.panel,border:"1px solid "+D.line3}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <Av u={u} sz={34}/>
+            <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700}}>{u.name}</div><div style={{fontSize:11.5,color:D.tx4}}>{u.role}</div></div>
+            {isA&&<button onClick={()=>sEditMetas({u,m:{...metas}})} style={{padding:"5px 11px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:600}}>Metas</button>}
+          </div>
+          {grupos.map(gr=>(<div key={gr} style={{marginBottom:10}}>
+            <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,marginBottom:6}}>{gr}</div>
+            {METRICAS_AV.filter(x=>x.g===gr).map(x=>{const n=v[x.k],meta=+metas[x.k]||0;const pct=meta?Math.min(100,n/meta*100):0;
+              const col=x.malo?(n?PC.rojo:D.tx3):meta?(n>=meta?PC.verde:D.cian):D.tx2;
+              return(<div key={x.k} style={{marginBottom:7}}>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12.5}}>
+                  <span style={{flex:1,color:D.tx3}}>{x.l}</span>
+                  <b className="num" style={{fontSize:15,color:col}}>{n}</b>
+                  {meta>0&&<span className="num" style={{fontSize:11,color:D.tx4}}>/ {meta}</span>}
+                </div>
+                {meta>0&&<div style={{height:4,borderRadius:2,background:D.line,overflow:"hidden",marginTop:3}}><span style={{display:"block",height:"100%",width:pct+"%",background:col}}/></div>}
+              </div>);})}
+          </div>))}
+        </div>);})}
+    </div>
+    <div style={{fontSize:11.5,color:D.tx4,marginTop:14,lineHeight:1.5}}>
+      Producción: piezas donde la persona es encargada, del mes de producción. Ventas: contactos y cierres salen del historial de cada prospecto (desde el 28 de octubre de 2026), reuniones y cotizaciones de quién las creó.
+    </div>
+    <Md open={!!editMetas} onClose={()=>sEditMetas(null)} title={"Metas mensuales · "+(editMetas?.u.name||"")} width={460}>
+      {editMetas&&<div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {METRICAS_AV.filter(x=>!x.malo).map(x=>(<Fd key={x.k} label={x.l}><input type="number" min="0" value={editMetas.m[x.k]||""} placeholder="sin meta" onChange={e=>sEditMetas(s=>({...s,m:{...s.m,[x.k]:Math.max(0,+e.target.value||0)}}))}/></Fd>))}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
+          <Bt v="s" onClick={()=>sEditMetas(null)}>Cancelar</Bt>
+          <Bt v="p" icon="save" onClick={()=>guardarMetas(editMetas.u.id,editMetas.m)}>Guardar metas</Bt>
+        </div>
+      </div>}
+    </Md>
+  </div>);
+}
+
+function ProspectosPg({pros,sPros,users,addN,currentUser,avisar,correosDe}){
   const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
   const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
   const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
@@ -2908,6 +3462,13 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
   const[mDate,sMDate]=useState("");
   const[mTime,sMTime]=useState("");
   const[mFile,sMFile]=useState(null);
+  // Reunión con el prospecto: el cliente va como asistente más (con su correo, si se tiene,
+  // para que le llegue la invitación de Meet), además del equipo elegido.
+  const[mCliente,sMCliente]=useState(true);
+  const[mCliMail,sMCliMail]=useState("");
+  const[mMin,sMMin]=useState(60);
+  const[mMeet,sMMeet]=useState(true);
+  const[mBusy,sMBusy]=useState(false);
 
   const[expandedIds,sExpandedIds]=useState({});
   const[showAdd,sShowAdd]=useState(false);
@@ -2957,6 +3518,10 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
     sMDate(p.reunion_fecha||"");
     sMTime(p.reunion_hora||"");
     sMFile(null);
+    sMCliente(p.reunion_cliente!==false);
+    sMCliMail(p.reunion_cliente_email||p.email||"");
+    sMMin(p.reunion_minutos||60);
+    sMMeet(true);sMBusy(false);
   },[pendingMove]);
 
   const pendingCount=(pros||[]).filter(p=>(p.status||"pendiente")==="pendiente").length;
@@ -2979,7 +3544,8 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
   const updateField=(id,field,value)=>{const nl=pros.map(x=>x.id===id?{...x,[field]:value}:x);sPros(nl);DB.save("prospects",nl);};
   const setStatus=(id,status)=>{const nl=pros.map(x=>x.id===id?{...x,status}:x);sPros(nl);DB.save("prospects",nl);};
   const commitMove=(id,etapa,extra)=>{
-    const nl=pros.map(x=>x.id===id?{...x,etapa,...extra}:x);
+    // Quién movió el prospecto y cuándo: es lo que cuentan los avances de ventas.
+    const nl=pros.map(x=>x.id===id?{...x,etapa,...extra,historial:[...(x.historial||[]),{etapa,at:new Date().toISOString(),por:currentUser?.id}]}:x);
     sPros(nl);DB.save("prospects",nl);
     addN&&addN("Prospecto movido a: "+(ETAPAS.find(([k])=>k===etapa)?.[1]||etapa));
   };
@@ -2995,12 +3561,58 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
     pendingMove.targetEtapa==="reunion_agendada"?(mPeople.length===0||!mDate||!mTime):
     pendingMove.targetEtapa==="cotizacion_lista"?!mFile:
     false;
-  const confirmMove=()=>{
-    if(!pendingMove||confirmDisabled)return;
+  // Qué falta para poder confirmar, dicho en voz alta. Antes el botón quedaba apagado sin
+  // explicar por qué y parecía que no respondía.
+  const faltaReunion=pendingMove?.targetEtapa!=="reunion_agendada"?[]:
+    [mPeople.length===0&&"quién asiste del equipo",!mDate&&"el día",!mTime&&"la hora"].filter(Boolean);
+  // Agendar la reunión de verdad: antes Confirmar solo movía la tarjeta de columna y anotaba
+  // fecha y hora en el prospecto, así que la reunión no existía en ninguna parte. Ahora hace lo
+  // mismo que agendar desde el Dashboard: evento de Google Calendar con Meet (invitación por
+  // correo al equipo y al cliente), la reunión en `reuniones` y el aviso dentro de la app.
+  const agendarReunion=async()=>{
+    const p=(pros||[]).find(x=>x.id===pendingMove.id)||{};
+    const gente=users.filter(u=>mPeople.includes(u.id));
+    const cliMail=mCliente?mCliMail.trim():"";
+    const invitados=[...new Set([...gente.map(u=>u.gmail||u.email),cliMail].filter(e=>e&&e.includes("@")))];
+    const title="Reunión con "+(p.name||"prospecto");
+    let meet=null;
+    if(mMeet){
+      const r=await API.gcalMeeting({title,
+        description:"Reunión con prospecto agendada desde INMERSIA"+(currentUser?.name?" por "+currentUser.name:"")+"."+
+          "\nAsisten: "+[...gente.map(u=>u.name),mCliente?(p.name||"cliente"):null].filter(Boolean).join(", "),
+        date:mDate,time:mTime,minutos:mMin,invitados});
+      if(r.ok)meet=r;
+      else addN&&addN(r.needsConnect?("⚠️ Reunión guardada, pero falta conectar el Calendar de "+r.organizador+" para mandar las invitaciones"):("⚠️ Reunión guardada, pero Google falló: "+(r.msg||"error")));
+    }
+    // Se relee `reuniones` antes de escribir: esta página no la tiene en memoria y volcar una
+    // lista vacía borraría las del Dashboard.
+    try{
+      const fresh=await DB.loadAllStrict();
+      const lista=Array.isArray(fresh.reuniones)?fresh.reuniones:[];
+      await DB.save("reuniones",[...lista,{id:uid(),creadoPor:currentUser?.id,title,companyId:"",prospectId:p.id,date:mDate,time:mTime,
+        attendees:mPeople,minutos:mMin,conMeet:mMeet,extra:cliMail,cliente:mCliente?(p.name||""):"",
+        meetLink:meet?.meetLink||"",eventId:meet?.eventId||"",invitados}]);
+    }catch(e){addN&&addN("⚠️ No se pudo guardar la reunión en la agenda: "+e.message);}
+    const destino=gente.filter(u=>u.id!==currentUser?.id);
+    if(avisar&&correosDe&&destino.length)avisar({type:"reunion",title:"🗓 Reunión agendada",
+      body:title+", "+mDate+" a las "+mTime+(meet?.meetLink?" · con Meet":""),
+      to:correosDe(destino),url:meet?.meetLink||"/",important:true});
+    return meet;
+  };
+  const confirmMove=async()=>{
+    if(!pendingMove||confirmDisabled||mBusy)return;
     let extra={};
     if(pendingMove.targetEtapa==="contactado")extra={canales_primer_contacto:mChannels};
     else if(pendingMove.targetEtapa==="en_respuesta")extra={comunicacion_status:mComunicacion};
-    else if(pendingMove.targetEtapa==="reunion_agendada")extra={reunion_personas:mPeople,reunion_fecha:mDate,reunion_hora:mTime};
+    else if(pendingMove.targetEtapa==="reunion_agendada"){
+      sMBusy(true);
+      let meet=null;
+      try{meet=await agendarReunion();}catch(e){addN&&addN("⚠️ "+e.message);}
+      sMBusy(false);
+      extra={reunion_personas:mPeople,reunion_fecha:mDate,reunion_hora:mTime,reunion_minutos:mMin,
+        reunion_cliente:mCliente,reunion_cliente_email:mCliMail.trim(),reunion_meet:meet?.meetLink||""};
+      if(meet?.meetLink)addN&&addN("🗓 Reunión agendada e invitaciones enviadas");
+    }
     else if(pendingMove.targetEtapa==="cotizacion_lista")extra={cotizacion_file:mFile};
     commitMove(pendingMove.id,pendingMove.targetEtapa,extra);
     sPendingMove(null);
@@ -3184,8 +3796,25 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
             );})}
           </div>
         </Fd>
-        <Fd label="Día"><input type="date" value={mDate} onChange={e=>sMDate(e.target.value)}/></Fd>
-        <Fd label="Hora"><input type="time" value={mTime} onChange={e=>sMTime(e.target.value)}/></Fd>
+        <Fd label="Cliente" hint={mCliente?"Con su correo le llega la invitación de Meet. Sin correo queda anotado como asistente.":null}>
+          <button onClick={()=>sMCliente(v=>!v)} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,padding:"6px 10px",borderRadius:7,border:"1px solid "+(mCliente?"var(--accent)":"var(--border)"),background:mCliente?"var(--accent)":"var(--bg3)",color:mCliente?"var(--bg)":"var(--tx2)",cursor:"pointer",fontFamily:"inherit",marginBottom:mCliente?8:0}}>
+            <Ic n={mCliente?"check":"plus"} s={12}/>{(pros||[]).find(x=>x.id===pendingMove.id)?.name||"Cliente"} asiste
+          </button>
+          {mCliente&&<input type="email" value={mCliMail} onChange={e=>sMCliMail(e.target.value)} placeholder="correo del cliente (opcional)"/>}
+        </Fd>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 140px"}}><Fd label="Día"><input type="date" value={mDate} onChange={e=>sMDate(e.target.value)} onInput={e=>sMDate(e.target.value)}/></Fd></div>
+          <div style={{flex:"1 1 110px"}}><Fd label="Hora"><input type="time" value={mTime} onChange={e=>sMTime(e.target.value)} onInput={e=>sMTime(e.target.value)}/></Fd></div>
+          <div style={{flex:"1 1 110px"}}><Fd label="Duración">
+            <select value={mMin} onChange={e=>sMMin(Number(e.target.value))}>
+              {[30,45,60,90,120].map(m=><option key={m} value={m}>{m} min</option>)}
+            </select></Fd></div>
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:"var(--tx2)",cursor:"pointer",marginBottom:4}}>
+          <input type="checkbox" checked={mMeet} onChange={e=>sMMeet(e.target.checked)} style={{width:"auto"}}/>
+          Crear en Google Calendar con enlace de Meet y mandar las invitaciones
+        </label>
+        {faltaReunion.length>0&&<div style={{fontSize:11.5,color:"var(--gold)",marginTop:8}}>Falta elegir {faltaReunion.join(", ")}.</div>}
       </>)}
       {pendingMove?.targetEtapa==="cotizacion_lista"&&(
         <Fd label="Archivo de cotización (PDF)">
@@ -3195,7 +3824,7 @@ function ProspectosPg({pros,sPros,users,addN,currentUser}){
       )}
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
         <Bt v="s" onClick={()=>sPendingMove(null)}>Cancelar</Bt>
-        <Bt v="p" disabled={confirmDisabled} onClick={confirmMove}>Confirmar</Bt>
+        <Bt v="p" disabled={confirmDisabled||mBusy} onClick={confirmMove}>{mBusy?"Agendando…":pendingMove?.targetEtapa==="reunion_agendada"?"Agendar reunión":"Confirmar"}</Bt>
       </div>
     </Md>
 
@@ -3329,7 +3958,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
     guardarEventos([...eventos,nuevo]);
     const destino=conAdmins(users.filter(u=>evF.attendees.includes(u.id)));
     if(avisar&&destino.length)avisar({type:"evento",title:"📌 Evento agendado",
-      body:nuevo.title+(co?" · "+co.name:"")+" — "+nuevo.date+(nuevo.hours.length?" "+nuevo.hours.join(", "):""),
+      body:nuevo.title+(co?" · "+co.name:"")+", "+nuevo.date+(nuevo.hours.length?" "+nuevo.hours.join(", "):""),
       to:correosDe(destino),url:"/"});
     sEvF({title:"",detail:"",companyId:"",date:td(),hours:"",attendees:[]});sEvOpen(false);
     addN("📌 Evento agendado");
@@ -3384,13 +4013,13 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
       else addN(r.needsConnect?("⚠️ Reunión guardada, pero falta conectar el Calendar de "+r.organizador+" para mandar las invitaciones"):("⚠️ Reunión guardada, pero Google falló: "+(r.msg||"error")));
     }
 
-    guardarReus([...reus,{id,...agF,title:agF.title.trim(),companyId:agF.companyId||"",
+    guardarReus([...reus,{id,...agF,creadoPor:cu?.id,title:agF.title.trim(),companyId:agF.companyId||"",
       meetLink:meet?.meetLink||"",eventId:meet?.eventId||"",invitados}]);
 
     const destino=conAdmins(gente);
     if(avisar&&destino.length){
       avisar({type:"reunion",title:"🗓 Reunión agendada",
-        body:agF.title.trim()+(co?" · "+co.name:"")+" — "+cuando+(meet?.meetLink?" · con Meet":""),
+        body:agF.title.trim()+(co?" · "+co.name:"")+", "+cuando+(meet?.meetLink?" · con Meet":""),
         to:correosDe(destino),url:meet?.meetLink||"/",important:true});
     }
 
@@ -3402,6 +4031,15 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
   const togAsistente=id=>sAgF(f=>({...f,attendees:f.attendees.includes(id)?f.attendees.filter(x=>x!==id):[...f.attendees,id]}));
 
   const rechazadas=useMemo(()=>tasks.filter(t=>t.clientApproval?.status==="rechazado"&&t.state==="en_proceso"),[tasks]);
+  // Cupo por cliente: el encargado ve sus cuentas; si no lleva ninguna (o es admin), todas. Lo
+  // atrasado primero, porque es lo que pide acción.
+  const misCuentas=!isA&&cos.some(c=>(c.encargados||[]).includes(cu.id));
+  const cupoAlertas=useMemo(()=>{
+    const orden={atrasado:0,ok:1,completo:2};
+    const mias=c=>(c.encargados||[]).includes(cu.id);
+    return alertasCupo(misCuentas?cos.filter(mias):cos,tasks)
+      .sort((a,b)=>(mias(b.co)-mias(a.co))||(orden[a.nivel]-orden[b.nivel])||(b.libre-a.libre));
+  },[cos,tasks,cu.id,misCuentas]);
   const eventosProximos=useMemo(()=>eventos.filter(e=>(e.date||"")>=hoyDs),[eventos,hoyDs]);
   const label={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4};
   const campo={padding:"11px 13px",borderRadius:11,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13.5,outline:"none",width:"100%",boxSizing:"border-box"};
@@ -3428,6 +4066,34 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><Ic n="planner" s={16} c={D.lav}/><span style={{fontSize:13.5,fontWeight:700,color:D.lav}}>Cambios pendientes de {d.companyName}</span></div>
         <div style={{fontSize:12,color:D.tx3}}>Enviado por {d.clientName} · {new Date(d.date).toLocaleDateString()}</div>
       </div>))}
+
+    {/* CUPO DISPONIBLE POR CLIENTE. Cada encargado ve primero sus cuentas; los admins ven
+        todas. Antes el cupo solo se veía entrando a Contenido u Org Semanal empresa por empresa,
+        así que nadie se enteraba de que a un cliente le quedaban 8 piezas a cinco días de fin de mes. */}
+    {cupoAlertas.length>0&&<div style={{marginBottom:18,padding:"14px 16px",borderRadius:16,background:D.panel,border:"1px solid "+(cupoAlertas.some(a=>a.nivel==="atrasado")?"rgba(var(--rgb-ambar),.4)":D.line3)}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
+        <Ic n="alert" s={15} c={cupoAlertas.some(a=>a.nivel==="atrasado")?PC.ambar:D.cian}/>
+        <span style={{fontSize:13.5,fontWeight:700,color:D.tx}}>Cupo disponible de {MO[new Date().getMonth()].toLowerCase()}</span>
+        <span style={{fontSize:11.5,color:D.tx4}}>{cupoAlertas[0].quedanDias} días para fin de mes{misCuentas?" · tus cuentas":""}</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+        {cupoAlertas.map(a=>{
+          const col=a.nivel==="atrasado"?PC.ambar:a.nivel==="completo"?PC.verde:D.cian;
+          return(<div key={a.co.id} style={{padding:"10px 12px",borderRadius:12,border:"1px solid "+(a.nivel==="atrasado"?"rgba(var(--rgb-ambar),.45)":D.line2),background:a.nivel==="atrasado"?"rgba(var(--rgb-ambar),.05)":"transparent"}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:tono(a.co.color),flexShrink:0}}/>
+              <span style={{fontSize:13,fontWeight:700,color:D.tx,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.co.name}</span>
+              <b style={{fontFamily:"var(--font-mono)",fontSize:15,color:col}}>{a.libre}</b>
+              <span style={{fontSize:11,color:D.tx4}}>de {a.incluido}</span>
+            </div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {a.saldo.map(s=>(<span key={s.tipo} style={{fontSize:10.5,padding:"2px 7px",borderRadius:999,border:"1px solid "+(s.libre<=0?"rgba(var(--rgb-rojo),.4)":D.line2),color:s.libre<=0?PC.rojo:D.tx3}}>{TT[s.tipo]?.l||s.tipo} {Math.max(0,s.libre)}</span>))}
+            </div>
+            {a.nivel==="atrasado"&&<div style={{fontSize:11,color:PC.ambar,marginTop:6}}>Más de la mitad del cupo sin empezar: hay que producir.</div>}
+            {a.nivel==="completo"&&<div style={{fontSize:11,color:PC.verde,marginTop:6}}>Cupo del mes completo. Lo que se cree de más va como adicional.</div>}
+          </div>);})}
+      </div>
+    </div>}
 
     {/* FILA RESUMEN */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:18}}>
@@ -3474,7 +4140,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                 <span style={{width:19,height:19,flexShrink:0,borderRadius:6,display:"inline-flex",alignItems:"center",justifyContent:"center",background:done?D.cian:"transparent",border:"1px solid "+(done?D.cian:D.line2)}}>
                   {done&&<Ic n="check" s={12} c={D.bg}/>}
                 </span>
-                <span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:done?D.tx5:D.tx3,width:44,flexShrink:0,textDecoration:done?"line-through":"none"}}>{t.publishTime||"—"}</span>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:done?D.tx5:D.tx3,width:44,flexShrink:0,textDecoration:done?"line-through":"none"}}>{t.publishTime||"-"}</span>
                 <span style={{fontSize:13,fontWeight:500,flex:"1 1 auto",minWidth:0,color:done?D.tx4:D.tx,textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
                 <span style={{padding:"3px 10px",borderRadius:999,background:colorCo(t.companyId)+"1a",border:"1px solid "+colorCo(t.companyId)+"59",color:colorCo(t.companyId),fontSize:11,fontWeight:600,flexShrink:0,opacity:done?.5:1}}>{nombreCo(t.companyId)}</span>
               </button>);})}
@@ -3492,7 +4158,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                     ? <span style={{fontSize:11.5,color:D.tx5,padding:"6px 2px"}}>Sin nada programado</span>
                     : d.items.map(t=>(
                       <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 10px",borderRadius:8,background:(TT[t.type]?.c||D.tx4)+"12",borderLeft:"3px solid "+(TT[t.type]?.c||D.tx4)}}>
-                        <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:D.tx3,width:40,flexShrink:0}}>{t.publishTime||"—"}</span>
+                        <span style={{fontFamily:"var(--font-mono)",fontSize:10.5,color:D.tx3,width:40,flexShrink:0}}>{t.publishTime||"-"}</span>
                         <span style={{fontSize:12.5,fontWeight:500,color:D.tx,flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
                         <span style={{fontSize:10.5,fontWeight:600,color:colorCo(t.companyId),flexShrink:0}}>{nombreCo(t.companyId)}</span>
                       </div>))}
@@ -3655,7 +4321,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
                 </div>
               </div>}
 
-          {proximas.length===0&&!agOpen&&<span style={{fontSize:12.5,color:D.tx4,padding:"8px 2px"}}>No hay reuniones agendadas — crea la primera arriba.</span>}
+          {proximas.length===0&&!agOpen&&<span style={{fontSize:12.5,color:D.tx4,padding:"8px 2px"}}>No hay reuniones agendadas, crea la primera arriba.</span>}
           {proximas.map(r=>{
             const f=fmtDia(r.date);
             const asis=users.filter(u=>r.attendees?.includes(u.id));
@@ -3706,8 +4372,8 @@ const CONT_META=[
   {k:"produccion",est:"En producción",         col:PC.ambar, desc:"En manos del equipo, todavía sin material."},
   {k:"listo",     est:"Listo",                 col:PC.cian, desc:"Esperando la votación del equipo."},
   {k:"enviado",   est:"Enviado al portal",     col:PC.peri, desc:"En la bandeja del cliente, sin respuesta aún."},
-  {k:"rechazado", est:"Rechazado por cliente", col:PC.rojo, desc:"El cliente pidió cambios — sube la corrección."},
-  {k:"aprobado",  est:"Aprobado por cliente",  col:PC.verde, desc:"Cerradas — el cliente ya las aprobó."},
+  {k:"rechazado", est:"Rechazado por cliente", col:PC.rojo, desc:"El cliente pidió cambios, sube la corrección."},
+  {k:"aprobado",  est:"Aprobado por cliente",  col:PC.verde, desc:"Cerradas, el cliente ya las aprobó."},
 ];
 const CONT_GLOW={
   listo:    {rgb:"rgba(var(--rgb-acento),", late:true},
@@ -3793,7 +4459,7 @@ const CC_PRESETS=[
             texto:"¡Aquí está tu beneficio! 🎁\n\nEntra por el botón de abajo y queda aplicado al tiro."},
           {id:r1,tipo:"retraso",titulo:"Esperar 3 horas",x:320,y:590,minutos:180,siguiente:m3,texto:"",botones:[]},
           {id:m3,tipo:"mensaje",titulo:"Seguimiento",x:320,y:780,siguiente:"",botones:[],
-            texto:"Hola de nuevo 🙂 ¿Cómo te fue? Espero que hayas podido usar tu beneficio sin problema.\n\nTe invito a seguirnos para estar atento a más beneficios como este — para los próximos va a ser obligatorio seguirnos. ¡Saludos!"},
+            texto:"Hola de nuevo 🙂 ¿Cómo te fue? Espero que hayas podido usar tu beneficio sin problema.\n\nTe invito a seguirnos para estar atento a más beneficios como este, para los próximos va a ser obligatorio seguirnos. ¡Saludos!"},
         ],
       };
     },
@@ -4051,7 +4717,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
 
   const cuerpo=(<div ref={cajaRef} style={{...marco,
     display:"flex",flexDirection:"column",overflow:"hidden",position:marco.position||"relative",
-    fontFamily:"'Instrument Sans', system-ui, sans-serif",color:PC.tx,background:PC.bg,boxSizing:"border-box"}}>
+    fontFamily:"'Inter', system-ui, sans-serif",color:PC.tx,background:PC.bg,boxSizing:"border-box"}}>
 
     {/* ── Barra superior ── */}
     {/* En el teléfono se cae el logo, el separador y el rótulo "constructor de cadena": son
@@ -4070,7 +4736,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
       </div>
       {!movil&&<div style={{flex:"1 1 auto"}}/>}
       <button onClick={()=>onChange({...flujo,activa:flujo.activa===false})}
-        title={flujo.activa!==false?"Cadena activa — toca para pausar":"Pausada — toca para activar"}
+        title={flujo.activa!==false?"Cadena activa, toca para pausar":"Pausada, toca para activar"}
         style={{flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,
           padding:movil?"0":"8px 16px",width:movil?34:"auto",height:movil?34:"auto",borderRadius:999,
           background:flujo.activa!==false?"rgba(var(--rgb-acento), 0.08)":"transparent",
@@ -4119,7 +4785,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                 <span style={{fontSize:11,color:PC.tx4,lineHeight:1.4}}>{t.desc}</span>
               </span>
             </button>);})}
-          <p style={{margin:"8px 4px 0",fontSize:11,lineHeight:1.55,color:PC.tx5}}>Toca un bloque para añadirlo — se conecta al bloque seleccionado en el lienzo.</p>
+          <p style={{margin:"8px 4px 0",fontSize:11,lineHeight:1.55,color:PC.tx5}}>Toca un bloque para añadirlo, se conecta al bloque seleccionado en el lienzo.</p>
         </aside>}
 
       {/* ── Lienzo ── */}
@@ -4211,7 +4877,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                   style={{marginLeft:"auto",width:20,height:20,borderRadius:"50%",background:"transparent",border:"none",color:PC.tx5,fontFamily:"inherit",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
               </div>
               <div style={{fontSize:13.5,fontWeight:600,lineHeight:1.35,marginBottom:4}}>{n.titulo}</div>
-              <div style={{fontSize:11.5,color:PC.tx4,lineHeight:1.45,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{detalle||"Sin contenido — edítalo en el panel"}</div>
+              <div style={{fontSize:11.5,color:PC.tx4,lineHeight:1.45,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{detalle||"Sin contenido, edítalo en el panel"}</div>
               {/* La publicación elegida, aquí mismo. "La publicación elegida" en texto no dice
                   cuál es, y para comprobarlo había que abrir el panel y buscarla en la rejilla. */}
               {n.id===TRIG&&pubSel&&<div style={{display:"flex",alignItems:"center",gap:9,marginTop:10,padding:"7px 9px",borderRadius:11,background:"rgba(var(--rgb-acento), 0.06)",border:"1px solid rgba(var(--rgb-acento), 0.22)"}}>
@@ -4335,7 +5001,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
           <div style={{flex:"1 1 auto"}}/>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta("Primer bloque de la cadena")}
-            {selDestino(inicio,v=>onChange({...flujo,inicio:v}),"— elige por dónde empieza —")}
+            {selDestino(inicio,v=>onChange({...flujo,inicio:v}),"elige por dónde empieza")}
           </div>
         </>}
 
@@ -4392,10 +5058,10 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
                         ?"Al pulsarlo se abre la web y la cadena se corta ahí: Instagram no nos avisa de ese toque."
                         :(b.url||"").trim()
                           ?"Tiene que empezar por http:// o https://. Así como está, el servidor lo descarta y el botón no se envía."
-                          :"Falta el enlace. Sin él este botón no se manda — el resto del mensaje sí."}
+                          :"Falta el enlace. Sin él este botón no se manda, el resto del mensaje sí."}
                     </span>
                   </>
-                  :selDestino(b.siguiente,v=>edBot("siguiente",v),"— lleva a… —",nSel.id)}
+                  :selDestino(b.siguiente,v=>edBot("siguiente",v),"lleva a…",nSel.id)}
               </div>);})}
             {(nSel.botones||[]).length<3&&
               <button onClick={()=>editPaso(nSel.id,"botones",[...(nSel.botones||[]),{id:ccId(),titulo:"",siguiente:"",url:""}])}
@@ -4408,7 +5074,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
               hacer seguimiento un rato después: mensaje → retraso → mensaje. */}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta("Y sin esperar respuesta, seguir con")}
-            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"— nada, esperar al botón —",nSel.id)}
+            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"nada, esperar al botón",nSel.id)}
             <span style={{fontSize:11.5,color:PC.tx4,lineHeight:1.5}}>
               Se ejecuta al instante, justo después de enviar este mensaje. Para dejar pasar tiempo, apunta a un <b style={{color:PC.tx2}}>retraso</b>.
             </span>
@@ -4454,11 +5120,11 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
             </div>}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta(C.si,{color:"#7FE8C0"})}
-            {selDestino(nSel.siSi,v=>editPaso(nSel.id,"siSi",v),"— terminar la cadena —",nSel.id)}
+            {selDestino(nSel.siSi,v=>editPaso(nSel.id,"siSi",v),"terminar la cadena",nSel.id)}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta(C.no,{color:PC.rojo})}
-            {selDestino(nSel.siNo,v=>editPaso(nSel.id,"siNo",v),"— terminar la cadena —",nSel.id)}
+            {selDestino(nSel.siNo,v=>editPaso(nSel.id,"siNo",v),"terminar la cadena",nSel.id)}
           </div>
         </>);})()}
 
@@ -4481,7 +5147,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta("Después continuar con")}
-            {selDestino(nSel.siguiente,x=>editPaso(nSel.id,"siguiente",x),"— terminar la cadena —",nSel.id)}
+            {selDestino(nSel.siguiente,x=>editPaso(nSel.id,"siguiente",x),"terminar la cadena",nSel.id)}
           </div>
         </>);})()}
 
@@ -4495,7 +5161,7 @@ function CadenaBuilder({flujo,pubs,onChange,onCerrar,onGuardar,guardando}){
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {etiqueta("Después continuar con")}
-            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"— terminar la cadena —",nSel.id)}
+            {selDestino(nSel.siguiente,v=>editPaso(nSel.id,"siguiente",v),"terminar la cadena",nSel.id)}
           </div>
         </>}
 
@@ -4658,7 +5324,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       });
     });
     if(problemas.length){
-      addN("⚠️ No se guardó nada — "+problemas[0]+(problemas.length>1?" (y "+(problemas.length-1)+(problemas.length===2?" aviso más)":" avisos más)"):""));
+      addN("⚠️ No se guardó nada, "+problemas[0]+(problemas.length>1?" (y "+(problemas.length-1)+(problemas.length===2?" aviso más)":" avisos más)"):""));
       return;
     }
     sGuardando(true);
@@ -4843,7 +5509,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       if(creadas.length)sT(p=>{const r=[...p,...creadas];DB.save("tasks",r);return r;});
       if(files.length>n)sLeftover(files.slice(n));
       if(n){addN(`✅ ${n} pieza(s) nuevas en ${co.name}`);avisarListas(n);}
-      else if(files.length)addN(`⚠️ ${co.name} no tiene cupo de ${TT[upType]?.l||upType} este mes — puedes crearlas como adicionales`);
+      else if(files.length)addN(`⚠️ ${co.name} no tiene cupo de ${TT[upType]?.l||upType} este mes, puedes crearlas como adicionales`);
     }catch(e){addN("❌ "+e.message);}
     finally{sBusy(false);sProg("");if(fileRef.current)fileRef.current.value="";}
   };
@@ -4941,7 +5607,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     const fallos=[];
     for(const f of archivos){ if(!(await API.borrarArchivo(f.url))) fallos.push(f.name||"un archivo"); }
     addN(fallos.length
-      ?"🗑 Pieza eliminada, pero no se pudo borrar "+fallos.join(", ")+" — sigue en Storage"
+      ?"🗑 Pieza eliminada, pero no se pudo borrar "+fallos.join(", ")+", sigue en Storage"
       :"🗑 «"+(t.title||"Pieza")+"» eliminada, y su "+(archivos.length>1?archivos.length+" archivos":"archivo")+" también");
   };
 
@@ -5133,7 +5799,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     const enContra=equipo.filter(u=>v[u.id]===false);
     const unanime=equipo.length>0&&aFavor.length===equipo.length;
     const resumen=enContra.length?"Cambios pedidos por "+enContra.map(u=>u.name).join(", ")
-      :(unanime?"Aprobado por el equipo ✓ — listo para enviar":aFavor.length+" de "+equipo.length+" aprobaciones");
+      :(unanime?"Aprobado por el equipo ✓, listo para enviar":aFavor.length+" de "+equipo.length+" aprobaciones");
     const resCol=enContra.length?D.rojo:(unanime?D.cian:D.tx4);
 
     let acc=null;
@@ -5257,7 +5923,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         </div>}
 
         {m.k==="aprobado"&&<span style={{fontSize:11.5,fontWeight:600,color:PC.verde,marginTop:"auto",position:"relative"}}>
-          {t.date?"✓ Agendada para "+t.date+(t.publishTime?" · "+t.publishTime:""):"✓ Cerrada — falta que el cliente la agende"}
+          {t.date?"✓ Agendada para "+t.date+(t.publishTime?" · "+t.publishTime:""):"✓ Cerrada, falta que el cliente la agende"}
         </span>}
 
         {/* Publicar. Solo aquí: el cupo se gasta al aprobar el cliente y publicar viene después.
@@ -5332,7 +5998,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             que se entraba a trabajar. */}
         {modo!=="automatizaciones"&&<span style={{fontSize:12.5,color:D.tx3}}>
           {modo==="publicar"
-            ? <>Las piezas que <span style={{color:D.tx2,fontWeight:600}}>ya aprobó el cliente</span> — publícalas ahora o déjalas agendadas.</>
+            ? <>Las piezas que <span style={{color:D.tx2,fontWeight:600}}>ya aprobó el cliente</span>, publícalas ahora o déjalas agendadas.</>
             : <span style={{fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:".12em",color:D.tx4}}>synclive-semana-cliente</span>}
         </span>}
       </div>
@@ -5486,11 +6152,11 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontFamily:"var(--font-mono)",fontSize:11.5,color:D.tx4}}>
                   <span>{t.date?t.date:(t.plannedDay?"Planificada "+diaLbl(t.plannedDay):"sin día")}</span>
                   <span>{t.publishTime?t.publishTime:"sin hora"}</span>
-                  {!t.date&&<span style={{color:D.tx5,fontFamily:"inherit"}}>— el cliente aún no la agendó</span>}
+                  {!t.date&&<span style={{color:D.tx5,fontFamily:"inherit"}}>- el cliente aún no la agendó</span>}
                 </div>
                 {t.caption
                   ?<div style={{fontSize:12,color:D.tx2,background:D.bg,padding:"8px 10px",borderRadius:9,lineHeight:1.5,whiteSpace:"pre-wrap",maxHeight:96,overflow:"auto"}}>{t.caption}</div>
-                  :<span style={{fontSize:11.5,color:D.tx5,fontStyle:"italic"}}>Sin texto — se publicará solo la imagen.</span>}
+                  :<span style={{fontSize:11.5,color:D.tx5,fontStyle:"italic"}}>Sin texto, se publicará solo la imagen.</span>}
               </div>
 
               <div style={{display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",flexShrink:0,minWidth:170}}>
@@ -5582,8 +6248,8 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:PC.verde,boxShadow:"0 0 9px var(--success)"}}/>
                 Automatización disponible
               </span>
-              {igEst.expiraEn!=null&&igEst.expiraEn<=10&&<span style={{fontSize:11.5,fontWeight:600,color:PC.ambar}}>El permiso vence en {igEst.expiraEn} días — reconecta.</span>}
-              <button onClick={conectarIGMeta} title="Volver a pedir el permiso — solo para cuentas propias de Inmersia"
+              {igEst.expiraEn!=null&&igEst.expiraEn<=10&&<span style={{fontSize:11.5,fontWeight:600,color:PC.ambar}}>El permiso vence en {igEst.expiraEn} días, reconecta.</span>}
+              <button onClick={conectarIGMeta} title="Volver a pedir el permiso, solo para cuentas propias de Inmersia"
                 style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Reconectar</button>
             </div>
           ):(
@@ -5595,7 +6261,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                   El permiso lo da el cliente desde su portal, con su propia cuenta. Hasta entonces las cadenas se pueden dejar armadas, pero no responden.
                 </div>
               </div>
-              <button onClick={conectarIGMeta} title="Solo para cuentas propias de Inmersia — la del cliente la conecta él"
+              <button onClick={conectarIGMeta} title="Solo para cuentas propias de Inmersia, la del cliente la conecta él"
                 style={{flexShrink:0,padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Conectar una cuenta propia</button>
             </div>
           )}
@@ -5655,7 +6321,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                       const t=candidatas.find(x=>String(x.id)===e.target.value);
                       if(!t)return;
                       marcarAuto(t,true);
-                      addN("💬 «"+(t.title||"Pieza")+"» va con automatización — prepárale la cadena aquí abajo");
+                      addN("💬 «"+(t.title||"Pieza")+"» va con automatización, prepárale la cadena aquí abajo");
                     }}
                     style={{flex:"1 1 200px",minWidth:0,padding:"8px 11px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:12.5,cursor:"pointer"}}>
                     <option value="">Elegir pieza…</option>
@@ -5719,7 +6385,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
                 <button onClick={()=>{nuevaRegla();sAbierta(reglas.length);sPreset(false);}}
                   style={{padding:"12px 16px",borderRadius:14,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,
                     cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:600,textAlign:"left"}}>
-                  En blanco — un solo mensaje y lo armo yo
+                  En blanco, un solo mensaje y lo armo yo
                 </button>
                 <span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5,paddingTop:2}}>
                   Las plantillas llegan con los textos escritos y los bloques conectados. Faltan la palabra que las dispara, la publicación y el enlace del beneficio: eso se elige después, en el disparador.
@@ -5767,7 +6433,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     <Md open={!!aprobVar} onClose={()=>sAprobVar(null)} title="¿Con cuál se quedó?" width={430}>
       {aprobVar&&<div>
         <p style={{fontSize:13.5,lineHeight:1.55,margin:"0 0 14px",color:D.tx2}}>
-          «{aprobVar.title||"La pieza"}» tiene {(aprobVar.files||[]).length} versiones. Marca la que aprobó {co?.name||"el cliente"} — es la que se publicará.
+          «{aprobVar.title||"La pieza"}» tiene {(aprobVar.files||[]).length} versiones. Marca la que aprobó {co?.name||"el cliente"}, es la que se publicará.
         </p>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {(aprobVar.files||[]).map((f,i)=>(
@@ -5803,7 +6469,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             <span style={{fontSize:12.5,lineHeight:1.5}}>
               <b>Borrar también {arch.length>1?("los "+arch.length+" archivos"):"el archivo"} de Storage</b>
               <span style={{display:"block",color:D.tx3,marginTop:3}}>
-                Sin marcar, {arch.length>1?"siguen":"sigue"} descargable{arch.length>1?"s":""} por su enlace aunque la pieza desaparezca. Marcado, no queda rastro — y no se recupera.
+                Sin marcar, {arch.length>1?"siguen":"sigue"} descargable{arch.length>1?"s":""} por su enlace aunque la pieza desaparezca. Marcado, no queda rastro, y no se recupera.
               </span>
             </span>
           </label>}
@@ -5898,7 +6564,7 @@ function LyQR({texto,size=176,marco=true}){
     lyCargar(LY_LIBS.qr).then(()=>{
       if(!vivo||!ref.current||!window.QRCode)return;
       ref.current.innerHTML="";
-      new window.QRCode(ref.current,{text:texto||"—",width:size,height:size,colorDark:PC.bg,colorLight:"#FFFFFF",correctLevel:window.QRCode.CorrectLevel.M});
+      new window.QRCode(ref.current,{text:texto||"-",width:size,height:size,colorDark:PC.bg,colorLight:"#FFFFFF",correctLevel:window.QRCode.CorrectLevel.M});
     }).catch(()=>vivo&&sFallo(true));
     return()=>{vivo=false;};
   },[texto,size]);
@@ -6362,7 +7028,7 @@ function LyEscaner({modo:modoInicial,cu,programa,onCerrar,onHecho}){
       <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:10}}>Cómo se hace en el mesón</div>
       <ol style={{margin:0,paddingLeft:18,fontSize:12.5,color:PC.tx3,lineHeight:1.65}}>
         <li>El cliente abre <b style={{color:PC.tx}}>su</b> tarjeta en el teléfono y muestra el QR.</li>
-        <li>Apuntas la cámara. El sello se suma solo — no hay que confirmar.</li>
+        <li>Apuntas la cámara. El sello se suma solo, no hay que confirmar.</li>
         <li>Al llegar a {meta}, cambias arriba a <b style={{color:PC.tx}}>Canjear premio</b> y lees el mismo QR.</li>
         <li>Si la cámara falla o el teléfono no da, escribes el código a mano.</li>
       </ol>
@@ -6608,7 +7274,7 @@ function FidelizacionPg({cos,cu,addN}){
             {[["Socios",stats?.socios],["Activos 30 d",stats?.activos],["Sellos dados",stats?.sellos],["Premios",stats?.canjes]].map(([l,v])=>(
               <div key={l} style={{...D_CARD,padding:"14px 16px",flex:"1 1 120px"}}>
                 <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4}}>{l}</div>
-                <div style={{fontSize:24,fontWeight:600,marginTop:4}}>{v??"—"}</div>
+                <div style={{fontSize:24,fontWeight:600,marginTop:4}}>{v??"-"}</div>
               </div>
             ))}
           </div>
@@ -6739,8 +7405,8 @@ function InformePg({cos}){
       </div>
       <div style={{marginTop:15,paddingTop:13,borderTop:"1px solid "+PC.line,fontSize:13.5,color:PC.tx2,lineHeight:1.65}}>
         La campaña de junio ya superó el resultado de <b style={{color:PC.tx}}>toda la temporada de verano</b> en
-        el <b style={{color:PC.cian}}>{Math.round(a.dias/b.dias*100)}% del tiempo</b> — {a.dias} días frente
-        a {b.dias} — y <b style={{color:PC.verde}}>sigue activa</b>, sumando {nInf(a.ritmo)} visitas cada día.
+        el <b style={{color:PC.cian}}>{Math.round(a.dias/b.dias*100)}% del tiempo</b>, {a.dias} días frente
+        a {b.dias}, y <b style={{color:PC.verde}}>sigue activa</b>, sumando {nInf(a.ritmo)} visitas cada día.
       </div>
     </div>
 
@@ -7273,6 +7939,39 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
   };
   const eliminar=()=>{const nw=guiones.filter((_,i)=>i!==sel);saveAll(nw);sSel(0);sTab(0);};
 
+  // ── Sugerencias con IA ──
+  // Variantes: tres versiones del guion entero; la elegida entra como una pestaña nueva, así el
+  // original no se pisa. Por línea: una propuesta para ese cuadro que se aplica campo a campo.
+  const[iaBusy,sIaBusy]=useState(null);       // "variantes" | id de línea
+  const[variantes,sVariantes]=useState(null);
+  const[sugs,sSugs]=useState({});             // {idLinea: sugerencia}
+  const pedirIA=async(modo,i)=>{
+    if(!g||!sub)return;
+    sIaBusy(modo==="linea"?sub.lineas[i].id:"variantes");
+    try{
+      const r=await fetch("/api/ai/guion",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+        body:JSON.stringify({modo,idx:i,guion:{title:g.title,type:TT[g.type]?.l||g.type,company:g.company,companyId:g.companyId,lineas:sub.lineas}})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||"no respondió");
+      if(modo==="linea")sSugs(p=>({...p,[sub.lineas[i].id]:j.sugerencia}));
+      else sVariantes(j.variantes);
+    }catch(e){addN("✨ IA: "+e.message);}
+    sIaBusy(null);
+  };
+  const usarVariante=v=>{
+    const n=subs.length;
+    mut(x=>{x.subs=[...x.subs,{id:gid(),nombre:"IA · "+v.enfoque,lineas:v.lineas.map(l=>({id:gid(),...l}))}];});
+    sVariantes(null);sTab(n);flash("Variante agregada como pestaña nueva");
+  };
+  const aplicarSug=(i,campo)=>{
+    const ln=sub.lineas[i],s=sugs[ln.id];if(!s)return;
+    mut(x=>{const l=x.subs[subIdx].lineas[i];
+      if(campo==="todo"){l.header=s.header||l.header;l.voz=s.voz||l.voz;l.escena=s.escena||l.escena;if(s.movs?.length)l.movs=[...new Set([...(l.movs||[]),...s.movs])];}
+      else if(campo==="movs")l.movs=[...new Set([...(l.movs||[]),...(s.movs||[])])];
+      else l[campo]=s[campo];});
+    if(campo==="todo")sSugs(p=>{const n={...p};delete n[ln.id];return n;});
+  };
+
   const inp={padding:"8px 11px",borderRadius:9,border:"1px solid "+D.line3,fontFamily:"inherit",outline:"none",flex:"1 1 auto",minWidth:0};
   const lbl={fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".12em",textTransform:"uppercase",width:52,flexShrink:0};
   const miniBtn={width:24,height:24,borderRadius:7,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit"};
@@ -7371,7 +8070,28 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
             <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4}}>Nombre del guión</span>
             <input value={sub.nombre} onChange={e=>mut(x=>{x.subs[subIdx].nombre=e.target.value;})} placeholder="Ej: Reel principal, Feria, Historia…" style={{flex:"1 1 180px",maxWidth:320,padding:"8px 12px",borderRadius:10,background:D.panel,border:"1px solid "+D.line2,color:D.tx,fontFamily:"inherit",fontSize:13,fontWeight:600,outline:"none"}}/>
             {subs.length>1&&<button onClick={()=>{mut(x=>{x.subs=x.subs.filter((_,i)=>i!==subIdx);});sTab(0);}} style={{padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-rojo2),.3)",color:D.rojo,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Eliminar este guión</button>}
+            <button onClick={()=>pedirIA("variantes")} disabled={!!iaBusy} title="La IA lee el guion y el brief del cliente y propone tres versiones" style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:6,padding:"8px 15px",borderRadius:999,background:"rgba(var(--rgb-lav),.08)",border:"1px solid rgba(var(--rgb-lav),.4)",color:D.lav,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:iaBusy?"progress":"pointer"}}>
+              <Ic n="ai" s={13} c={D.lav}/>{iaBusy==="variantes"?"Escribiendo variantes…":"3 variantes con IA"}
+            </button>
           </div>
+
+          {/* Las tres variantes, lado a lado, para comparar antes de elegir. */}
+          <Md open={!!variantes} onClose={()=>sVariantes(null)} title="Tres variantes del guion" width={980}>
+            {variantes&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+              {variantes.map((v,vi)=>(<div key={vi} style={{display:"flex",flexDirection:"column",gap:8,padding:"12px 13px",borderRadius:12,border:"1px solid "+D.line2,background:D.panel}}>
+                <div style={{fontSize:13,fontWeight:700,color:D.lav}}>{v.enfoque}</div>
+                {v.porque&&<div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>{v.porque}</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:380,overflowY:"auto"}}>
+                  {v.lineas.map((l,li)=>(<div key={li} style={{fontSize:12,lineHeight:1.5,paddingLeft:8,borderLeft:"2px solid "+D.line2}}>
+                    {l.header&&<div style={{color:D.lav,fontWeight:600}}>{l.header}</div>}
+                    {l.voz&&<div style={{color:D.tx2}}>🎙 {l.voz}</div>}
+                    {l.escena&&<div style={{color:D.tx4}}>🎬 {l.escena}</div>}
+                  </div>))}
+                </div>
+                <Bt v="p" onClick={()=>usarVariante(v)} style={{marginTop:"auto"}}>Usar esta</Bt>
+              </div>))}
+            </div>}
+          </Md>
 
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             {sub.lineas.map((ln,i)=>{
@@ -7380,6 +8100,9 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{width:24,height:24,borderRadius:8,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg, "+D.cian+", "+D.peri+")",color:D.bg,fontFamily:"var(--font-mono)",fontSize:11,fontWeight:700}}>{i+1}</span>
                   <span style={{flex:"1 1 auto"}}/>
+                  <button onClick={()=>pedirIA("linea",i)} disabled={!!iaBusy} title="Sugerencia de la IA para este cuadro" style={{height:24,padding:"0 9px",borderRadius:7,display:"inline-flex",alignItems:"center",gap:4,background:"transparent",border:"1px solid rgba(var(--rgb-lav),.35)",color:D.lav,cursor:iaBusy?"progress":"pointer",fontFamily:"inherit",fontSize:10.5,fontWeight:600}}>
+                    <Ic n="ai" s={11} c={D.lav}/>{iaBusy===ln.id?"Pensando…":"Sugerir"}
+                  </button>
                   <button onClick={()=>mut(x=>mover(x.subs[subIdx].lineas,i,-1))} style={{...miniBtn,fontSize:9}}>▲</button>
                   <button onClick={()=>mut(x=>mover(x.subs[subIdx].lineas,i,1))} style={{...miniBtn,fontSize:9}}>▼</button>
                   <button onClick={()=>mut(x=>{x.subs[subIdx].lineas=x.subs[subIdx].lineas.filter((_,j)=>j!==i);})} style={{...miniBtn,fontSize:10}}>✕</button>
@@ -7411,6 +8134,24 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
                     </div>}
                   </div>
                 </div>
+                {/* Sugerencia de la IA para esta línea: se aplica campo a campo o entera. */}
+                {sugs[ln.id]&&(()=>{const s=sugs[ln.id];const fila=(campo,rot,col,txt)=>txt?(<div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                  <span style={{...lbl,color:col,paddingTop:2}}>{rot}</span>
+                  <span style={{flex:1,fontSize:12.5,color:D.tx2,lineHeight:1.5}}>{txt}</span>
+                  <button onClick={()=>aplicarSug(i,campo)} style={{flexShrink:0,padding:"3px 9px",borderRadius:6,background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:10.5,fontWeight:600}}>Usar</button>
+                </div>):null;
+                return(<div style={{marginTop:2,padding:"10px 12px",borderRadius:11,background:"rgba(var(--rgb-lav),.05)",border:"1px dashed rgba(var(--rgb-lav),.4)",display:"flex",flexDirection:"column",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <Ic n="ai" s={12} c={D.lav}/><span style={{fontSize:11.5,fontWeight:700,color:D.lav,flex:1}}>Sugerencia</span>
+                    <button onClick={()=>aplicarSug(i,"todo")} style={{padding:"3px 10px",borderRadius:6,background:D.lav,border:"none",color:D.bg,cursor:"pointer",fontFamily:"inherit",fontSize:10.5,fontWeight:700}}>Usar todo</button>
+                    <button onClick={()=>sSugs(p=>{const n={...p};delete n[ln.id];return n;})} style={{background:"transparent",border:"none",color:D.tx4,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>✕</button>
+                  </div>
+                  {s.porque&&<div style={{fontSize:11.5,color:D.tx4,lineHeight:1.45}}>{s.porque}</div>}
+                  {fila("header","Header",D.lav,s.header)}
+                  {fila("voz","Voz off",D.peri,s.voz)}
+                  {fila("escena","Escena",D.cian,s.escena)}
+                  {fila("movs","Cámara",D.rojo,(s.movs||[]).join(", "))}
+                </div>);})()}
               </div>);
             })}
             <button onClick={()=>mut(x=>{x.subs[subIdx].lineas=[...x.subs[subIdx].lineas,{id:gid(),header:"",voz:"",escena:"",movs:[]}];})} style={{padding:12,borderRadius:12,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>+ Agregar línea</button>
@@ -7444,7 +8185,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
                     {b.multiSrc&&<button onClick={()=>mut(x=>{const cur=subs.findIndex(s2=>s2.nombre===b.src);x.crono.bloques[i].src=subs[(Math.max(cur,0)+1)%subs.length].nombre;})} title="Toca para cambiar de guión" style={{padding:"3px 9px",borderRadius:999,background:"rgba(var(--rgb-peri),.08)",border:"1px solid rgba(var(--rgb-peri),.3)",color:D.peri,fontFamily:"inherit",fontSize:10,fontWeight:600,cursor:"pointer",maxWidth:150,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b.srcNombre}</button>}
                     <input type="number" value={b.min} min="5" step="5" onChange={e=>mut(x=>{x.crono.bloques[i].min=+e.target.value||0;})} style={{width:54,padding:"5px 7px",borderRadius:7,background:D.bg,border:"1px solid "+D.line2,color:D.tx,fontFamily:"var(--font-mono)",fontSize:12,outline:"none",colorScheme:"dark"}}/>
                     <span style={{fontSize:10.5,color:D.tx4}}>min</span>
-                    {b.ref&&<span style={{fontSize:11,color:D.tx4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 100px",minWidth:0}}>— {b.ref}</span>}
+                    {b.ref&&<span style={{fontSize:11,color:D.tx4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 100px",minWidth:0}}>- {b.ref}</span>}
                     <span style={{marginLeft:"auto",display:"flex",gap:5}}>
                       <button onClick={()=>mut(x=>mover(x.crono.bloques,i,-1))} style={bBtn}>▲</button>
                       <button onClick={()=>mut(x=>mover(x.crono.bloques,i,1))} style={bBtn}>▼</button>
@@ -7476,7 +8217,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
       <div style={{maxHeight:360,overflow:"auto",display:"flex",flexDirection:"column",gap:6}}>
         <div onClick={()=>attachTo(null)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,cursor:"pointer",background:g&&!g.taskId?"rgba(var(--rgb-acento),.07)":D.panel,border:"1px solid "+(g&&!g.taskId?"rgba(var(--rgb-acento),.4)":D.line3)}}>
           <div style={{width:28,height:28,borderRadius:8,background:D.line15,display:"flex",alignItems:"center",justifyContent:"center",color:D.tx4,fontSize:12}}>✕</div>
-          <div><div style={{fontSize:13,fontWeight:600}}>Ninguna — sin vincular</div><div style={{fontSize:11,color:D.tx4}}>El guión queda independiente</div></div>
+          <div><div style={{fontSize:13,fontWeight:600}}>Ninguna, sin vincular</div><div style={{fontSize:11,color:D.tx4}}>El guión queda independiente</div></div>
         </div>
         {attachableTasks.map(t=>{const co=cos.find(c=>String(c.id)===String(t.companyId));const on=g&&g.taskId===t.id;
           return(<div key={t.id} onClick={()=>attachTo(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,cursor:"pointer",background:on?"rgba(var(--rgb-lav),.08)":D.panel,border:"1px solid "+(on?"rgba(var(--rgb-lav),.4)":D.line3)}}>
@@ -7730,7 +8471,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
       <div className="card" style={{padding:20,marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
           <div>
-            <div style={{fontSize:14,fontWeight:600,marginBottom:2}}>Resumen IVA — {month} {year}</div>
+            <div style={{fontSize:14,fontWeight:600,marginBottom:2}}>Resumen IVA · {month} {year}</div>
             <div style={{fontSize:12,color:"var(--tx3)"}}>Total a declarar al SII</div>
           </div>
           <div style={{display:"flex",gap:20,alignItems:"center"}}>
@@ -7774,7 +8515,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
       {tab==="team"?(<div>
         <Fd label="Colaborador"><select value={f.userId} onChange={e=>sF({...f,userId:parseInt(e.target.value)})}>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Fd>
         <Fd label="Monto"><input value={f.amount} onChange={e=>sF({...f,amount:e.target.value})} placeholder="420000" type="number"/></Fd>
-        <Fd label="Concepto"><input value={f.concept} onChange={e=>sF({...f,concept:e.target.value})} placeholder="Pago abril — Edición videos"/></Fd>
+        <Fd label="Concepto"><input value={f.concept} onChange={e=>sF({...f,concept:e.target.value})} placeholder="Pago abril, Edición videos"/></Fd>
         <Fd label="Fecha"><input type="date" value={f.date} onChange={e=>sF({...f,date:e.target.value})}/></Fd>
         <Fd label="Comprobante"><label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"var(--bg3)",border:"1px dashed var(--border2)",borderRadius:10,cursor:"pointer",fontSize:13,color:"var(--tx2)"}}><Ic n="paperclip" s={16}/>{pImg?"Archivo seleccionado ✓":"Subir comprobante"}<input type="file" accept="image/*" onChange={hImg} style={{display:"none"}}/></label></Fd>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><Bt v="s" onClick={()=>sShowReg(false)}>Cancelar</Bt><Bt v="p" onClick={add} disabled={!f.amount} icon="check">Registrar pago</Bt></div>
@@ -7814,7 +8555,7 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
   const dsDe=(y,m,d)=>y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
   const hoyDs=dsDe(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());
   const colorCo=id=>cos.find(c=>String(c.id)===String(id))?.color||D.tx4;
-  const nombreCo=id=>cos.find(c=>String(c.id)===String(id))?.name||"—";
+  const nombreCo=id=>cos.find(c=>String(c.id)===String(id))?.name||"-";
 
   // Celdas del mes, empezando en lunes
   const celdas=useMemo(()=>{
@@ -8591,7 +9332,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     if(nuevo==="en_aprobacion"){
       if(!(it.files||[]).length)return "Falta subir el archivo antes de enviarlo al portal.";
       const r=votoResumen(it);
-      if(r.enContra.length)return `${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"} — corrige antes de enviar al portal.`;
+      if(r.enContra.length)return `${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"}, corrige antes de enviar al portal.`;
       if(!r.todosVotaron)return `Faltan ${r.faltan} ${r.faltan===1?"voto":"votos"} del equipo (${r.equipo.filter(u=>(it.votes||{})[u.id]===undefined).map(u=>u.name).join(", ")}).`;
       if(!r.todosAprueban)return "Todo el equipo tiene que aprobar antes de enviarlo al portal.";
     }
@@ -8836,7 +9577,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 <span style={{fontFamily:"var(--font-mono)",fontSize:movil?12.5:15,fontWeight:600,letterSpacing:movil?".02em":".08em",textTransform:"uppercase",color:D.tx,whiteSpace:"nowrap"}}>
                   {movil
                     ? <>{weekDays[0]?.day} – {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()}</>
-                    : <>SEMANA {weekDays[0]?.day} {weekDays[0]?.month?.slice(0,3).toUpperCase()} — {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()} {weekDays[0]?.date?.getFullYear()}</>}
+                    : <>SEMANA {weekDays[0]?.day} {weekDays[0]?.month?.slice(0,3).toUpperCase()}, {weekDays[6]?.day} {weekDays[6]?.month?.slice(0,3).toUpperCase()} {weekDays[0]?.date?.getFullYear()}</>}
                 </span>
                 <button onClick={()=>sWkOff(w=>w+1)} style={{...dNav(),...(movil?{width:28,height:28}:{})}}>›</button>
                 {wkOff!==0&&<button onClick={()=>sWkOff(0)} style={{padding:"7px 14px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>Hoy</button>}
@@ -8991,7 +9732,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {!prodSel.length&&<span title="Nadie recibió el aviso de esta pieza" style={{position:"relative",padding:"3px 9px",borderRadius:999,background:"rgba(var(--rgb-ambar),.08)",border:"1px solid rgba(var(--rgb-ambar),.34)",color:PC.ambar,fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>sin encargado</span>}
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
-                      <span title="Sin confirmar — no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:PC.ambar,flexShrink:0}}/>}
+                      <span title="Sin confirmar, no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:PC.ambar,flexShrink:0}}/>}
                     <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
@@ -9021,7 +9762,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
               const selEstado=(
                 <select value={estado} onChange={e=>cambiarEstado(it,e.target.value)} title="En qué punto va"
                   style={{padding:"7px 10px",borderRadius:999,background:D.panel,border:"1px solid "+(est.bor||est.c+"59"),color:est.c,fontFamily:"inherit",fontSize:12,fontWeight:700,outline:"none",colorScheme:"dark",cursor:"pointer",width:"auto"}}>
-                  {Object.entries(STATES).map(([k,v])=>{const bl=bloqueoEstado(it,k);return <option key={k} value={k}>{bl?"— ":""}{v.l}</option>;})}
+                  {Object.entries(STATES).map(([k,v])=>{const bl=bloqueoEstado(it,k);return <option key={k} value={k}>{bl?"":""}{v.l}</option>;})}
                 </select>);
               const btnAchicar=(
                 <button onClick={()=>sAbierto(o=>({...o,[it.id]:false}))} title="Achicar"
@@ -9105,7 +9846,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                                 </button>);})}
                             </div>
                             <span style={{fontSize:12,fontWeight:600,color:r.enContra.length?D.rojo:listoParaEnviar?STATES.listo.c:D.tx4,textAlign:"center",lineHeight:1.5}}>
-                              {r.enContra.length?`${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"} — corrige antes de enviar`
+                              {r.enContra.length?`${r.enContra.map(u=>u.name).join(", ")} ${r.enContra.length===1?"objetó":"objetaron"}, corrige antes de enviar`
                                 :listoParaEnviar?"Aprobado por todo el equipo"
                                 :`Faltan ${r.faltan} ${r.faltan===1?"voto":"votos"}`}
                             </span>
@@ -9177,7 +9918,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 <div style={{borderRadius:14,background:D.panel,border:"1px solid rgba(var(--rgb-rojo),.28)",padding:"10px 14px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                   <Ic n="camera" s={16} c={D.rojo}/>
                   <span style={{flex:"1 1 180px",minWidth:140,fontSize:13.5,fontWeight:600,color:D.tx}}>{g.guion?g.guion.title:"Día de Grabación"}</span>
-                  <span style={{padding:"7px 10px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.rojo,fontFamily:"var(--font-mono)",fontSize:12}}>{g.time||"—"}</span>
+                  <span style={{padding:"7px 10px",borderRadius:9,background:D.bg,border:"1px solid "+D.line2,color:D.rojo,fontFamily:"var(--font-mono)",fontSize:12}}>{g.time||"-"}</span>
                   <button onClick={()=>sGuionOpen(o=>({...o,[g.id]:!o[g.id]}))} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 15px",borderRadius:999,background:"rgba(var(--rgb-lav),.08)",border:"1px solid rgba(var(--rgb-lav),.4)",color:D.lav,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                     <Ic n="edit" s={12} c={D.lav}/>Guión
                   </button>
@@ -9203,7 +9944,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       </div>}
                     </div>))}
                   </React.Fragment>))}
-                  {!(g.guion?.subs||[]).some(sb=>sb.lineas.length)&&<span style={{fontSize:12.5,color:D.tx4,padding:"4px 2px"}}>Todavía no hay guión anclado a este día — puedes crearlo en la sección Guionado y asociarlo aquí.</span>}
+                  {!(g.guion?.subs||[]).some(sb=>sb.lineas.length)&&<span style={{fontSize:12.5,color:D.tx4,padding:"4px 2px"}}>Todavía no hay guión anclado a este día, puedes crearlo en la sección Guionado y asociarlo aquí.</span>}
                 </div>}
               </div>))}
 
@@ -9247,7 +9988,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Guión (opcional)</span>
             <button onClick={()=>{linkGrab(showGrabPicker,null,grabTime);}} style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:12,background:"transparent",border:"1px dashed "+D.line2,color:D.tx2,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>
-              Sin guión — solo marcar el día
+              Sin guión, solo marcar el día
             </button>
             {guiones.filter(g=>!selCo||String(g.companyId)===String(selCo)).map(g=>(
               <button key={g.id} onClick={()=>{linkGrab(showGrabPicker,g.id,grabTime);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",borderRadius:12,background:D.panel,border:"1px solid "+D.line3,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
@@ -9374,7 +10115,7 @@ function TskDet({t,cu,users,onUp,onVote,onDel,onUns,onSync,hasGcal,onFile,onSave
     </div>)}
     {/* Client approval */}
     {t.state==="en_aprobacion"&&(<div className="card" style={{padding:14,borderLeft:"3px solid var(--gold)"}}>
-      <div style={{fontSize:12,fontWeight:600,marginBottom:6,color:"var(--gold)"}}>Aprobación Cliente — {tCo}</div>
+      <div style={{fontSize:12,fontWeight:600,marginBottom:6,color:"var(--gold)"}}>Aprobación Cliente, {tCo}</div>
       {t.clientApproval?(<div>
         <Bg color={t.clientApproval.status==="aprobado"?"var(--success)":"var(--danger)"}>{t.clientApproval.status==="aprobado"?"✓ Aprobado":"✗ Rechazado"} por {t.clientApproval.by}</Bg>
         {t.clientApproval.comment&&<div style={{marginTop:6,fontSize:12,color:"var(--tx2)",background:"var(--bg3)",padding:8,borderRadius:8}}>"{t.clientApproval.comment}"</div>}
@@ -9479,7 +10220,7 @@ function PerfilModal({open,onClose,user,co,onToast,onEmail}){
         <div style={{display:"flex",alignItems:"center",gap:13}}>
           <div style={{width:44,height:44,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:PC.bg,fontSize:15,fontWeight:700}}>{iniciales}</div>
           <div style={{display:"flex",flexDirection:"column",gap:2}}>
-            <span style={{fontSize:17,fontWeight:600}}>{user.companyName||user.name}</span>
+            <span style={{fontSize:17,fontWeight:600}}>{co?.name||user.companyName||user.name}</span>
             <span style={{fontSize:12,color:PC.tx4}}>Tu perfil</span>
           </div>
           <button onClick={onClose} style={{marginLeft:"auto",width:30,height:30,borderRadius:"50%",background:"transparent",border:"1px solid "+PC.line2,color:PC.tx3,fontFamily:"inherit",fontSize:13,cursor:"pointer"}}>✕</button>
@@ -9663,7 +10404,7 @@ function DeckCard({t,children,varIdx=0,onVar}){
         {/* Elegir variante. Se publica UNA: la que se toque aquí. */}
         {conVariantes&&<div style={{display:"flex",flexDirection:"column",gap:9}}>
           <span style={{fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:".14em",textTransform:"uppercase",color:PC.tx4}}>
-            {shown.length} versiones — elige una
+            {shown.length} versiones, elige una
           </span>
           <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
             {shown.map((v,i)=>{
@@ -10099,7 +10840,7 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
             </span>
           </div>);})}
       </div>
-      <p style={{margin:"12px 0 0",fontSize:11.5,color:PC.tx4}}>Cada punto es una publicación agendada — toca Semana para ver el detalle.</p>
+      <p style={{margin:"12px 0 0",fontSize:11.5,color:PC.tx4}}>Cada punto es una publicación agendada, toca Semana para ver el detalle.</p>
     </>)}
 
     {/* BARRA DE SELECCIÓN (flujo táctil) */}
@@ -10185,7 +10926,7 @@ function PlanBoard({items,onSchedule,onUnschedule,onPublish,pub,pubCarga,isMob,c
               const arm=modal.autoEstado==="armada", lista=modal.autoEstado==="lista";
               const col=arm?PC.verde:lista?PC.cian:PC.ambar;
               const txt=arm
-                ? "Automatización de comentarios activa — quien comente recibe tu mensaje por privado."
+                ? "Automatización de comentarios activa, quien comente recibe tu mensaje por privado."
                 : lista
                   ? "Automatización de comentarios lista. Se activará sola en cuanto se publique."
                   : "Automatización de comentarios en preparación por el equipo.";
@@ -10295,7 +11036,7 @@ function PostStatsChat({co,task}){
           <div style={{display:"flex",gap:10}}>
             {[["Alcance",st.alcanceMult],["Interacción",st.engMult]].map(([l,m])=>(
               <div key={l} style={{flex:1,background:PC.bg,border:"1px solid "+PC.line2,borderRadius:12,padding:"11px 12px"}}>
-                <div style={{fontSize:20,fontWeight:800,color:cMult(m)}}>{m!=null?m+"×":"—"}</div>
+                <div style={{fontSize:20,fontWeight:800,color:cMult(m)}}>{m!=null?m+"×":"-"}</div>
                 <div style={{fontSize:11,color:PC.tx3,marginTop:1}}>{l}{m!=null?(m>=1?" sobre":" bajo")+" tu mediana":""}</div>
               </div>))}
           </div>
@@ -10457,7 +11198,7 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
       createdBy:cu?.name||"",createdAt:new Date().toISOString()};
     sGal(p=>[g,...p]);
     sNueva(false);sForm({titulo:"",fecha:td(),nota:""});
-    addN("📷 Sesión creada — súbele las fotos y publícala cuando esté lista");
+    addN("📷 Sesión creada, súbele las fotos y publícala cuando esté lista");
   };
 
   // Se sube foto por foto y cada una se guarda en cuanto llega. Si la número 40 falla —o se
@@ -10525,8 +11266,8 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
     }finally{corriendo.current=false;sMini(null);}
     const rotas=faltan.length-ok;
     addN(rotas
-      ? "⚠️ "+ok+" miniaturas listas, "+rotas+" no se pudieron generar. Esas fotos no se pueden entregar así — cámbialas o vuelve a subirlas."
-      : "✅ "+ok+" miniaturas generadas — la galería ya carga liviana");
+      ? "⚠️ "+ok+" miniaturas listas, "+rotas+" no se pudieron generar. Esas fotos no se pueden entregar así, cámbialas o vuelve a subirlas."
+      : "✅ "+ok+" miniaturas generadas, la galería ya carga liviana");
   };
 
   // Se generan SOLAS: no puede depender de que alguien se acuerde de un botón, porque una sesión
@@ -10560,12 +11301,12 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
       }
     }
     upG(g.id,{visible:valor,publicadaAt:valor?new Date().toISOString():null});
-    if(!valor){addN("Sesión oculta — el cliente ya no la ve");return;}
+    if(!valor){addN("Sesión oculta, el cliente ya no la ve");return;}
     addN("📸 Publicada en el portal de "+(co?.name||""));
     const n=(g.fotos||[]).length;
     if(co?.email&&co.email.includes("@"))
       API.notify({type:"task_status",to:[co.email],taskTitle:g.titulo,company:co.name,
-        state:"📸 Ya están las fotos de tu sesión ("+n+") — entra al portal para verlas y descargarlas",date:td()});
+        state:"📸 Ya están las fotos de tu sesión ("+n+"), entra al portal para verlas y descargarlas",date:td()});
     // Al equipo, para que quede rastro de quién entregó qué. Nunca a quien pulsó el botón.
     if(avisar&&correosDe){
       const dest=(users||[]).filter(u=>u.role!=="cliente"&&u.id!==cu?.id);
@@ -10595,7 +11336,7 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
     </div>}
 
     {nueva&&<div style={{...D_CARD,marginBottom:18}}>
-      <div style={{fontSize:14.5,fontWeight:700,color:D.tx,marginBottom:14}}>Nueva sesión para {co?.name||"—"}</div>
+      <div style={{fontSize:14.5,fontWeight:700,color:D.tx,marginBottom:14}}>Nueva sesión para {co?.name||"-"}</div>
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
         <input value={form.titulo} onChange={e=>sForm(f=>({...f,titulo:e.target.value}))} placeholder="Nombre de la sesión (ej. Sesión otoño en el fundo)" style={{...inputBase,flex:"3 1 240px"}}/>
         <input type="date" value={form.fecha} onChange={e=>sForm(f=>({...f,fecha:e.target.value}))} style={{...inputBase,flex:"1 1 150px"}}/>
@@ -10633,7 +11374,7 @@ function FotosSeccion({co,galerias,sGal,cu,users,addN,avisar,correosDe,stReady,s
             <Bg color={g.visible?PC.verde:D.tx4}>{g.visible?"● Visible para el cliente":"○ Solo el equipo"}</Bg>
             <button onClick={()=>publicar(g,!g.visible)} disabled={!g.visible&&(!fotos.length||faltanMini(g)>0)}
               title={!g.visible&&!fotos.length?"Súbele fotos antes de publicarla"
-                :!g.visible&&faltanMini(g)>0?"Faltan "+faltanMini(g)+" miniaturas — sin ellas la galería le recarga el teléfono al cliente"
+                :!g.visible&&faltanMini(g)>0?"Faltan "+faltanMini(g)+" miniaturas, sin ellas la galería le recarga el teléfono al cliente"
                 :""}
               style={{padding:"9px 16px",borderRadius:999,background:g.visible?"transparent":D.cian,border:"1px solid "+(g.visible?D.line2:D.cian),color:g.visible?D.tx2:D.bg,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:(!g.visible&&(!fotos.length||faltanMini(g)>0))?"default":"pointer",opacity:(!g.visible&&(!fotos.length||faltanMini(g)>0))?.4:1,whiteSpace:"nowrap"}}>
               {g.visible?"Ocultar":"Publicar al portal"}</button>
@@ -10766,6 +11507,9 @@ function ClientView({user:cu,onLogout:ol}){
   // tildes y el nombre de la empresa sí, y en cuanto no calzaban el portal salía vacío sin
   // decir por qué. El calce se queda de respaldo para cuando llega más de una.
   const co=cos.length===1?cos[0]:cos.find(c=>c.name.toLowerCase()===cu.companyName?.toLowerCase());
+  // El nombre que se muestra y que llega en los avisos es el de la ficha, no el usuario de acceso:
+  // los clientes creados desde la app entran con un usuario tipo "auraklinic" que no es su nombre.
+  const nomCli=co?.name||cu.companyName||cu.name;
   const myTasks=useMemo(()=>tasks.filter(t=>co&&String(t.companyId)===String(co.id)),[tasks,co]);
   const approval=useMemo(()=>myTasks.filter(t=>t.state==="en_aprobacion"&&t.files&&t.files.length),[myTasks]);
   const planItems=useMemo(()=>myTasks.filter(t=>t.state==="aprobado"||t.state==="publicado"),[myTasks]);
@@ -10827,17 +11571,17 @@ function ClientView({user:cu,onLogout:ol}){
     const extra=elegida&&elegida.url?{varianteElegida:elegida.url}:{};
     const ok=await safeSaveTask(t.id,{state:"aprobado",date:null,publishTime:null,plannedDay:planificado,...extra,clientApproval:{by:cu.name,date:new Date().toISOString(),status:"aprobado"}});
     if(!ok)return;
-    sToast("✅ Aprobado — ya puedes agendarlo");
+    sToast("✅ Aprobado, ya puedes agendarlo");
     const cual=elegida?(" · eligió “"+(elegida.name||"una versión")+"”"):"";
-    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"✅ APROBADO por "+cu.companyName+cual,date:planificado});
-    avisarEquipo("✓ "+cu.companyName+" aprobó","\""+t.title+"\" quedó aprobada"+(elegida?(", con la versión “"+(elegida.name||"elegida")+"”"):"")+". Falta que la agenden en su calendario.");
+    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:nomCli,state:"✅ APROBADO por "+nomCli+cual,date:planificado});
+    avisarEquipo("✓ "+nomCli+" aprobó","\""+t.title+"\" quedó aprobada"+(elegida?(", con la versión “"+(elegida.name||"elegida")+"”"):"")+". Falta que la agenden en su calendario.");
   };
   const reject=async(t,motivo)=>{
     const ok=await safeSaveTask(t.id,{state:"en_proceso",clientApproval:{by:cu.name,date:new Date().toISOString(),status:"rechazado",comment:motivo},comments:[...(t.comments||[]),{user:"🏢 "+cu.name,text:motivo}]});
     if(!ok)return;
     sToast("Enviado al equipo con tu motivo");
-    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:cu.companyName,state:"❌ RECHAZADO por "+cu.companyName+": "+motivo,date:t.date});
-    avisarEquipo("✕ "+cu.companyName+" pidió cambios","\""+t.title+"\": "+motivo,true);
+    API.notify({type:"task_status",to:teamEmails,taskTitle:t.title,company:nomCli,state:"❌ RECHAZADO por "+nomCli+": "+motivo,date:t.date});
+    avisarEquipo("✕ "+nomCli+" pidió cambios","\""+t.title+"\": "+motivo,true);
   };
   // Agendar no manda email: el cliente puede mover varias piezas seguidas y serían 7
   // correos al equipo. El equipo lo ve en su calendario y en la pestaña Contenido.
@@ -10891,11 +11635,11 @@ function ClientView({user:cu,onLogout:ol}){
       if(programar){
         await safeSaveTask(id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando},pubError:null});
         sToast("🕐 Programada para el "+date+" a las "+publishTime);
-        avisarEquipo("🕐 "+cu.companyName+" programó una publicación","\""+t.title+"\" queda programada en Instagram para el "+date+" a las "+publishTime+".");
+        avisarEquipo("🕐 "+nomCli+" programó una publicación","\""+t.title+"\" queda programada en Instagram para el "+date+" a las "+publishTime+".");
       }else{
         await safeSaveTask(id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()},pubError:null});
         sToast("📸 ¡Publicada en Instagram!");
-        avisarEquipo("📸 "+cu.companyName+" publicó","\""+t.title+"\" ya salió en su Instagram.");
+        avisarEquipo("📸 "+nomCli+" publicó","\""+t.title+"\" ya salió en su Instagram.");
       }
       return true;
     }finally{sBusy(false);}
@@ -10951,10 +11695,10 @@ function ClientView({user:cu,onLogout:ol}){
   // Las fotos solo asoman cuando hay algo que mirar: una pestaña vacía en un portal que ya
   // tiene cuatro es ruido, y en el teléfono empuja al resto fuera de la pantalla.
   const tabs=[["aprobar","Por aprobar",approval.length],["planificar","Planificar",0],...(galerias.length?[["fotos","Fotos",0]]:[]),...(publicadas.length?[["resultados","Resultados",0]]:[]),...(tieneInforme?[["informe","Informe del mes",0]]:[])];
-  const iniciales=(cu.companyName||cu.name||"?").slice(0,2).toUpperCase();
+  const iniciales=(nomCli||"?").slice(0,2).toUpperCase();
 
   return(
-    <div style={{minHeight:"100vh",color:PC.tx,fontFamily:"'Instrument Sans', 'Outfit', system-ui, sans-serif",
+    <div style={{minHeight:"100vh",color:PC.tx,fontFamily:"'Inter', system-ui, sans-serif",
       background:"radial-gradient(900px 420px at 50% -140px, rgba(var(--rgb-acento),.07), transparent 70%), "+PC.bg}}>
 
       <header style={{position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:isMob?10:14,padding:isMob?"calc(12px + env(safe-area-inset-top, 0px)) 16px 12px":"14px 28px",background:"rgba(var(--rgb-bg),.92)",backdropFilter:"blur(12px)",borderBottom:"1px solid "+PC.line}}>
@@ -10964,7 +11708,7 @@ function ClientView({user:cu,onLogout:ol}){
         <button onClick={()=>sPerfil(true)} title="Tu perfil" style={{display:"flex",alignItems:"center",gap:10,padding:"4px 12px 4px 4px",margin:"-4px 0",borderRadius:999,background:"transparent",border:"1px solid transparent",cursor:"pointer",fontFamily:"inherit",textAlign:"left",minWidth:0}}>
           <div style={{width:30,height:30,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+PC.lav+",#8E7BE0)",color:PC.bg,fontSize:11,fontWeight:700,flexShrink:0}}>{iniciales}</div>
           <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-            <span style={{fontSize:14,fontWeight:600,lineHeight:1,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cu.companyName||cu.name}</span>
+            <span style={{fontSize:14,fontWeight:600,lineHeight:1,color:PC.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nomCli}</span>
             <span style={{fontSize:11,color:PC.tx4,lineHeight:1}}>Portal cliente</span>
           </div>
           <span style={{display:"flex",flexShrink:0}}><Ic n="chev_r" s={12} c={PC.tx4} style={{transform:"rotate(90deg)"}}/></span>
@@ -11049,7 +11793,7 @@ function ClientView({user:cu,onLogout:ol}){
               recurso: para una maqueta cumple, pero puede llevar espacios/acentos que ningún @
               real tiene. */}
           <PlanBoard items={planItems} onSchedule={schedule} onUnschedule={unschedule} onPublish={publicarCliente} pub={pub} pubCarga={pubCarga} isMob={isMob} coColor={tono(co?.color)} co={co}
-            cuenta={ig?.username||pub?.username||co?.name||cu.companyName||""}/>
+            cuenta={ig?.username||pub?.username||nomCli||""}/>
         </>)}
       </div>
     </div>
@@ -11221,7 +11965,7 @@ if('serviceWorker' in navigator){
       'display:flex;align-items:center;gap:10px;padding:10px 10px 10px 16px;' +
       'border-radius:14px;background:var(--bg3);border:1px solid var(--border2);' +
       'box-shadow:0 8px 32px -8px rgba(var(--rgb-sombra),.75);max-width:calc(100vw - 32px);' +
-      'font:500 13px/1.4 "DM Sans",system-ui,sans-serif;color:#E7EAF3';
+      'font:500 13px/1.4 "Inter",system-ui,sans-serif;color:#E7EAF3';
 
     var texto = document.createElement('span');
     texto.textContent = 'Hay una versión nueva de la app.';
@@ -11231,7 +11975,7 @@ if('serviceWorker' in navigator){
     recargar.textContent = 'Recargar';
     recargar.style.cssText = 'flex:none;border:1px solid rgba(var(--rgb-acento),.4);border-radius:9px;' +
       'background:rgba(var(--rgb-acento),.12);color:var(--accent);padding:6px 12px;cursor:pointer;' +
-      'font:600 13px/1 "DM Sans",system-ui,sans-serif';
+      'font:600 13px/1 "Inter",system-ui,sans-serif';
     recargar.onclick = function () { location.reload(); };
 
     var cerrar = document.createElement('button');

@@ -306,7 +306,7 @@ app.post("/api/notify", requireAuth, async (req, res) => {
     try {
       push = await sendPush({
         title: company ? `INMERSIA · ${company}` : "INMERSIA",
-        body: (state || tpl.subject || "").replace(/<[^>]*>/g, "").slice(0, 160) + (taskTitle ? ` — ${taskTitle}` : ""),
+        body: (state || tpl.subject || "").replace(/<[^>]*>/g, "").slice(0, 160) + (taskTitle ? `, ${taskTitle}` : ""),
         url: "/",
         tag: type,
         important: type === "task_status",
@@ -383,7 +383,7 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
     const coCliente = clienteDe({ email });
     if (coCliente) {
       const cos = (await sbGet("companies", [])) || [];
-      const suya = cos.find(x => _slug(x.name) === _slug(coCliente));
+      const suya = cos.find(x => calzaEmpresa(x, coCliente));
       if (!suya || suya.portalOff) return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
@@ -665,11 +665,18 @@ function clienteDe(tok) {
 // puede teclear como usuario— y ahí el cliente entra pero no ve nada: sin empresa resuelta,
 // scopeCliente no entrega nada. Los cuatro clientes de siempre dan igual con las dos versiones.
 const _slug = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// El usuario del portal calza con la empresa por su nombre o por el acceso que quedó escrito en
+// la ficha (`portalEmail`). Solo por nombre, renombrar una empresa (AuraKlinic → Aura Clinik)
+// cambiaba el slug y el cliente se quedaba fuera de su portal con la misma clave de siempre.
+// `portalEmail` lo escribe solo el equipo, desde la ficha, así que no abre nada nuevo.
+const calzaEmpresa = (c, coName) => {
+  const objetivo = _slug(coName);
+  return !!objetivo && (_slug(c.name) === objetivo || (!!c.portalEmail && _slug(c.portalEmail) === objetivo));
+};
 // companyId (string) de la empresa del cliente, o null si no se resuelve (→ no ve nada).
 async function idEmpresaCliente(coName, companiesArr) {
   const arr = Array.isArray(companiesArr) ? companiesArr : ((await sbGet("companies", [])) || []);
-  const objetivo = _slug(coName);
-  const found = arr.find(c => _slug(c.name) === objetivo);
+  const found = arr.find(c => calzaEmpresa(c, coName));
   return found ? String(found.id) : null;
 }
 // La empresa sobre la que se le permite actuar a quien pide. El EQUIPO manda la que quiera; un
@@ -773,6 +780,13 @@ app.get("/api/data/:key", requireAuth, async (req, res) => {
 app.post("/api/data/:key", requireAuth, async (req, res) => {
   // Y tampoco se pueden sobrescribir: los maneja solo el backend (callbacks de OAuth, etc.).
   if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no escribible" });
+  // Los permisos del equipo los decide solo el superadministrador. Esconder la pantalla en la app
+  // no basta: cualquiera con sesión podría escribir la clave a mano y darse acceso a todo.
+  if (req.params.key === "permisos") {
+    const email = (authInfo(req) || {}).email;
+    const quien = TEAM.find(u => u.email === email || u.gmail === email);
+    if (!quien || !quien.superadmin) return res.status(403).json({ error: "Solo el superadministrador puede cambiar los permisos" });
+  }
   try {
     if (!req.body || !("value" in req.body)) return res.status(400).json({ error: "falta value" });
     const co = clienteDe(authInfo(req));
@@ -1020,11 +1034,11 @@ app.post("/api/notifs/read", requireAuth, async (req, res) => {
 // ids a correos para avisar por su cuenta, sin que haya nadie con la app abierta.
 // Si agregas o sacas a alguien del equipo, hay que tocar los dos lados.
 const TEAM = [
-  { id: 2, name: "Cleme", email: "cleme@inmersia.cl", gmail: "clementeignacio19@gmail.com", role: "admin", vota: true },
+  { id: 2, name: "Cleme", superadmin: true, email: "cleme@inmersia.cl", gmail: "clementeignacio19@gmail.com", role: "admin", vota: true },
   { id: 3, name: "Tiago", email: "tiago@inmersia.cl", role: "editor" },
   { id: 4, name: "Gali", email: "gali@inmersia.cl", gmail: "gcastilloaguirre@gmail.com", role: "Sales", vota: true },
-  { id: 5, name: "Javi", email: "javi@inmersia.cl", gmail: "j.agutoledo@gmail.com", role: "admin", vota: true },
-  { id: 6, name: "Jose", email: "jose@inmersia.cl", gmail: "jose.vergara.diaz.vr@gmail.com", role: "admin", vota: true },
+  { id: 5, name: "Javi", superadmin: true, email: "javi@inmersia.cl", gmail: "j.agutoledo@gmail.com", role: "admin", vota: true },
+  { id: 6, name: "Jose", superadmin: true, email: "jose@inmersia.cl", gmail: "jose.vergara.diaz.vr@gmail.com", role: "admin", vota: true },
   { id: 7, name: "INMERSIA", email: "inmersiatours@gmail.com", gmail: "inmersiatours@gmail.com", role: "admin" },
 ];
 const correosDe = us => [...new Set((us || []).flatMap(u => [u.email, u.gmail]).filter(Boolean))];
@@ -1532,7 +1546,16 @@ async function callGemini(contents) {
 
   const data = await r.json();
   if (data.error) throw new Error(data.error.message || "Error Gemini");
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return sinGuionLargo(data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+}
+
+// La plataforma no usa guiones largos (—) en sus textos, y la IA los mete solos. Se quitan a la
+// salida, en un único sitio, en vez de pedírselo en cada prompt y esperar que obedezca.
+function sinGuionLargo(t) {
+  return String(t)
+    .replace(/\s+—\s+/g, ", ")
+    .replace(/^—\s*/gm, "- ")
+    .replace(/—/g, ", ");
 }
 
 // ===============================
@@ -1557,12 +1580,12 @@ app.post("/api/generate-acta", requireAuth, upload.single("audio"), async (req, 
       contents = [{
         parts: [
           { inlineData: { mimeType, data: audioBase64 } },
-          { text: `Eres un asistente profesional de reuniones. Escucha este audio y genera DOS cosas:\n\n1. TRANSCRIPCIÓN: La transcripción completa y fiel del audio.\n\n2. ACTA DE REUNIÓN con este formato:\n\n**ACTA DE REUNIÓN**   |   ${company}\n\n**Reunión ${company}**\n\n${fechaStr}\n\n| **Fecha** | ${fechaStr} |\n| --- | --- |\n| **Proyecto** | ${company} – [Tema principal] |\n| **Tipo de reunión** | [Tipo] |\n| **Participantes** | ${participants} |\n\nSecciones numeradas con bullets. Al final tabla de Próximos Pasos.\n\n*— Fin del acta —*\nDocumento confidencial  •  ${company}  •  ${fechaStr}\n\nResponde:\n===TRANSCRIPCION===\n[transcripción]\n===ACTA===\n[acta]` }
+          { text: `Eres un asistente profesional de reuniones. Escucha este audio y genera DOS cosas:\n\n1. TRANSCRIPCIÓN: La transcripción completa y fiel del audio.\n\n2. ACTA DE REUNIÓN con este formato:\n\n**ACTA DE REUNIÓN**   |   ${company}\n\n**Reunión ${company}**\n\n${fechaStr}\n\n| **Fecha** | ${fechaStr} |\n| --- | --- |\n| **Proyecto** | ${company} – [Tema principal] |\n| **Tipo de reunión** | [Tipo] |\n| **Participantes** | ${participants} |\n\nSecciones numeradas con bullets. Al final tabla de Próximos Pasos.\n\n*Fin del acta*\nDocumento confidencial  •  ${company}  •  ${fechaStr}\n\nResponde:\n===TRANSCRIPCION===\n[transcripción]\n===ACTA===\n[acta]` }
         ]
       }];
     } else {
       contents = [{
-        parts: [{ text: `Genera un acta de reunión de ejemplo para ${company}, fecha ${fechaStr}, participantes: ${participants}. Formato profesional con tabla de fecha, secciones numeradas y tabla de Próximos Pasos.\n\n*— Fin del acta —*\nDocumento confidencial  •  ${company}  •  ${fechaStr}` }]
+        parts: [{ text: `Genera un acta de reunión de ejemplo para ${company}, fecha ${fechaStr}, participantes: ${participants}. Formato profesional con tabla de fecha, secciones numeradas y tabla de Próximos Pasos.\n\n*Fin del acta*\nDocumento confidencial  •  ${company}  •  ${fechaStr}` }]
       }];
     }
 
@@ -1706,7 +1729,7 @@ app.get("/api/loyalty/programs/:id/eventos", requireAuth, async (req, res) => {
     if (!socios.length) return res.json([]);
     const evs = await lyRest(`loyalty_events?member_id=in.(${socios.map(s => s.id).join(",")})&order=created_at.desc&limit=200`);
     const porId = Object.fromEntries(socios.map(s => [s.id, s]));
-    res.json(evs.map(e => ({ ...e, socio: porId[e.member_id]?.nombre || porId[e.member_id]?.codigo || "—" })));
+    res.json(evs.map(e => ({ ...e, socio: porId[e.member_id]?.nombre || porId[e.member_id]?.codigo || "-" })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2001,7 +2024,7 @@ app.post("/api/brief/:token", rateLimit(20, "brief-guardar"), async (req, res) =
       const nombre = (co && co.name) || "una empresa";
       await crearNotif({
         type: "brief",
-        title: hecho.primera ? "Brief recibido — " + nombre : "Brief actualizado — " + nombre,
+        title: hecho.primera ? "Brief recibido: " + nombre : "Brief actualizado: " + nombre,
         body: hecho.primera
           ? nombre + " respondió su brief. Ya se puede leer en Empresas."
           : nombre + " corrigió su brief. Vale la pena repasarlo.",
@@ -2032,10 +2055,10 @@ app.post("/api/brief/:companyId/analisis", requireAuth, rateLimit(12, "brief-ia"
       "",
       "Responde en español de Chile, sin saludar y sin repetir el brief. Máximo 350 palabras, en estas cuatro partes con estos títulos exactos:",
       "",
-      "QUÉ VENDE DE VERDAD — dos o tres líneas: qué compra realmente su cliente, que casi nunca es lo que el negocio cree que vende.",
-      "POR DÓNDE EMPEZAR — dos o tres ideas de contenido concretas para el primer mes, atadas a lo que dijo. Nada genérico.",
-      "CUIDADO CON — contradicciones, expectativas que no cuadran con el plazo que pidió, restricciones que van a chocar con lo que quiere lograr, o material que no tiene y va a hacer falta.",
-      "QUÉ FALTA PREGUNTAR — lo que dejó vago y hay que cerrar antes de producir.",
+      "QUÉ VENDE DE VERDAD: en dos o tres líneas, qué compra realmente su cliente, que casi nunca es lo que el negocio cree que vende.",
+      "POR DÓNDE EMPEZAR: dos o tres ideas de contenido concretas para el primer mes, atadas a lo que dijo. Nada genérico.",
+      "CUIDADO CON: contradicciones, expectativas que no cuadran con el plazo que pidió, restricciones que van a chocar con lo que quiere lograr, o material que no tiene y va a hacer falta.",
+      "QUÉ FALTA PREGUNTAR: lo que dejó vago y hay que cerrar antes de producir.",
       "",
       "Si algo no está en el brief, dilo. No inventes datos.",
       "",
@@ -2054,6 +2077,218 @@ app.post("/api/brief/:companyId/analisis", requireAuth, rateLimit(12, "brief-ia"
     });
     res.json({ analisis, analisisAt: ahora });
   } catch (e) { console.error("brief analisis:", e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ── Guionado con IA ─────────────────────────────────────────────────────────
+// Dos usos: `variantes` (al terminar un guion, tres versiones distintas para comparar) y `linea`
+// (sugerencia para un cuadro concreto, leyendo lo que va escrito y lo que lo rodea). En los dos
+// el brief del cliente entra como contexto: sin él la IA escribe para "un negocio", no para este.
+app.post("/api/ai/guion", requireAuth, rateLimit(40, "guion-ia"), async (req, res) => {
+  try {
+    if (clienteDe(authInfo(req))) return res.status(403).json({ error: "Solo el equipo" });
+    const { modo, guion = {}, idx } = req.body || {};
+    const lineas = (Array.isArray(guion.lineas) ? guion.lineas : []).slice(0, 40).map(l => ({
+      header: String(l.header || "").slice(0, 300), voz: String(l.voz || "").slice(0, 800),
+      escena: String(l.escena || "").slice(0, 800), movs: (l.movs || []).slice(0, 6).map(String),
+    }));
+    let contexto = "";
+    if (guion.companyId) {
+      const [briefs, cos] = await Promise.all([sbGet("briefs", []), sbGet("companies", [])]);
+      const co = (cos || []).find(c => String(c.id) === String(guion.companyId));
+      const b = (briefs || []).find(x => x && String(x.companyId) === String(guion.companyId));
+      if (b && b.respuestas && Object.keys(b.respuestas).length) contexto = briefEnTexto(b, co && co.name).slice(0, 6000);
+    }
+    const estilo = [
+      "Estilo de la casa para guiones de redes de INMERSIA (agencia de Ñuble, Chile):",
+      "- Que suene humano y natural, como un creador que cuenta algo en primera persona; storytelling, no folleto.",
+      "- La primera línea es el gancho: tiene que frenar el scroll (una pregunta, un dato que sorprenda, una promesa concreta).",
+      "- Claro y fluido, sin pausas largas entre puntos; nada seco ni genérico. Español de Chile, cercano.",
+      "- Reels de unos 45 segundos salvo que el guion pida otra cosa.",
+      "- No uses guiones largos.",
+      `Movimientos de cámara disponibles: ${MOV_PRESETS_SRV.join(", ")}.`,
+    ].join("\n");
+    const guionTxt = lineas.map((l, i) => `${i + 1}. HEADER: ${l.header || "(vacío)"} | VOZ OFF: ${l.voz || "(vacío)"} | ESCENA: ${l.escena || "(vacío)"}${l.movs.length ? " | MOV: " + l.movs.join(", ") : ""}`).join("\n");
+    const cabecera = [
+      estilo, "",
+      `Empresa: ${guion.company || "sin empresa"} · Tipo de pieza: ${guion.type || "reel"} · Título: ${guion.title || "(sin título)"}`,
+      contexto ? "\nBRIEF DEL CLIENTE (contexto, no lo copies):\n" + contexto : "",
+      "\nGUION ACTUAL:\n" + (guionTxt || "(vacío)"),
+    ].join("\n");
+
+    let prompt;
+    if (modo === "linea") {
+      const i = Number(idx);
+      if (!(i >= 0 && i < lineas.length)) return res.status(400).json({ error: "Línea no válida" });
+      prompt = cabecera + `\n\nMejora SOLO la línea ${i + 1}, coherente con las de antes y después. Si un campo está vacío, propón uno. Responde SOLO un JSON: {"header":"...","voz":"...","escena":"...","movs":["..."],"porque":"una frase con la razón"}`;
+    } else {
+      prompt = cabecera + `\n\nEscribe TRES variantes completas de este guion, con enfoques claramente distintos (por ejemplo: storytelling personal, dato o pregunta gancho, recorrido o lista). Mantén lo esencial que quiere comunicar. Responde SOLO un JSON: {"variantes":[{"enfoque":"nombre corto","porque":"una frase","lineas":[{"header":"...","voz":"...","escena":"...","movs":["..."]}]}]}`;
+    }
+    const salida = await callGemini([{ parts: [{ text: prompt }] }]);
+    const m = String(salida || "").match(/\{[\s\S]*\}/);
+    if (!m) return res.status(502).json({ error: "La IA no respondió en el formato esperado. Inténtalo de nuevo." });
+    let j; try { j = JSON.parse(m[0]); } catch (_) { return res.status(502).json({ error: "La IA devolvió un formato roto. Inténtalo de nuevo." }); }
+    const limpiaL = l => ({
+      header: String((l && l.header) || "").slice(0, 300), voz: String((l && l.voz) || "").slice(0, 800),
+      escena: String((l && l.escena) || "").slice(0, 800),
+      movs: (Array.isArray(l && l.movs) ? l.movs : []).map(String).filter(x => MOV_PRESETS_SRV.includes(x)).slice(0, 4),
+    });
+    if (modo === "linea") return res.json({ sugerencia: { ...limpiaL(j), porque: String(j.porque || "").slice(0, 300) } });
+    const variantes = (Array.isArray(j.variantes) ? j.variantes : []).slice(0, 3).map(v => ({
+      enfoque: String(v.enfoque || "Variante").slice(0, 60), porque: String(v.porque || "").slice(0, 300),
+      lineas: (Array.isArray(v.lineas) ? v.lineas : []).slice(0, 30).map(limpiaL),
+    })).filter(v => v.lineas.length);
+    if (!variantes.length) return res.status(502).json({ error: "La IA no propuso variantes. Inténtalo de nuevo." });
+    res.json({ variantes });
+  } catch (e) { console.error("guion ia:", e.message); res.status(500).json({ error: e.message }); }
+});
+// Espejo de MOV_PRESETS del frontend: la IA solo puede proponer movimientos que la app sabe pintar.
+const MOV_PRESETS_SRV = ["Plano Fijo", "Orbital", "Zoom In", "Zoom Out", "Seguimiento", "Paneo Der", "Paneo Izq", "Speed Ramp", "Dron"];
+
+// ── Brief desde un documento base ───────────────────────────────────────────
+// Muchos clientes llegan con el brief ya escrito en otro lado (el Word de la reunión, un PDF, las
+// notas del asesor). Pedirles que lo vuelvan a teclear en el formulario es trabajo dos veces, y
+// copiarlo a mano campo por campo es donde se pierden datos. Aquí se sube el documento, la IA lo
+// reparte en las preguntas de `brief-def.js` y el brief de la app queda rellenado.
+//
+// Lo que diga el documento MANDA sobre lo que ya había (es la versión de referencia), pero un
+// campo que el documento no menciona se deja como estaba: subirlo nunca borra respuestas.
+
+// Texto de un .docx sin librerías: es un zip y el texto vive en word/document.xml.
+function textoDeDocx(buf) {
+  const zlib = require("zlib");
+  // Fin del directorio central: firma 0x06054b50, buscando desde el final.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("El archivo no parece un Word (.docx) válido");
+  const total = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  for (let n = 0; n < total; n++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    const metodo = buf.readUInt16LE(p + 10), tam = buf.readUInt32LE(p + 20);
+    const lNom = buf.readUInt16LE(p + 28), lExtra = buf.readUInt16LE(p + 30), lCom = buf.readUInt16LE(p + 32);
+    const local = buf.readUInt32LE(p + 42);
+    const nombre = buf.slice(p + 46, p + 46 + lNom).toString("utf8");
+    if (nombre === "word/document.xml") {
+      const ini = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+      const datos = buf.slice(ini, ini + tam);
+      const xml = (metodo === 8 ? zlib.inflateRawSync(datos) : datos).toString("utf8");
+      return xml
+        .replace(/<w:tab\/>/g, "\t")
+        .replace(/<\/w:p>/g, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+        .replace(/\n{3,}/g, "\n\n").trim();
+    }
+    p += 46 + lNom + lExtra + lCom;
+  }
+  throw new Error("No se encontró el texto dentro del Word");
+}
+
+// Deja pasar solo lo que el formulario sabe guardar: claves conocidas y, en las preguntas de
+// opción, valores que existen en la lista (o "Otro" + su texto, si la pregunta lo admite).
+function briefDesdeIA(crudo) {
+  const limpias = {};
+  const sinTilde = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  BRIEF_DEF.SECCIONES.forEach(sec => sec.campos.forEach(c => {
+    const v = crudo[c.k];
+    if (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length)) return;
+    if (c.tipo === "una") {
+      const txt = Array.isArray(v) ? String(v[0] || "") : String(v);
+      const op = (c.op || []).find(o => sinTilde(o) === sinTilde(txt));
+      if (op) limpias[c.k] = op;
+      else if (c.otro && txt.trim()) { limpias[c.k] = "Otro"; limpias[c.k + "Otro"] = txt.trim().slice(0, 200); }
+    } else if (c.tipo === "varias") {
+      const lista = (Array.isArray(v) ? v : String(v).split(/[,;·]/)).map(x => String(x).trim()).filter(Boolean);
+      const ok = [...new Set(lista.map(x => (c.op || []).find(o => sinTilde(o) === sinTilde(x))).filter(Boolean))];
+      if (ok.length) limpias[c.k] = c.max ? ok.slice(0, c.max) : ok;
+    } else {
+      const txt = (Array.isArray(v) ? v.join(", ") : String(v)).trim();
+      if (txt) limpias[c.k] = txt.slice(0, 4000);
+    }
+  }));
+  return limpias;
+}
+
+app.post("/api/brief/:companyId/importar", requireAuth, rateLimit(12, "brief-importar"), upload.single("archivo"), async (req, res) => {
+  try {
+    if (clienteDe(authInfo(req))) return res.status(403).json({ error: "Solo el equipo puede cargar el documento base" });
+    const cos = (await sbGet("companies", [])) || [];
+    const co = cos.find(c => String(c.id) === String(req.params.companyId));
+    if (!co) return res.status(404).json({ error: "Empresa no encontrada" });
+
+    // El documento: PDF va directo a la IA (lo lee entero, con tablas); Word y texto se leen aquí.
+    const f = req.file;
+    let parteDoc = null, texto = String((req.body && req.body.texto) || "").trim();
+    if (f) {
+      const nom = (f.originalname || "").toLowerCase();
+      if (f.mimetype === "application/pdf" || nom.endsWith(".pdf")) {
+        parteDoc = { inlineData: { mimeType: "application/pdf", data: f.buffer.toString("base64") } };
+      } else if (nom.endsWith(".docx")) {
+        texto = textoDeDocx(f.buffer);
+      } else if (/^text\//.test(f.mimetype) || /\.(txt|md|csv)$/.test(nom)) {
+        texto = f.buffer.toString("utf8");
+      } else {
+        return res.status(400).json({ error: "Formato no soportado. Sube un PDF, un Word (.docx) o un texto (.txt)." });
+      }
+    }
+    if (!parteDoc && !texto) return res.status(400).json({ error: "El documento está vacío" });
+
+    // Las preguntas, con su tipo y sus opciones, para que la IA conteste en la forma del formulario.
+    const preguntas = [];
+    BRIEF_DEF.SECCIONES.forEach(sec => sec.campos.forEach(c => {
+      let l = `- "${c.k}": ${BRIEF_DEF.conEmpresa(c.l, co.name)}`;
+      if (c.tipo === "una") l += ` | UNA de: ${(c.op || []).map(o => `"${o}"`).join(", ")}`;
+      else if (c.tipo === "varias") l += ` | LISTA con las que correspondan de: ${(c.op || []).map(o => `"${o}"`).join(", ")}`;
+      else l += c.tipo === "larga" ? " | texto, puede ser largo" : " | texto corto";
+      preguntas.push(l);
+    }));
+    const instruccion = [
+      `Eres asistente de INMERSIA, una agencia de marketing de Ñuble, Chile. Te paso el documento base del brief de la empresa "${co.name}".`,
+      "Reparte su contenido en las preguntas de abajo. Responde SOLO con un objeto JSON cuyas claves sean las indicadas entre comillas.",
+      "Reglas: usa las palabras del documento, sin inventar ni completar con supuestos. Si el documento no dice nada de una pregunta, no pongas esa clave.",
+      "En las preguntas de opción usa exactamente uno de los textos de la lista; si nada calza y la lista tiene \"Otro\", pon el valor real del documento.",
+      "No uses guiones largos.",
+      "",
+      "PREGUNTAS:",
+      ...preguntas,
+      ...(texto ? ["", "DOCUMENTO:", texto.slice(0, 60000)] : []),
+    ].join("\n");
+
+    const salida = await callGemini([{ parts: parteDoc ? [parteDoc, { text: instruccion }] : [{ text: instruccion }] }]);
+    const m = String(salida || "").match(/\{[\s\S]*\}/);
+    if (!m) return res.status(502).json({ error: "La IA no devolvió respuestas legibles. Inténtalo de nuevo." });
+    let crudo;
+    try { crudo = JSON.parse(m[0]); } catch (_) { return res.status(502).json({ error: "La IA devolvió un formato roto. Inténtalo de nuevo." }); }
+    const nuevas = briefDesdeIA(crudo);
+    if (!Object.keys(nuevas).length) return res.status(422).json({ error: "No encontré en el documento nada que responda las preguntas del brief." });
+
+    const ahora = new Date().toISOString();
+    const hecho = await enCola(async () => {
+      const briefs = (await sbGet("briefs", [])) || [];
+      let b = briefs.find(x => x && String(x.companyId) === String(co.id));
+      const base = b || {
+        companyId: co.id, token: crypto.randomBytes(16).toString("hex"), respuestas: {},
+        enviadoAt: null, analisis: null, analisisAt: null, creadoAt: ahora,
+      };
+      const actualizado = {
+        ...base,
+        respuestas: { ...(base.respuestas || {}), ...nuevas },
+        // Con el documento cargado el brief ya tiene contenido: cuenta como respondido, y el
+        // cliente puede seguir corrigiéndolo desde su enlace.
+        enviadoAt: base.enviadoAt || ahora,
+        importadoAt: ahora,
+        importadoDe: f ? (f.originalname || "documento") : "texto pegado",
+        analisis: null, analisisAt: null,
+      };
+      const lista = b ? briefs.map(x => x === b ? actualizado : x) : [...briefs, actualizado];
+      if (!(await sbPut("briefs", lista))) return null;
+      return actualizado;
+    });
+    if (!hecho) return res.status(502).json({ error: "No se pudo guardar el brief. Inténtalo de nuevo." });
+    res.json({ ok: true, brief: hecho, campos: Object.keys(nuevas).length });
+  } catch (e) { console.error("brief importar:", e.message); res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/meta/advisor", requireAuth, async (req, res) => {
@@ -2896,7 +3131,7 @@ app.post("/api/upload", requireAuth, uploadBig.single("file"), async (req, res) 
       // así el frontend vuelve a su respaldo en vez de tragarse el error.
       if (r.status === 401 || r.status === 403 || /invalid compact jws|unauthorized/i.test(detail)) {
         bucketCache = { at: Date.now(), data: { ready: false, bucket: CONTENT_BUCKET,
-          motivo: "la llave puede leer el bucket pero no escribir en él — SUPABASE_SERVICE_KEY tiene que ser la service_role" } };
+          motivo: "la llave puede leer el bucket pero no escribir en él, SUPABASE_SERVICE_KEY tiene que ser la service_role" } };
         return res.status(503).json({ error: "storage_no_configurado", motivo: bucketCache.data.motivo });
       }
       return res.status(502).json({ error: explicarStorage(r.status, detail), detail: detail.slice(0, 300) });
@@ -4053,7 +4288,7 @@ app.post("/api/ig/borrar-datos", igForm, async (req, res) => {
 app.get("/api/ig/borrar-datos/estado", async (req, res) => {
   const s = await loadIG();
   const r = (s.borrados || {})[String(req.query.code || "")];
-  res.type("html").send(`<!doctype html><meta charset="utf-8"><title>Eliminación de datos — Inmersia</title>
+  res.type("html").send(`<!doctype html><meta charset="utf-8"><title>Eliminación de datos, Inmersia</title>
 <body style="font-family:system-ui,sans-serif;background:#05060B;color:#C9CFDC;margin:0;padding:48px 24px;line-height:1.6">
 <div style="max-width:560px;margin:0 auto">
 <h1 style="color:#F4F2ED;font-size:24px">Eliminación de datos</h1>

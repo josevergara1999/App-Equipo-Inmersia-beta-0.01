@@ -89,7 +89,19 @@ Alias de componentes: `Ic` (icono), `Av` (avatar), `Bt` (botón), `Bg` (píldora
 
 - **Básicas**: Dashboard, Org Semanal, Contenido, Guionado.
 - **Pro**: Automatizaciones, Fidelización, Programar publicaciones, Métricas.
-- **Administrativas**: Equipo, Empresas, Pagos, Prospectos (solo `admin` y `Sales`).
+- **Administrativas**: Equipo, Empresas, Pagos, Prospectos y Cotizaciones (por rol, `admin` y
+  `Sales`), Avances.
+
+### Permisos por usuario
+
+`app_data.permisos` = `{[userId]: {paginas:[k…], por, at}}`. Sin entrada, cada uno ve lo de su
+rol (`porRol` en `Main`, que reproduce las reglas de antes). Con entrada, ve exactamente esas
+páginas: `puede(k)` filtra el menú (`NAV` se arma desde `NAV_BASE`), cada `pg===…` del render, y
+la pestaña fija del teléfono abre el menú en vez de navegar. El **superadministrador**
+(`superadmin:true` en `INIT_USERS` **y** en `TEAM` de server.js: hoy Cleme, Javi y Jose) lo ve todo y
+es el único que edita permisos, desde Equipo. **El servidor rechaza con 403** escribir
+`permisos` a cualquier otro: esconder la pantalla no basta. Ojo: el resto de claves de
+`/api/data` siguen abiertas a todo el equipo; los permisos recortan la app, no los datos.
 
 Automatizaciones, Programar y Métricas **eran pestañas dentro de Contenido**. Al separarlas basta
 comparar `pg` para saber cuál está activa; cuando eran pestañas había que mirar además en cuál
@@ -148,8 +160,37 @@ equipo, hay que tocar los dos lados.
 Tabla única `app_data` con `key` / `value` / `updated_at`, usada como almacén clave-valor.
 Claves: `companies`, `tasks`, `extras`, `planners`, `planner_drafts`, `teamPay`, `billRcpts`,
 `gcal_tokens`, `prospects`, `guiones`, `grabs`, `reuniones`, `eventos`, `notifs`, `push_subs`,
-`notif_daily`, `user_creds`, `social`, `ig`, `galerias`, `briefs`. Los binarios van al **Storage** (bucket
-`contenido`), nunca a esta tabla.
+`notif_daily`, `user_creds`, `social`, `ig`, `galerias`, `briefs`, `permisos`, `cot_config`,
+`cotizaciones`, `metas_equipo`. Los binarios van al **Storage** (bucket `contenido`), nunca a
+esta tabla.
+
+### Cotizaciones, avances y cupo en el Dashboard (28-oct-2026)
+
+- **Cotizaciones** (`CotizacionesPg`): `cot_config` = plantilla base (datos de Inmersia, intro,
+  condiciones, validez, IVA) + catálogo de **packs mensuales** (nacen de `PLANS`) + **servicios
+  con valor unitario** (nacen de `EXTRAS`); se editan en «Plantilla y precios». Cada cotización
+  va a `cotizaciones` releyendo antes de escribir (numeración correlativa). El PDF es HTML en una
+  ventana nueva + imprimir del navegador (`imprimirCotizacion`), sin librerías. Atada a un
+  prospecto, lo mueve a «Cotización lista».
+- **Avances** (`AvancesPg`): por colaborador y mes. Producción sale de `tasks` (encargado =
+  `responsable`); ventas, de `p.historial` de los prospectos (`{etapa, at, por}`, escrito por
+  `commitMove` **desde el 28-oct-2026**; lo anterior no tiene autor), de `creadoPor` en
+  `reuniones` y de `cotizaciones`. Metas opcionales por persona en `metas_equipo`.
+- **Cupo en el Dashboard** (`alertasCupo`): cupo libre del mes por cliente con `saldoDe`. Cada
+  persona ve primero las empresas donde figura en `co.encargados` (se elige en el modal Editar
+  de la empresa); los admins ven todas. «Atrasado» = pasada la mitad del mes con más de la mitad
+  del cupo sin empezar.
+- **Agendar reunión desde Prospectos** ahora crea la reunión de verdad (Meet + `reuniones` +
+  aviso), con el cliente como asistente y su correo como invitado. Antes Confirmar solo movía la
+  tarjeta de columna.
+
+### Textos sin guiones largos
+
+La plataforma no usa «—» en ningún texto visible (pedido de Cleme, 28-oct-2026). Los comentarios
+del código sí pueden llevarlos. La salida de Gemini pasa por `sinGuionLargo()` dentro de
+`callGemini`, así que la IA tampoco los cuela. La tipografía es **Inter** en todo (antes DM Sans
++ JetBrains Mono, y la app principal pedía «Instrument Sans», que nunca se cargaba);
+`--font-mono` apunta a Inter con cifras tabulares.
 
 **RLS activo desde 10-ago-2026.** La tabla tiene Row Level Security y NO tiene policies para el
 rol anónimo, así que la clave publishable no puede leer ni escribir. Todo acceso pasa por el
@@ -233,6 +274,11 @@ escribiría el correo y el login lo seguiría rechazando.
 mismo `co.email` que el equipo ya usaba para avisarle. Ruta propia y estrecha, como la de las
 fotos favoritas: darle la clave `companies` le dejaría reescribir su plan, sus cupos y sus Drive.
 Ese correo entra solo en las invitaciones de Meet al elegir la empresa.
+
+**El usuario del portal calza con la empresa por nombre O por `co.portalEmail`** (`calzaEmpresa`
+en server.js). Solo por nombre, renombrar una empresa (AuraKlinic → Aura Clinik) dejaba al
+cliente fuera con su usuario de siempre. El nombre ya se puede cambiar desde el modal Editar.
+El portal muestra `co.name`, no el usuario de acceso.
 
 **`_slug` (server.js) y el generador de accesos (frontend) tienen que dar EXACTAMENTE lo mismo.**
 Es lo que empareja el correo del portal con el nombre de la empresa. Si no coinciden, el cliente
@@ -371,6 +417,14 @@ portal, un cliente vería el token de las demás.
 - El POST **funde** sobre lo guardado: volver al enlace a corregir dos campos no borra el resto.
 - **Sin «plan seleccionado»**, que era la pregunta 06 del documento original: el plan vive en la
   ficha de la empresa y es lo que calcula el cupo. Preguntarlo aquí abre la puerta a dos verdades.
+- **Documento base** (`POST /api/brief/:companyId/importar`, solo equipo): se sube un PDF, Word
+  (.docx, se lee sin librerías con `textoDeDocx`) o texto, Gemini lo reparte en las preguntas y
+  `briefDesdeIA` deja pasar solo claves conocidas y opciones válidas. Lo del documento manda;
+  lo que no menciona se conserva. Marca `importadoAt`/`importadoDe` y borra el análisis.
+- **Guionado con IA** (`POST /api/ai/guion`): `modo:"variantes"` devuelve tres versiones del
+  guion (la elegida entra como pestaña nueva, no pisa la original); `modo:"linea"` sugiere un
+  cuadro, aplicable campo a campo. Usa el brief como contexto y el estilo de la casa (gancho,
+  storytelling, natural). `MOV_PRESETS_SRV` es espejo de `MOV_PRESETS`.
 - El **repaso con IA** (`/api/brief/:companyId/analisis`) se guarda en la fila y se borra solo en
   cuanto el cliente cambia una respuesta: un análisis de un brief viejo afirma cosas que ya no son.
 - El brief entra además como contexto del chat del portal (`/api/ai/post-chat`,

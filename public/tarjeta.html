@@ -149,7 +149,7 @@
 
   function fecha(iso){
     try { return new Date(iso).toLocaleDateString("es-CL", { day:"numeric", month:"short" }); }
-    catch(_) { return "—"; }
+    catch(_) { return "-"; }
   }
 
   // Sin pase de Wallet todavía, "guardar la tarjeta" es agregar la página a la pantalla de

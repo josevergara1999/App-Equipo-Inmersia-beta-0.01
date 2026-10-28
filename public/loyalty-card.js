@@ -93,14 +93,14 @@ const LY = (() => {
       if (!window.QRCode) throw new Error("QR");
       caja.innerHTML = "";
       new window.QRCode(caja, {
-        text: texto || "—", width: size, height: size,
+        text: texto || "-", width: size, height: size,
         colorDark: "#05060B", colorLight: "#FFFFFF",
         correctLevel: window.QRCode.CorrectLevel.M,
       });
     }).catch(() => {
       caja.style.lineHeight = "1.3";
       caja.innerHTML = '<div style="font:600 13px var(--mono);color:#555;padding:' +
-        Math.round(size / 3) + 'px 0;letter-spacing:.18em">' + (texto || "—") + "</div>";
+        Math.round(size / 3) + 'px 0;letter-spacing:.18em">' + (texto || "-") + "</div>";
     });
     return caja;
   }
@@ -178,7 +178,7 @@ const LY = (() => {
     der.style.cssText = "text-align:right;max-width:124px";
     der.appendChild(etiqueta("Premio", lb));
     const premio = document.createElement("div");
-    premio.textContent = p.premio || "—";
+    premio.textContent = p.premio || "-";
     premio.style.cssText = "font-size:12.5px;font-weight:600;line-height:1.25";
     der.appendChild(premio);
     campos.appendChild(der);

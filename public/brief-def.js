@@ -33,7 +33,7 @@
         { k: "ciudad", l: "Ciudad o sector", tipo: "una", op: ["Valle Las Trancas", "Chillán", "Otro"] },
         { k: "telefono", l: "Teléfono de contacto", tipo: "texto", req: true, ph: "+56 9 XXXX XXXX" },
         { k: "email", l: "Correo electrónico", tipo: "texto", req: true, ph: "correo@negocio.cl" },
-        { k: "web", l: "Sitio web", tipo: "texto", ph: "https://www.negocio.cl — o déjalo vacío si no tienes" },
+        { k: "web", l: "Sitio web", tipo: "texto", ph: "https://www.negocio.cl, o déjalo vacío si no tienes" },
       ],
     },
     {
@@ -82,7 +82,7 @@
         // `{empresa}` lo reemplazan las dos puntas por el nombre real. Preguntar "¿cómo ves a
         // Auraklinic en 5 años?" y no "¿cómo ves tu negocio?" cambia lo que la gente contesta:
         // con el nombre delante se responde en concreto.
-        { k: "objetivoEmpresa", l: "¿Cuál es el objetivo de {empresa}?", tipo: "larga", req: true, ph: "A qué vino este negocio. No lo de marketing todavía — el negocio." },
+        { k: "objetivoEmpresa", l: "¿Cuál es el objetivo de {empresa}?", tipo: "larga", req: true, ph: "A qué vino este negocio. No lo de marketing todavía, el negocio." },
         { k: "visionNegocio", l: "¿Cómo ves a {empresa} en 5 años?", tipo: "larga", ph: "Cuántos locales, qué vende, qué lugar ocupa. Dilo aunque suene grande." },
         { k: "visionDuenos", l: "¿Y cómo se ven ustedes, sus dueños, en 5 años?", tipo: "larga", ph: "Qué papel quieren tener: al pie del cañón, dirigiendo, o fuera del día a día." },
         {
