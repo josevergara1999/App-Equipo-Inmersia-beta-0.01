@@ -190,7 +190,11 @@ esta tabla.
   **Interno**. Este documento todavía dice «Org Semanal» en varios lugares: es la misma página.
 - **Mes**: celdas más altas y, en escritorio, el título de cada pieza dentro del día. El panel del
   día trae «+ Post / Reel / Historia» (`onAgregar` → `agregarDesdeMes`): crea el item en la semana
-  de ese día escribiendo directo en `planners` y salta a esa semana con el asistente abierto.
+  de ese día escribiendo directo en `planners` y abre el asistente en un modal **sobre el mes**
+  (`asistMes`), sin saltar a la semana. Igual mueve `selCo` y `wkOff` a esa semana: `items`,
+  `updateItem` y `confirmarItem` trabajan sobre la semana seleccionada. Cancelar o tocar fuera
+  con la pieza vacía la descarta.
+- **Semana**: abrir y plegar un día va animado (Web Animations sobre la altura medida).
 - **Semana**: los días van plegados en una fila (`diaAbierto`), con píldoras del color de cada
   pieza. Se abren con un toque; tocar cualquier parte LIBRE del cuadro lo pliega (no cuentan
   botones, campos ni lo que esté dentro de `[data-pieza]`, ni lo que llegue por un Portal).

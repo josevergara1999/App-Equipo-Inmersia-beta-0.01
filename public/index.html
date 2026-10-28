@@ -9561,9 +9561,14 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       const np={...pl,items:[...its,{id,day:ds,type:tipo,title:"",description:"",strategy:"",production:[],state:"borrador",order:its.filter(x=>x.day===ds).length}]};
       return prev.some(p=>p.weekKey===wk)?prev.map(p=>p.weekKey===wk?np:p):[...prev,np];
     });
-    sSelCo(empresa);sWkOff(off);sVista("semana");
-    sDiaAbierto(o=>({...o,[ds]:true}));sAbierto(o=>({...o,[id]:true}));sEditandoItem(m=>({...m,[id]:true}));
+    // Se queda en el mes: el asistente sale en un cuadro encima del calendario (pedido de José,
+    // 28-oct-2026; antes saltaba a la semana y se perdía de vista el mes). Igual se mueven la
+    // empresa y la semana, porque `items`/`updateItem`/`confirmarItem` trabajan sobre la semana
+    // seleccionada y la pieza vive en la semana de su día.
+    sSelCo(empresa);sWkOff(off);
+    sEditandoItem(m=>({...m,[id]:true}));sAsistMes(id);
   };
+  const[asistMes,sAsistMes]=useState(null);
   // Organización es la otra puerta a "enviar al portal", el mismo viaje de ida sin vuelta que en
   // Contenido. Preguntar solo en una de las dos deja la garantía a medias, y esta es la pantalla
   // en la que se trabaja a diario.
@@ -9718,6 +9723,27 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     </div>}
 
     {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo} onAgregar={agregarDesdeMes}/>}
+    {(()=>{
+      // Asistente de la pieza nueva, abierto desde el mes sin salir de él.
+      const it=asistMes&&items.find(x=>x.id===asistMes);
+      if(!it)return null;
+      const cerrarAsist=()=>{
+        sEditandoItem(m=>({...m,[it.id]:false}));sAsistMes(null);
+        if(!(it.title||"").trim()&&!(it.description||"").trim()&&!(it.production||[]).length)descartarItem(it.id);
+      };
+      const f=new Date(it.day+"T12:00:00");
+      return(<Md open onClose={cerrarAsist} width={520} title={"Nueva pieza · "+["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][f.getDay()]+" "+f.getDate()+" de "+MO[f.getMonth()]}>
+        <AsistentePieza it={it} co={co} users={users}
+          editando={tasks.some(t=>String(t.itemId)===String(it.id))}
+          trabajando={confirmando===it.id}
+          subiendoRef={subiendo===it.id}
+          onSubirRef={e=>handleFiles(it.id,"refs",e)}
+          onQuitarRef={n=>removeFile(it.id,"refs",n)}
+          onCambio={u=>updateItem(it.id,u)}
+          onCancelar={cerrarAsist}
+          onTerminar={()=>{sEditandoItem(m=>({...m,[it.id]:false}));sAsistMes(null);confirmarItem(it);}}/>
+      </Md>);
+    })()}
     {vista==="semana"&&<div style={{display:"flex",flexDirection:"column",gap:movil?10:12}}>
     {weekDays.map(wd=>{
       const di=dayItems(wd.ds);
