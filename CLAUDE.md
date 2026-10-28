@@ -87,7 +87,7 @@ Alias de componentes: `Ic` (icono), `Av` (avatar), `Bt` (botón), `Bg` (píldora
 
 `NAV` en `Main` las agrupa en tres bloques, y **cada entrada es su propia página** (`pg===it.k`):
 
-- **Básicas**: Dashboard, Org Semanal, Contenido, Guionado.
+- **Básicas**: Dashboard, Organización (antes Org Semanal), Contenido, Guionado. Son las 4 pestañas fijas del teléfono.
 - **Pro**: Automatizaciones, Fidelización, Programar publicaciones, Métricas.
 - **Administrativas**: Equipo, Empresas, Pagos, Prospectos y Cotizaciones (por rol, `admin` y
   `Sales`), Avances.
@@ -183,6 +183,27 @@ esta tabla.
 - **Agendar reunión desde Prospectos** ahora crea la reunión de verdad (Meet + `reuniones` +
   aviso), con el cliente como asistente y su correo como invitado. Antes Confirmar solo movía la
   tarjeta de columna.
+
+### Organización (antes «Org Semanal») y barra del teléfono (28-oct-2026)
+
+- La página `planner` se llama **Organización** en toda la app. Abre en la vista **Mes**, capa
+  **Interno**. Este documento todavía dice «Org Semanal» en varios lugares: es la misma página.
+- **Mes**: celdas más altas y, en escritorio, el título de cada pieza dentro del día. El panel del
+  día trae «+ Post / Reel / Historia» (`onAgregar` → `agregarDesdeMes`): crea el item en la semana
+  de ese día escribiendo directo en `planners` y salta a esa semana con el asistente abierto.
+- **Semana**: los días van plegados en una fila (`diaAbierto`), con píldoras del color de cada
+  pieza. Se abren con un toque; tocar cualquier parte LIBRE del cuadro lo pliega (no cuentan
+  botones, campos ni lo que esté dentro de `[data-pieza]`, ni lo que llegue por un Portal).
+- **Automatización** es un interruptor Sí/No a la vista en post y reel, fuera del pliegue.
+  **Drive** se puede pegar a mano en `item.driveUrl` aunque la empresa no tenga carpetas; viaja a
+  `task.driveUrl` y entra en la firma solo cuando existe.
+- `TT_COLORES.claro`: un color propio por tipo. Post, historia y reel eran tres grises azulados.
+- Fila de la pieza con mouse: el puntero se captura **solo al empezar un arrastre horizontal**.
+  Capturado al apretar, Chrome entregaba el clic a la fila y no al botón: la pieza no se abría.
+- Barra del teléfono: 5 pestañas (Inicio, Organización, Contenido, Guionado, Herramientas). El
+  riel de Herramientas ya no repite las Básicas.
+- Finanzas (`PayBillPg`): las tarjetas y la fila de totales de Cobros se salían del ancho del
+  teléfono (455 px en 390) y la página quedaba corrida a la izquierda. Ahora se acomodan.
 
 ### Textos sin guiones largos
 

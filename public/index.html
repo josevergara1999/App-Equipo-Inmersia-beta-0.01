@@ -25,7 +25,7 @@
 /* El hueco de la barra de scroll se reserva SIEMPRE. Sin esto, una pantalla con mucho contenido
    saca la barra y otra con poco la quita, y la página entera se ensancha ~15px de golpe: la
    cabecera, las cajas y todo lo demás dan un salto lateral al cambiar de vista. Es lo que hacía
-   que Org Semanal pareciera cambiar de tamaño al pasar de Semana a Mes. */
+   que Organización pareciera cambiar de tamaño al pasar de Semana a Mes. */
 /* La barra de scroll SIEMPRE presente, aunque no haga falta. `scrollbar-gutter` solo no basta
    aquí: el body lleva overflow-x:hidden y eso lo convierte en el contenedor de scroll, así que
    el hueco reservado en <html> no se aplicaba. Con overflow-y:scroll la barra está fija y el
@@ -46,7 +46,7 @@ body{font-family:'Inter',system-ui,sans-serif;font-feature-settings:"cv11","ss03
 /* ─── REDISEÑO 2026 ───────────────────────────────────────────────
    Estas variables se remapearon a la paleta nueva en vez de reescribir cada sección:
    quedaban ~360 usos de var(--*) repartidos por Contenido, Pagos, Guionado, Métricas,
-   Prospectos y Org Semanal. Cambiándolas aquí, todas heredan el look nuevo de una vez.
+   Prospectos y Organización. Cambiándolas aquí, todas heredan el look nuevo de una vez.
    Los nombres se conservan (--accent, --gold…) para no romper el código existente. */
 body{
   --bg:#05060B;--bg2:#0B0E17;--bg3:#0D111B;--bg4:#151A28;
@@ -746,7 +746,9 @@ const EXTRAS=[
 // calendario y bordes de tarjeta que lo leen cambian de tema sin tocarse.
 const TT_COLORES={
   oscuro:{post:"#9BB4FF",historia:"#C9BFFF",reel:"#6FE7F2",video_pro:"#8FF2C2",visita:"#F2A8C4",custom:"#EFD9A0",repost:"#C9CFDC"},
-  claro: {post:"#4E7A96",historia:"#6B7FA6",reel:"#143D4A",video_pro:"#2F7E60",visita:"#9A7F3F",custom:"#7D6A9A",repost:"#6E7479"},
+  // 28-oct-2026: post, historia y reel eran tres grises azulados casi iguales y la semana se
+  // veía de un solo color. Cada tipo tiene ahora su tono propio, todos sobre 3,4 de contraste.
+  claro: {post:"#2E6BC6",historia:"#8A4FC4",reel:"#0F7F86",video_pro:"#2F7E60",visita:"#B04A7A",custom:"#9A6A12",repost:"#5E6670"},
 };
 const TT={};
 // El tercer valor era el emoji del tipo. Ahora es el nombre de un icono del set de la app: el
@@ -830,7 +832,7 @@ const usadasEnMes=(tasks,coId,y,m)=>{
 //
 // Mirar solo el estado no alcanzaba: una pieza rechazada vuelve a `en_proceso`, y al subir la
 // corrección `clientApproval` se pone a null. En esos dos momentos parecía una pieza cualquiera
-// en producción, así que confirmarla desde Org Semanal devolvía los archivos del planner —es
+// en producción, así que confirmarla desde Organización devolvía los archivos del planner —es
 // decir, la versión que el cliente ya había rechazado— y borraba la corrección.
 // A quién avisar de una acción. Por defecto, a todos menos a quien la hizo: ya lo sabe, y
 // recibir eco de lo propio convierte el teléfono en un espejo. Pero cuando alguien trabaja
@@ -1100,14 +1102,14 @@ function Md({open:o,onClose:oc,title:t,children:ch,width:w}){
     backdropFilter:"blur(6px)"}}><div className="su" onInput={()=>{sucio.current=true;}} onClick={e=>e.stopPropagation()} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--r-lg)",width:w||560,maxWidth:"92vw",maxHeight:teclado?("calc(100dvh - "+(teclado+48)+"px)"):"88dvh",overflow:"auto",boxShadow:"0 20px 60px rgba(var(--rgb-sombra),.5)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid var(--border)"}}><h3 style={{fontSize:17,fontWeight:600,margin:0,letterSpacing:"-0.015em"}}>{t}</h3><button onClick={cerrar} style={{background:"transparent",color:"var(--tx2)",width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Ic n="x" s={18}/></button></div><div style={{padding:22}}>{ch}</div></div></div></Portal>);
 }
 // Menú desplegable al que no lo recorta nadie. Un `position:absolute` colgando del botón
-// queda encerrado en cuanto un ancestro tiene overflow, y la fila de acciones de Org Semanal
+// queda encerrado en cuanto un ancestro tiene overflow, y la fila de acciones de Organización
 // es un carrusel horizontal (`overflowX:auto`) —que además, al dejar de ser `visible` un eje,
 // convierte el otro en scroll—: el panel salía cortado por arriba y por abajo dentro de una
 // franja de unos 40 px, desplazado, sin que se viera ni el botón que lo abrió. Aquí el panel
 // se dibuja en el <body> con `position:fixed` y se ancla midiendo el botón, así que se escapa
 // de cualquier ancestro que recorte. Es lo mismo en escritorio y en teléfono; lo único que
 // cambia con el tamaño es cuánto hueco hay que dejarle a la barra inferior.
-// Lo usan el cupo del mes y el Drive de Org Semanal, que viven en esa misma franja.
+// Lo usan el cupo del mes y el Drive de Organización, que viven en esa misma franja.
 function useMenuFlotante(abierto,cerrar,anchoMax){
   const caja=useRef(null),btn=useRef(null),panel=useRef(null);
   const[pos,sPos]=useState(null);
@@ -1151,7 +1153,7 @@ function useMenuFlotante(abierto,cerrar,anchoMax){
   const estilo=pos&&{position:"fixed",top:pos.top,left:pos.left,zIndex:900,width:pos.ancho,maxHeight:pos.alto,overflowY:"auto"};
   return{caja,btn,panel,estilo};
 }
-// Barra de cupos del mes. Se usa igual en Contenido y en Org Semanal: es el mismo dato y
+// Barra de cupos del mes. Se usa igual en Contenido y en Organización: es el mismo dato y
 // tiene que decir lo mismo en los dos sitios.
 // Permisos de un miembro: qué páginas puede usar. Parte de lo que hoy le da su rol, y
 // «Volver a su rol» borra la entrada para que siga al rol si después se lo cambian.
@@ -1214,7 +1216,7 @@ const alertasCupo=(cos,tasks)=>{
 
 function Cupos({co,tasks,y,m,compact}){
   const saldo=useMemo(()=>co?saldoDe(co,tasks,y,m):[],[co,tasks,y,m]);
-  // En Org Semanal el saldo del plan deja de ser una franja y pasa a ser un botón más de la
+  // En Organización el saldo del plan deja de ser una franja y pasa a ser un botón más de la
   // fila de arriba, al lado de Drive: es un dato de consulta, no un titular, y ocupando el
   // ancho entero era lo primero que se comía la pantalla al abrir la semana. Desplegado se
   // ve exactamente igual que antes. En Contenido no cambia: ahí sí manda, porque es la
@@ -1654,7 +1656,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
     return "dashboard";
   });
   const[planVista,sPlanVista]=useState("semana");
-  const visP={dashboard:["Dashboard","","dashboard"],planner:["Org Semanal","","planner"],companies:["Empresas","","companies"],guionado:["Guionado","","edit"],contenido:["Contenido","","paperclip"],team:["Equipo","","team"],payments:["Pagos","","payments"],metricas:["Métricas","","trend_up"],fidelizacion:["Fidelización","","loyalty"]};
+  const visP={dashboard:["Dashboard","","dashboard"],planner:["Organización","","planner"],companies:["Empresas","","companies"],guionado:["Guionado","","edit"],contenido:["Contenido","","paperclip"],team:["Equipo","","team"],payments:["Pagos","","payments"],metricas:["Métricas","","trend_up"],fidelizacion:["Fidelización","","loyalty"]};
   const irA=k=>sPg(k);
   // El menú en tres bloques. Arriba lo que se usa todos los días; en medio lo que no toca todo
   // el mundo ni a diario; abajo la trastienda. Antes eran diez entradas seguidas sin jerarquía y
@@ -1852,7 +1854,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackCos.current){initTrackCos.current=true;return;}if(cos.length===0){console.warn("BLOCKED: refusing to save empty companies");return;}dbSave("companies",cos);localStorage.setItem("inm_companies_backup",JSON.stringify(cos));},[cos,dbLoaded]);
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackT.current){initTrackT.current=true;return;}if(calDirty)return;if(tasks.length===0&&hadData.current.tasks){console.warn("Skipping save: would erase tasks");return;}dbSave("tasks",tasks);},[tasks,dbLoaded,calDirty]);
   // El planner se guarda solo, como todo lo demás. Antes lo único que lo grababa era el
-  // botón "Guardar y sincronizar" de Org Semanal: si alguien escribía la semana entera y
+  // botón "Guardar y sincronizar" de Organización: si alguien escribía la semana entera y
   // no lo pulsaba, al recargar no quedaba nada. Ahora confirmar una pieza es decidir que
   // sale al calendario, no la única forma de no perder lo escrito.
   useEffect(()=>{if(!dbLoaded)return;if(!initTrackP.current){initTrackP.current=true;return;}if(planners.length===0&&hadData.current.planners){console.warn("Skipping save: would erase planners");return;}dbSave("planners",planners);},[planners,dbLoaded]);
@@ -1962,7 +1964,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   const updCoP=(coId,np)=>{sCos(p=>p.map(c=>c.id===coId?{...c,plan:np,incluido:undefined}:c));const co=cos.find(c=>c.id===coId);if(co)addN("Plan actualizado: "+co.name+" → "+PLANS[np]?.name);};
   const delCo=coId=>{if(cos.length<=1){addN("❌ No puedes eliminar la última empresa");return;}sCos(p=>p.filter(c=>c.id!==coId));sT(p=>p.filter(t=>t.companyId!==coId));};
   // Limpieza de los cupos fantasma que dejó el modelo viejo: tareas sin fecha, sin material y
-  // sin item en Org Semanal. Cualquier cosa que tenga algo dentro no se toca.
+  // sin item en Organización. Cualquier cosa que tenga algo dentro no se toca.
   // El token se crea la PRIMERA vez que hace falta —al abrir el brief o al copiar su enlace—, no
   // al dar de alta la empresa: así las que ya existen lo tienen en cuanto se necesita y no hay
   // nada que migrar. 32 hex del generador del navegador, no `Math.random()`: es predecible, y
@@ -2315,7 +2317,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   </div>);
                 })()}
                 <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
-                  <button onClick={()=>{if(confirm("¿Borrar los cupos vacíos que dejó el sistema viejo en "+c.name+"?\n\nSon las piezas sin fecha, sin material y sin nada en Org Semanal (\"Post 1 "+c.name+"\", \"Historia 3 "+c.name+"\"…). Ya no hacen falta: los cupos ahora son un número.\n\nLo que tenga cualquier cosa dentro no se toca."))limpiarCupos(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🧹 Limpiar cupos vacíos</button>
+                  <button onClick={()=>{if(confirm("¿Borrar los cupos vacíos que dejó el sistema viejo en "+c.name+"?\n\nSon las piezas sin fecha, sin material y sin nada en Organización (\"Post 1 "+c.name+"\", \"Historia 3 "+c.name+"\"…). Ya no hacen falta: los cupos ahora son un número.\n\nLo que tenga cualquier cosa dentro no se toca."))limpiarCupos(c.id);}} style={{fontSize:10,padding:"4px 10px",background:"transparent",border:"1px solid var(--border)",borderRadius:6,color:"var(--tx3)",cursor:"pointer",fontFamily:"inherit"}}>🧹 Limpiar cupos vacíos</button>
                 </div>
                 {(c.links||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)"}}>
                   {(c.links||[]).map(lk=><a key={lk.id} href={lk.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:7,fontSize:11,fontWeight:600,color:"var(--accent)",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}><Ic n="link" s={12}/>{lk.name}</a>)}
@@ -2542,7 +2544,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {mobMenu&&<div onClick={()=>sMobMenu(false)} style={{position:"fixed",inset:0,background:"rgba(var(--rgb-sombra),.35)",zIndex:998,animation:"fadeIn .25s ease both"}}/>}
         {mobMenu&&(()=>{
           const CURVA="M0 0 C 0 30, 29 24, 29 55 C 29 86, 0 80, 0 110";
-          const enLaBarra={dashboard:1,planner:1,contenido:1};
+          // Las cuatro Básicas ya tienen su pestaña abajo; el riel queda para el resto. Si a
+          // alguien le quitaron una Básica, tampoco se repite aquí: no la tiene.
+          const enLaBarra={dashboard:1,planner:1,contenido:1,guionado:1};
           const COLOR={"Básicas":PC.cian,"Pro":PC.peri,"Administrativas":PC.lav};
           const grupos=NAV.map(([titulo,items])=>({
             titulo,
@@ -2659,22 +2663,25 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
             y punto. Aquí, si estás en una herramienta —Métricas, Pagos…— la burbuja se queda
             sobre Herramientas en vez de desaparecer: es de donde saliste. */}
         {(()=>{
-          const TABS=[["dashboard","dashboard","Inicio"],["planner","planner","Semana"],["contenido","paperclip","Contenido"],[null,"more_h","Herramientas"]];
+          // Las cuatro Básicas del menú lateral y Herramientas con el resto. Antes Guionado no
+          // tenía pestaña y había que ir a buscarlo al menú.
+          const TABS=[["dashboard","dashboard","Inicio"],["planner","planner","Organización"],["contenido","paperclip","Contenido"],["guionado","edit","Guionado"],[null,"more_h","Herramientas"]];
+          const NT=TABS.length,ULT=NT-1;
           // El color lo pone la sección, como en el diseño (teal → azul → peri → violeta),
           // pero leído de la paleta para que sirva en los dos temas.
-          const COLS=[PC.cian,PC.peri,PC.lav,PC.rosa];
-          const CENTROS=[12.5,37.5,62.5,87.5];
-          const idx=pg==="dashboard"?0:pg==="planner"?1:pg==="contenido"?2:3;
+          const COLS=[PC.cian,PC.peri,PC.lav,PC.verde||PC.cian,PC.rosa];
+          const CENTROS=TABS.map((_,i)=>(i+.5)*100/NT);
+          const idx0=TABS.findIndex(t=>t[0]===pg);const idx=idx0<0?ULT:idx0;
           // Manda el dedo si está puesto; si no, la hoja abierta; si no, la página.
-          const act=dragBarra?dragBarra.i:(mobMenu?3:idx);
+          const act=dragBarra?dragBarra.i:(mobMenu?ULT:idx);
           const deX=e=>{const r=(pistaBarra.current||e.currentTarget).getBoundingClientRect();
-            return Math.max(0,Math.min(3,Math.floor((e.clientX-r.left)/(r.width/4))));};
+            return Math.max(0,Math.min(ULT,Math.floor((e.clientX-r.left)/(r.width/NT))));};
           // `dragBarra` NO se limpia antes de navegar: si se limpiara, la burbuja volvería un
           // instante a la pestaña vieja —`pg` todavía no cambió— y se vería rebotar. Se limpia
           // en el mismo lote que `irA`, cuando la página ya es la nueva.
           const elegirTab=(i,movido)=>{
             // Una pestaña fija cuya página no tiene permitida abre el menú en vez de navegar.
-            if(i===3||!puede(TABS[i][0])){ponDragBarra(null);sMobMenu(o=>!o);return;}
+            if(i===ULT||!puede(TABS[i][0])){ponDragBarra(null);sMobMenu(o=>!o);return;}
             const ir=()=>{irA(TABS[i][0]);sMobMenu(false);ponDragBarra(null);};
             setTimeout(ir,movido?0:220);
           };
@@ -2690,10 +2697,12 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           return(<nav style={{position:"fixed",bottom:0,left:0,right:0,zIndex:999}}>
             <div style={{position:"relative",background:"var(--bg2)",borderTop:"1px solid var(--border)",padding:"12px 0 calc(10px + env(safe-area-inset-bottom, 16px))"}}>
 
-              <svg viewBox="0 0 110 34" style={{position:"absolute",top:-1.5,left:"calc("+CENTROS[act]+"% - 55px)",width:110,height:34,transition:salto,pointerEvents:"none"}}>
+              <div style={{position:"absolute",top:-2,left:0,right:0,bottom:0,overflow:"hidden",pointerEvents:"none"}}>
+              <svg viewBox="0 0 110 34" style={{position:"absolute",top:0.5,left:"calc("+CENTROS[act]+"% - 55px)",width:110,height:34,transition:salto,pointerEvents:"none"}}>
                 <path d="M0 0 C 30 0, 24 29, 55 29 C 86 29, 80 0, 110 0 Z" fill="var(--bg)"/>
                 <path d="M0 0 C 30 0, 24 29, 55 29 C 86 29, 80 0, 110 0" fill="none" stroke="var(--border)" strokeWidth="1.5"/>
               </svg>
+              </div>
 
               <div style={{position:"absolute",top:-25,left:"calc("+CENTROS[act]+"% - 26px)",width:52,height:52,borderRadius:"50%",background:col,boxShadow:"0 8px 18px "+rgba(col,.35)+", 0 2px 6px rgba(var(--rgb-sombra),.15)",transition:salto,display:"flex",alignItems:"center",justifyContent:"center",animation:mobMenu?"bubbleLaunch .35s ease both":"bubblePop .4s ease",cursor:"grab",touchAction:"none"}} {...gestoBarra}>
                 {/* La `key` remonta el icono al cambiar de pestaña, y con eso se repite el
@@ -2708,7 +2717,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
                   el mismo instante hacía que la burbuja no se viera viajar nunca — el movimiento
                   existía y no lo veía nadie. Arrastrando la pausa no hace falta: el viaje ya se
                   vio mientras el dedo estaba puesto. */}
-              <div ref={pistaBarra} style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",position:"relative",touchAction:"none"}} {...gestoBarra}>
+              <div ref={pistaBarra} style={{display:"grid",gridTemplateColumns:"repeat("+NT+",1fr)",position:"relative",touchAction:"none"}} {...gestoBarra}>
                 {TABS.map(([k,icn,l],i)=>{
                   const on=act===i;
                   return(<span key={l}
@@ -2742,7 +2751,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         <div onClick={e=>e.stopPropagation()} className="su" style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:18,padding:24,width:"min(430px,100%)",boxSizing:"border-box",boxShadow:"0 20px 60px rgba(var(--rgb-sombra),.5)"}}>
           <div style={{fontSize:18,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Ic n="broom" s={18}/>Empezar limpio</div>
           <div style={{fontSize:13,color:"var(--tx2)",lineHeight:1.55,marginBottom:14}}>
-            Borra el <b>contenido de prueba</b>: piezas, Org Semanal, borradores, extras, guiones, días de grabación, reuniones y eventos.<br/><br/>
+            Borra el <b>contenido de prueba</b>: piezas, Organización, borradores, extras, guiones, días de grabación, reuniones y eventos.<br/><br/>
             <b>Se mantienen</b> las empresas y sus planes (el cupo), los prospectos y las conexiones.<br/><br/>
             Antes de borrar se guarda un <b>respaldo completo</b> (reversible). Escribe <b style={{color:"var(--accent)"}}>LIMPIAR</b> para confirmar.
           </div>
@@ -4068,7 +4077,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
       </div>))}
 
     {/* CUPO DISPONIBLE POR CLIENTE. Cada encargado ve primero sus cuentas; los admins ven
-        todas. Antes el cupo solo se veía entrando a Contenido u Org Semanal empresa por empresa,
+        todas. Antes el cupo solo se veía entrando a Contenido u Organización empresa por empresa,
         así que nadie se enteraba de que a un cliente le quedaban 8 piezas a cinco días de fin de mes. */}
     {cupoAlertas.length>0&&<div style={{marginBottom:18,padding:"14px 16px",borderRadius:16,background:D.panel,border:"1px solid "+(cupoAlertas.some(a=>a.nivel==="atrasado")?"rgba(var(--rgb-ambar),.4)":D.line3)}}>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
@@ -4364,7 +4373,7 @@ function DashboardPg({cu,isA,tasks,sT,cos,users,stats,myTd,pDrafts,sPg,sMd2,addN
 
 // ═══ CONTENIDO ══════════════════════════════════════════════════
 // Una fila por etapa, en el orden en que avanza una pieza. Las etapas son las mismas
-// de Org Semanal, así que las dos pantallas hablan el mismo idioma.
+// de Organización, así que las dos pantallas hablan el mismo idioma.
 const CONT_META=[
   // No hay etapa "Borrador": los huecos vacíos que genera el plan no se muestran, aparecen
   // recién cuando tienen material. Se siguen usando por debajo para repartir los archivos
@@ -5418,7 +5427,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     avisar({type:"contenido",title:titulo,body:cuerpo,to:correosDe(dest),url:"/",important:!!importante,dedupKey:clave||null});
   };
 
-  // Piezas que quedaron sueltas: su item se borró en Org Semanal pero la tarea sobrevivió,
+  // Piezas que quedaron sueltas: su item se borró en Organización pero la tarea sobrevivió,
   // así que siguen apareciendo aquí para siempre. Ya no se generan nuevas —borrar en el
   // planner ahora borra las dos cosas—, pero hay que poder limpiar las que quedaron. Solo
   // se calcula con los planners cargados: con la lista vacía, todo parecería huérfano.
@@ -5428,7 +5437,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     return tasks.filter(t=>t.itemId!==undefined&&t.itemId!==null&&t.plannerTag&&!vivos.has(String(t.itemId)));
   },[tasks,planners]);
   const limpiarHuerfanas=()=>{
-    if(!confirm("Se eliminan "+huerfanas.length+" pieza"+(huerfanas.length===1?"":"s")+" que ya no existen en Org Semanal:\n\n"+huerfanas.map(t=>"· "+(t.title||"Sin título")).join("\n")+"\n\n¿Eliminar?"))return;
+    if(!confirm("Se eliminan "+huerfanas.length+" pieza"+(huerfanas.length===1?"":"s")+" que ya no existen en Organización:\n\n"+huerfanas.map(t=>"· "+(t.title||"Sin título")).join("\n")+"\n\n¿Eliminar?"))return;
     const fuera=new Set(huerfanas.map(t=>t.id));
     sT(prev=>{const r=prev.filter(t=>!fuera.has(t.id));DB.save("tasks",r);return r;});
     addN("🧹 "+huerfanas.length+" pieza"+(huerfanas.length===1?"":"s")+" fuera de Contenido");
@@ -5570,7 +5579,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
   //   · Los huecos que genera el plan de la empresa (sin itemId ni plannerTag) son cupos, no
   //     piezas. Se devuelven a "no realizado", que es su estado natural: desaparecen de la
   //     vista y el cupo sigue disponible. Borrarlos le quitaría un post al plan de la empresa.
-  //   · Las piezas de verdad se borran, y si vienen de Org Semanal también se quita su item
+  //   · Las piezas de verdad se borran, y si vienen de Organización también se quita su item
   //     del planner para que no reaparezcan en la próxima confirmación.
   const eliminarPieza=async t=>{
     const esHueco=t.itemId==null&&!t.plannerTag&&!(t.files||[]).length;
@@ -5631,7 +5640,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
   const upT=(tid,u)=>sT(p=>p.map(t=>t.id===tid?{...t,...u}:t));
   // Marca o desmarca la automatización de una pieza. Escribe en los DOS lados cuando la pieza
-  // viene de Org Semanal: el switch de verdad vive en `item.autoComentario` y `confirmarItem`
+  // viene de Organización: el switch de verdad vive en `item.autoComentario` y `confirmarItem`
   // vuelca el item sobre la tarea, así que tocando solo la tarea el cambio se deshacía solo en la
   // siguiente sincronización. Es el mismo motivo por el que `votar()` escribe en item y tarea.
   const marcarAuto=(t,valor)=>{
@@ -5743,7 +5752,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     try{
       const d=await API.socialPublish({companyId:selCo,platform:"instagram",
         // SOLO el pie que se escribió para publicar (`caption`). Antes caía a `description`, que
-        // en las piezas de Org Semanal arrastra las notas internas ("📌 Estrategia: …"), y a
+        // en las piezas de Organización arrastra las notas internas ("📌 Estrategia: …"), y a
         // `title`, que es un nombre interno ("Post 1 Fauna"): cualquiera de los dos se publicaba
         // tal cual en el Instagram del cliente. El preview promete que lo que sale es el texto de
         // ese campo, así que aquí manda solo ese; vacío es preferible a filtrar lo de dentro.
@@ -5950,9 +5959,9 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
   return(<div className="d-in">
     {/* SELECTOR DE EMPRESA — lo primero de la página, y con la misma forma que la cabecera de
-        Org Semanal. De qué empresa estás viendo el contenido es la pregunta que manda sobre
+        Organización. De qué empresa estás viendo el contenido es la pregunta que manda sobre
         todo lo demás de la pantalla: puesta abajo, como una fila de píldoras más entre otras
-        cinco, había que ir a buscarla. Es la misma tarjeta que en Org Semanal a propósito —
+        cinco, había que ir a buscarla. Es la misma tarjeta que en Organización a propósito —
         cambiar de empresa se hace igual y se busca en el mismo sitio en las dos pantallas. */}
     <div style={{...D_MARCO,marginBottom:18}}>
       <div style={D_CARD}>
@@ -6031,7 +6040,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
     {vistaActual==="produccion"&&huerfanas.length>0&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:12,background:"rgba(var(--rgb-ambar),.07)",border:"1px solid rgba(var(--rgb-ambar),.3)",fontSize:12.5,color:PC.ambar,lineHeight:1.5,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
       <span style={{flex:"1 1 220px",minWidth:0}}>
-        <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Org Semanal.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
+        <b>{huerfanas.length} pieza{huerfanas.length===1?"":"s"} sin respaldo en Organización.</b> {huerfanas.length===1?"Se borró":"Se borraron"} de la planificación pero {huerfanas.length===1?"quedó":"quedaron"} aquí.
       </span>
       <button onClick={limpiarHuerfanas} style={{flexShrink:0,padding:"8px 15px",borderRadius:999,background:"transparent",border:"1px solid rgba(var(--rgb-ambar),.5)",color:PC.ambar,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer"}}>Eliminarlas</button>
     </div>}
@@ -6043,7 +6052,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
       <input ref={perRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={e=>handlePer(e.target.files)}/>
 
       {/* Las acciones que gastan cupo, pegadas a las etapas que llenan, y el saldo del mes con
-          ellas. El cupo va plegado como en Org Semanal: es el dato que se consulta justo antes
+          ellas. El cupo va plegado como en Organización: es el dato que se consulta justo antes
           de crear una pieza, no un titular que se coma el ancho entero de la pantalla cada vez
           que se abre Contenido — y desplegado se sigue viendo igual que antes. */}
       {vistaActual==="produccion"&&<div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
@@ -6268,13 +6277,13 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
 
           {/* Sin cadena abierta: la lista. Con una abierta: el constructor a pantalla completa. */}
           {abierta==null?(<>
-            {/* Automatizaciones PENDIENTES: piezas marcadas con el switch en Org Semanal que
+            {/* Automatizaciones PENDIENTES: piezas marcadas con el switch en Organización que
                 todavía no tienen su cadena armada. Desde aquí se prepara (preset o a medida) y
                 queda atada a la pieza para activarse sola al publicarse. */}
             {(()=>{
               const deLaEmpresa=t=>String(t.companyId)===String(selCo)&&!reglas.some(r=>String(r.taskId)===String(t.id))&&t.state!=="publicado";
               const pend=(tasks||[]).filter(t=>deLaEmpresa(t)&&t.autoComentario);
-              // El switch de automatización solo vivía en la tarjeta de Org Semanal, así que una
+              // El switch de automatización solo vivía en la tarjeta de Organización, así que una
               // pieza creada desde Contenido —que es lo normal— no tenía forma de marcarse, y sin
               // marcar no aparecía aquí. Quien se olvidaba del switch se quedaba sin camino dentro
               // de la app: había que publicar y atar la cadena a mano a la publicación. Ahora se
@@ -6405,7 +6414,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     <Md open={nueva} onClose={()=>sNueva(false)} title={"Nueva pieza"+(co?" para "+co.name:"")} width={430}>
       <Fd label="Título"><input value={nf.title} onChange={e=>sNf({...nf,title:e.target.value})} placeholder={"Ej: "+(TT[nf.type]?.l||"Post")+" "+(co?co.name:"")}/></Fd>
       <Fd label="Tipo"><select value={nf.type} onChange={e=>sNf({...nf,type:e.target.value})}>{Object.entries(TT).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select></Fd>
-      <Fd label="Día" hint="Es el día en que queda puesta en Org Semanal. El cliente decide después cuándo se publica."><input type="date" value={nf.date} onChange={e=>sNf({...nf,date:e.target.value})}/></Fd>
+      <Fd label="Día" hint="Es el día en que queda puesta en Organización. El cliente decide después cuándo se publica."><input type="date" value={nf.date} onChange={e=>sNf({...nf,date:e.target.value})}/></Fd>
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
         <Bt v="s" onClick={()=>sNueva(false)}>Cancelar</Bt>
         <Bt v="p" onClick={crearPieza} icon="plus">Crear</Bt>
@@ -6462,7 +6471,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
             Ya pasó por el portal del cliente: se pierden sus votos, correcciones y la respuesta del cliente.
           </p>}
           {borrando.itemId!=null&&<p style={{fontSize:12.5,lineHeight:1.5,color:D.tx3,margin:"0 0 12px"}}>
-            También se quita de Org Semanal.
+            También se quita de Organización.
           </p>}
           {arch.length>0&&<label style={{display:"flex",gap:9,alignItems:"flex-start",padding:"11px 13px",borderRadius:10,background:"rgba(var(--rgb-rojo),.06)",border:"1px solid rgba(var(--rgb-rojo),.28)",cursor:"pointer",marginBottom:14}}>
             <input type="checkbox" checked={borrarArchivos} onChange={e=>sBorrarArchivos(e.target.checked)} style={{width:15,height:15,marginTop:2,padding:0,flexShrink:0}}/>
@@ -8209,7 +8218,7 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
 
     {/* VINCULAR A TAREA */}
     <Md open={showAttach} onClose={()=>sShowAttach(false)} title="Vincular guión a tarea" width={520}>
-      <div style={{fontSize:13,color:D.tx2,marginBottom:12}}>Selecciona la tarea de Org Semanal a la que pertenece <b>“{g?g.title||"este guión":""}”</b></div>
+      <div style={{fontSize:13,color:D.tx2,marginBottom:12}}>Selecciona la tarea de Organización a la que pertenece <b>“{g?g.title||"este guión":""}”</b></div>
       <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
         {[["all","Todas"],["no_realizado","Por hacer"],["en_proceso","En proceso"],["en_aprobacion","Aprobación"]].map(([k,l])=>(
           <button key={k} onClick={()=>sAttachFilter(k)} style={{padding:"6px 13px",borderRadius:999,fontSize:11.5,fontWeight:600,background:attachFilter===k?"var(--bg4)":"transparent",color:attachFilter===k?D.tx:D.tx4,border:"1px solid "+(attachFilter===k?D.line2:D.line3),cursor:"pointer",fontFamily:"inherit"}}>{l}</button>))}
@@ -8317,7 +8326,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
         <div style={{display:"inline-flex",padding:14,borderRadius:12,background:"rgba(255,155,61,.1)",marginBottom:14}}><Ic n="alert" s={32} c="var(--gold)"/></div>
         <div style={{fontSize:18,fontWeight:600,marginBottom:6}}>Recordatorio de IVA</div>
         <div style={{fontSize:14,color:"var(--tx2)",marginBottom:6}}>Recuerda pagar el IVA de este mes</div>
-        <div className="num" style={{fontSize:28,fontWeight:600,color:"var(--gold)",marginBottom:16}}>{fP(ivaMes)}</div>
+        <div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--gold)",marginBottom:16}}>{fP(ivaMes)}</div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
           <Bt v="s" onClick={dismissIva}>Entendido</Bt>
           <Bt v="p" onClick={()=>{dismissIva();sTab("billing");}} icon="payments">Ver facturación</Bt>
@@ -8335,7 +8344,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:24}}>
       {[["Ingresos (mes)",fP(ingresos),"var(--success)","trend_up"],["Egresos (equipo)",fP(egresos),"var(--gold)","logout"],["Margen neto",fP(margen),margen>=0?"var(--tx)":"var(--danger)","money"],["MRR estimado",fP(mrr),"var(--tx)","trend_up"]].map(([l,v,c,ic],i)=>(<div key={i} className="card" style={{padding:20}}>
         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}><Ic n={ic} s={16} c="var(--tx3)"/><span style={{fontSize:12,color:"var(--tx3)"}}>{l}</span></div>
-        <div className="num" style={{fontSize:28,fontWeight:600,letterSpacing:"-0.02em",color:c}}>{v}</div>
+        <div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,letterSpacing:"-0.02em",color:c}}>{v}</div>
       </div>))}
     </div>
 
@@ -8363,9 +8372,9 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
     {/* TEAM TAB */}
     {tab==="team"&&(<div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-        <div className="card" style={{padding:20}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Pagado este mes</div><div className="num" style={{fontSize:28,fontWeight:600,color:"var(--success)"}}>{fP(pagado)}</div></div>
-        <div className="card" style={{padding:20}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Pendiente de pago</div><div className="num" style={{fontSize:28,fontWeight:600,color:"var(--gold)"}}>{fP(pendiente)}</div></div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:20}}>
+        <div className="card" style={{padding:"clamp(12px,3.5vw,20px)",minWidth:0}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Pagado este mes</div><div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--success)"}}>{fP(pagado)}</div></div>
+        <div className="card" style={{padding:"clamp(12px,3.5vw,20px)",minWidth:0}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Pendiente de pago</div><div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--gold)"}}>{fP(pendiente)}</div></div>
       </div>
       <div className="card" style={{padding:0,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}><div style={{display:"grid",gridTemplateColumns:"1.5fr 2fr 1fr 1fr 1fr",padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--bg3)",minWidth:600}}>
@@ -8387,10 +8396,10 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
     {/* BILLING TAB */}
     {tab==="billing"&&(<div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
-        <div className="card" style={{padding:20}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Cobrado</div><div className="num" style={{fontSize:28,fontWeight:600,color:"var(--success)"}}>{fP(cobrado)}</div></div>
-        <div className="card" style={{padding:20}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Por cobrar</div><div className="num" style={{fontSize:28,fontWeight:600,color:"var(--gold)"}}>{fP(porCobrar)}</div></div>
-        <div className="card" style={{padding:20}}><div style={{display:"flex",alignItems:"center",gap:4,marginBottom:8}}><Ic n="alert" s={14} c="var(--danger)"/><span style={{fontSize:12,color:"var(--tx3)"}}>Vencido</span></div><div className="num" style={{fontSize:28,fontWeight:600,color:"var(--danger)"}}>{fP(0)}</div></div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(104px,1fr))",gap:10,marginBottom:20}}>
+        <div className="card" style={{padding:"clamp(12px,3.5vw,20px)",minWidth:0}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Cobrado</div><div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--success)"}}>{fP(cobrado)}</div></div>
+        <div className="card" style={{padding:"clamp(12px,3.5vw,20px)",minWidth:0}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>Por cobrar</div><div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--gold)"}}>{fP(porCobrar)}</div></div>
+        <div className="card" style={{padding:"clamp(12px,3.5vw,20px)",minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:4,marginBottom:8}}><Ic n="alert" s={14} c="var(--danger)"/><span style={{fontSize:12,color:"var(--tx3)"}}>Vencido</span></div><div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,color:"var(--danger)"}}>{fP(0)}</div></div>
       </div>
 
       {/* Cuotas */}
@@ -8474,7 +8483,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
             <div style={{fontSize:14,fontWeight:600,marginBottom:2}}>Resumen IVA · {month} {year}</div>
             <div style={{fontSize:12,color:"var(--tx3)"}}>Total a declarar al SII</div>
           </div>
-          <div style={{display:"flex",gap:20,alignItems:"center"}}>
+          <div style={{display:"flex",gap:"10px 16px",alignItems:"center",flexWrap:"wrap",justifyContent:"center",minWidth:0}}>
             <div style={{textAlign:"center"}}><div style={{fontSize:11,color:"var(--tx3)"}}>Neto total</div><div className="num" style={{fontSize:20,fontWeight:600}}>{fP(ingresos)}</div></div>
             <div style={{fontSize:18,color:"var(--tx3)"}}>→</div>
             <div style={{textAlign:"center"}}><div style={{fontSize:11,color:"var(--gold)"}}>IVA acumulado</div><div className="num" style={{fontSize:24,fontWeight:600,color:"var(--gold)"}}>{fP(ivaMes)}</div></div>
@@ -8531,12 +8540,12 @@ function AutoTx({value,onChange,placeholder,style,...props}){
 }
 
 // ═══ WEEK PLANNER ══════════════════════════════════════════════
-// ═══ CALENDARIO MENSUAL (Org Semanal · vista Mes) ═══════════════
+// ═══ CALENDARIO MENSUAL (Organización · vista Mes) ═══════════════
 // Dos capas sobre el mismo mes:
 //   · "cliente"  → publicaciones que el cliente agendó desde su portal (tasks con fecha)
-//   · "interno"  → la planificación del equipo (ítems de Org Semanal + días de grabación)
+//   · "interno"  → la planificación del equipo (ítems de Organización + días de grabación)
 // Se consulta, no se edita: el cliente agenda en su portal y aquí el equipo mira.
-function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
+function MesPlanner({tasks,cos,planners,addN,soloEmpresa,onAgregar}){
   // Las celdas del calendario miden 94px de alto para que quepan las piezas del día. En un
   // teléfono eso son seis filas de 94 y el mes se estira hasta hacer scroll tres pantallas para
   // ver algo que cabe de un vistazo. Ahí bajan a 52: sigue entrando el número y los puntos de
@@ -8546,7 +8555,9 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
   const hoy=new Date();
   const[cM,sCM]=useState(hoy.getMonth());
   const[cY,sCY]=useState(hoy.getFullYear());
-  const[capa,sCapa]=useState("cliente");
+  // Arranca en la capa interna: Organización es la planificación del equipo, y lo que se agrega
+  // desde aquí aparece ahí. La del cliente (lo que él agendó) sigue a un toque.
+  const[capa,sCapa]=useState("interno");
   const[filtroCo,sFiltroCo]=useState(soloEmpresa!=null?String(soloEmpresa):"all");
   useEffect(()=>{if(soloEmpresa!=null)sFiltroCo(String(soloEmpresa));},[soloEmpresa]);
   const[selDia,sSelDia]=useState(null);
@@ -8660,7 +8671,7 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
     {/* Cabecera de controles */}
     <div style={{display:"flex",gap:18,alignItems:"flex-start",flexWrap:"wrap"}}>
       {/* Rejilla del mes */}
-      <div style={{flex:"1 1 560px",minWidth:0,...D_MARCO,borderRadius:20,padding:5}}>
+      <div style={{flex:"1 1 680px",minWidth:0,...D_MARCO,borderRadius:20,padding:5}}>
         <div style={{borderRadius:16,background:D.panel3,border:"1px solid rgba(var(--rgb-tinta),.08)",overflow:"hidden"}}>
             {/* Los controles del mes viven DENTRO de la caja del calendario: en dos cajas
                 separadas parecían dos cosas distintas, y son la misma —qué mes miras y el mes
@@ -8699,18 +8710,26 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:D.line15}}>
             {celdas.map((c,i)=>{
-              if(!c)return <div key={"e"+i} style={{minHeight:movil?52:94,background:"var(--bg)"}}/>;
+              if(!c)return <div key={"e"+i} style={{minHeight:movil?64:124,background:"var(--bg)"}}/>;
               const emps=porEmpresa(c.ds);
               const hayGrab=(grabaciones[c.ds]||[]).length>0&&capa==="interno";
               const esHoy=c.ds===hoyDs, sel=selDia===c.ds;
               return(<button key={c.ds} onClick={()=>sSelDia(sel?null:c.ds)}
-                style={{position:"relative",minHeight:movil?52:94,minWidth:0,padding:movil?"5px 4px 6px":"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"var(--bg2)",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
+                style={{position:"relative",minHeight:movil?64:124,minWidth:0,padding:movil?"5px 4px 6px":"8px 8px 9px",background:sel?"rgba(var(--rgb-acento),.07)":"var(--bg2)",border:"none",boxShadow:sel?"inset 0 0 0 1.5px "+D.cian:(esHoy?"inset 0 0 0 1.5px rgba(var(--rgb-peri),.5)":"none"),cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",flexDirection:"column",gap:7,alignItems:"stretch",transition:"background .2s"}}>
                 <span style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{width:movil?18:22,height:movil?18:22,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontSize:11.5,fontWeight:700,color:esHoy?D.bg:(emps.length?D.tx:D.tx4),background:esHoy?D.peri:"transparent",flexShrink:0}}>{c.day}</span>
                   {hayGrab&&<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:6,background:"rgba(var(--rgb-rojo2),.1)",border:"1px solid rgba(var(--rgb-rojo2),.45)",color:D.rojo,fontSize:8.5,fontWeight:700,letterSpacing:".08em"}}>GRAB</span>}
                 </span>
-                <span style={{display:"flex",flexDirection:"column",gap:movil?2:4}}>
-                  {emps.slice(0,movil?2:3).map(e=>(
+                {!movil&&(()=>{const lista=porDia[c.ds]||[];return(<span style={{display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
+                  {lista.slice(0,3).map((p,k)=>{const tc=TT[p.tipo]?.c||D.tx4;return(
+                    <span key={k} title={(TT[p.tipo]?.l||"")+" · "+(p.titulo||"")+" · "+nombreCo(p.companyId)}
+                      style={{display:"block",padding:"2px 6px",borderRadius:5,background:tc+"1f",borderLeft:"3px solid "+tc,color:tc,fontSize:10.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",opacity:p.estado==="publicado"?.55:1}}>
+                      {p.titulo||TT[p.tipo]?.l}
+                    </span>);})}
+                  {lista.length>3&&<span style={{fontSize:10,fontWeight:700,color:D.tx3,paddingLeft:4}}>+{lista.length-3} más</span>}
+                </span>);})()}
+                {movil&&<span style={{display:"flex",flexDirection:"column",gap:2}}>
+                  {emps.slice(0,2).map(e=>(
                     <span key={e.companyId} style={{display:"flex",alignItems:"center",gap:5}}>
                       <span style={{width:7,height:7,borderRadius:"50%",background:colorCo(e.companyId),flexShrink:0}}/>
                       <span style={{display:"flex",gap:3,alignItems:"center",flex:"1 1 auto",minWidth:0,overflow:"hidden"}}>
@@ -8720,8 +8739,8 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
                       </span>
                       <span style={{fontFamily:"var(--font-mono)",fontSize:10,fontWeight:700,color:colorCo(e.companyId)}}>{e.items.length}</span>
                     </span>))}
-                  {emps.length>(movil?2:3)&&<span style={{fontFamily:"var(--font-mono)",fontSize:9,color:D.tx4,paddingLeft:12}}>+{emps.length-(movil?2:3)} marcas</span>}
-                </span>
+                  {emps.length>2&&<span style={{fontFamily:"var(--font-mono)",fontSize:9,color:D.tx4,paddingLeft:12}}>+{emps.length-2} marcas</span>}
+                </span>}
               </button>);})}
           </div>
           {tiposPresentes.length>0&&<div style={{display:"flex",gap:12,flexWrap:"wrap",padding:"10px 14px",borderTop:"1px solid "+D.line15}}>
@@ -8747,6 +8766,21 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
             </div>
             <span style={{padding:"3px 10px",borderRadius:999,border:"1px solid "+(capa==="cliente"?"rgba(var(--rgb-acento),.45)":"rgba(var(--rgb-lav),.45)"),color:capa==="cliente"?D.cian:D.lav,fontFamily:"var(--font-mono)",fontSize:9,letterSpacing:".16em",flexShrink:0}}>{capa==="cliente"?"CLIENTE":"INTERNO"}</span>
           </div>
+
+          {/* Agregar desde el mes. Crea la pieza en la semana de ese día y abre su asistente,
+              el mismo de siempre: así no hay dos formas distintas de dar de alta una pieza. */}
+          {selDia&&onAgregar&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+            <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".18em",textTransform:"uppercase",color:D.tx4}}>
+              Agregar{filtroCo!=="all"?" a "+nombreCo(filtroCo):""}
+            </span>
+            <div style={{display:"flex",gap:7}}>
+              {TIPOS_HABITUALES.map(k=>{const tc=TT[k].c;return(
+                <button key={k} onClick={()=>onAgregar(selDia,k,filtroCo!=="all"?filtroCo:null)}
+                  style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px 6px",borderRadius:11,background:tc+"14",border:"1px solid "+tc+"66",color:tc,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                  <Ic n={TT[k].ic} s={13} c={tc}/>{TT[k].l}
+                </button>);})}
+            </div>
+          </div>)}
 
           {capa==="interno"&&grabs.map((g,i)=>(
             <div key={i} style={{borderRadius:12,background:"rgba(var(--rgb-rojo2),.05)",border:"1px solid rgba(var(--rgb-rojo2),.4)",padding:"11px 13px",display:"flex",flexDirection:"column",gap:8}}>
@@ -8806,7 +8840,7 @@ function MesPlanner({tasks,cos,planners,addN,soloEmpresa}){
 }
 
 // ═══ ALTA DE UNA PIEZA, POR PASOS ══════════════════════════════
-// La tarjeta abierta de Org Semanal mostraba diez controles a la vez —tipo, título, estado,
+// La tarjeta abierta de Organización mostraba diez controles a la vez —tipo, título, estado,
 // producción, drive, automatización, descripción, referencias, archivo y confirmar— y quien no
 // conoce la app no sabía por dónde empezar, qué era obligatorio ni qué podía dejar para después.
 // Ahora se pregunta lo mínimo y de a un paso: qué es, quién lo hace, y los detalles que solo
@@ -8868,7 +8902,7 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
   // historia. Si la pieza ya es de uno de esos tipos, la lista se abre sola.
   const otrosTipos=Object.keys(TT).filter(k=>!TIPOS_HABITUALES.includes(k));
   const[verOtros,sVerOtros]=useState(otrosTipos.includes(it.type));
-  const[verDetalles,sVerDetalles]=useState(false);
+  const[verDetalles,sVerDetalles]=useState(()=>!!((it.driveUrl||"").trim()||(it.driveLinks||[]).length||(it.refs||[]).length));
   const paso=PASOS[i];
   const puedeSeguir=i===0?!!(it.title||"").trim():true;
   const ultimo=i===PASOS.length-1;
@@ -8949,40 +8983,52 @@ function AsistentePieza({it,co,users,onCambio,onTerminar,onCancelar,trabajando,e
           style={{...campo,fontSize:13,lineHeight:1.55}}/>
       </div>
 
+      {/* Automatización: solo reel y post, que son los tipos a los que se les puede atar una
+          cadena de comentario→DM. Va a la vista, como un interruptor Sí / No: escondida en el
+          pliegue y con la frase «quien comente recibe un privado» no se entendía qué activaba.
+          La cadena se arma después, en Automatizaciones. */}
+      {tieneAuto&&(<div style={{display:"flex",flexDirection:"column",gap:6}}>
+        <div onClick={()=>onCambio({autoComentario:!it.autoComentario})} role="switch" aria-checked={!!it.autoComentario}
+          style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,cursor:"pointer",background:it.autoComentario?"rgba(var(--rgb-peri),.12)":D.panel,border:"1px solid "+(it.autoComentario?"rgba(var(--rgb-peri),.55)":D.line2)}}>
+          <Ic n="chat" s={16} c={it.autoComentario?D.peri:D.tx3}/>
+          <span style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:1}}>
+            <span style={{fontSize:13.5,fontWeight:700,color:D.tx}}>Automatización</span>
+            <span style={{fontSize:11,color:D.tx4}}>Respuesta automática por privado a quien comente</span>
+          </span>
+          <span style={{fontSize:12,fontWeight:700,color:it.autoComentario?D.peri:D.tx4,minWidth:18,textAlign:"right"}}>{it.autoComentario?"Sí":"No"}</span>
+          <span style={{width:42,height:24,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
+            <span style={{position:"absolute",top:3,left:it.autoComentario?21:3,width:18,height:18,borderRadius:"50%",background:it.autoComentario?D.bg:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.25)",transition:"left .2s"}}/>
+          </span>
+        </div>
+        {it.autoComentario&&<span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>La cadena de mensajes se arma en <b style={{color:D.tx3}}>Automatizaciones</b> y se enciende sola al publicar.</span>}
+      </div>)}
+
       {/* Lo que antes era un tercer paso. Plegado: son ajustes que la mayoría de las piezas no
           llevan, y hacer pasar a todo el mundo por una pantalla entera para no rellenar nada era
           justo lo que alargaba el alta. */}
       <button onClick={()=>sVerDetalles(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,alignSelf:"flex-start",padding:"7px 12px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx4,fontFamily:"inherit",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
-        {verDetalles?"− Ocultar detalles":"+ Drive, automatización y referencias"}
+        {verDetalles?"− Ocultar detalles":"+ Drive y referencias"}
       </button>
 
       {verDetalles&&(<div className="d-in" style={{display:"flex",flexDirection:"column",gap:16,padding:"13px 14px",borderRadius:12,background:D.panel,border:"1px solid "+D.line3}}>
-        {/* Drive: solo si la empresa tiene carpetas cargadas. Ofrecer "asignar carpeta" a una
-            empresa que no tiene ninguna es un callejón sin salida. */}
-        {carpetas.length>0&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
-          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Carpeta de Drive con el material</span>
-          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        {/* Drive. Antes solo aparecía si la empresa tenía carpetas cargadas, así que el botón
+            prometía «Drive» y al desplegar no había nada. Ahora siempre se puede pegar el link
+            de la carpeta o del archivo, y si la empresa tiene carpetas se eligen con un toque. */}
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Drive con el material</span>
+          {carpetas.length>0&&<div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             {carpetas.map(l=>{const on=(it.driveLinks||[]).includes(l.id);return(
               <button key={l.id} onClick={()=>onCambio({driveLinks:on?(it.driveLinks||[]).filter(x=>x!==l.id):[...(it.driveLinks||[]),l.id]})}
                 style={{display:"inline-flex",alignItems:"center",gap:8,...chip(on,D.lav)}}>
                 <Ic n="companies" s={13} c={on?D.lav:D.tx3}/>{l.name}{on&&<Ic n="check" s={12} c={D.lav}/>}
               </button>);})}
-          </div>
-        </div>)}
-
-        {/* Automatización: solo reel y post, que son los tipos a los que se les puede atar una
-            cadena de comentario→DM. La cadena se arma después, en Automatizaciones. */}
-        {tieneAuto&&(<div style={{display:"flex",flexDirection:"column",gap:7}}>
-          <span style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".2em",textTransform:"uppercase",color:D.tx4}}>Automatización de comentarios</span>
-          <button onClick={()=>onCambio({autoComentario:!it.autoComentario})}
-            style={{display:"flex",alignItems:"center",gap:10,alignSelf:"flex-start",padding:"10px 14px",borderRadius:12,background:it.autoComentario?"rgba(var(--rgb-peri),.14)":D.bg,border:"1px solid "+(it.autoComentario?"rgba(var(--rgb-peri),.55)":D.line2),color:it.autoComentario?D.peri:D.tx3,fontFamily:"inherit",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Ic n="chat" s={15}/>Quien comente recibe un privado
-            <span style={{width:28,height:16,borderRadius:999,background:it.autoComentario?D.peri:D.line2,position:"relative",flexShrink:0,transition:"background .2s"}}>
-              <span style={{position:"absolute",top:2,left:it.autoComentario?14:2,width:12,height:12,borderRadius:"50%",background:it.autoComentario?D.bg:D.tx3,transition:"left .2s"}}/>
-            </span>
-          </button>
-          {it.autoComentario&&<span style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>La cadena de mensajes se arma en <b style={{color:D.tx3}}>Automatizaciones</b> y se enciende sola al publicar.</span>}
-        </div>)}
+          </div>}
+          <input value={it.driveUrl||""} onChange={e=>onCambio({driveUrl:e.target.value})}
+            placeholder="Pega el link de Drive (https://drive.google.com/…)" inputMode="url"
+            style={{...campo,fontSize:13}}/>
+          {(it.driveUrl||"").trim()&&!/^https?:\/\//i.test((it.driveUrl||"").trim())&&
+            <span style={{fontSize:11.5,color:PC.ambar}}>El link tiene que empezar con https://</span>}
+        </div>
 
         {/* Referencias: lo que se le enseña a quien produce («que quede como esto»). */}
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
@@ -9058,7 +9104,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // La marca de «está en el asistente» se pone aquí y solo la quita terminar o cancelar. Si se
   // dedujera de que falten datos, el asistente se cerraría solo en cuanto se eligiera encargado
   // —a mitad del paso 2— y la pieza saltaría a la ficha sin haber pasado por el último paso.
-  const addItem=(day)=>{const id=uid();updatePlan([...items,{id,day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length}]);sAbierto(o=>({...o,[id]:true}));sEditandoItem(m=>({...m,[id]:true}));};
+  const addItem=(day)=>{sDiaAbierto(o=>({...o,[day]:true}));const id=uid();updatePlan([...items,{id,day,type:"post",title:"",description:"",strategy:"",production:[],state:"borrador",order:dayItems(day).length}]);sAbierto(o=>({...o,[id]:true}));sEditandoItem(m=>({...m,[id]:true}));};
   // Descarta un item recién creado que quedó vacío. Ni pregunta ni toca `tasks`: nunca llegó a
   // existir en Contenido, así que no hay nada que se pueda perder.
   const descartarItem=id=>updatePlan(items.filter(x=>x.id!==id));
@@ -9130,7 +9176,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // elemento: así las piezas ya confirmadas (que no lo tienen) conservan su firma de 8 campos y
   // no se marcan de golpe como "sin confirmar" al desplegar. Solo cambia la firma de las piezas
   // que de verdad llevan automatización.
-  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||"")].concat(it.autoComentario?["auto"]:[]));
+  const firmaItem=it=>JSON.stringify([it.type,(it.title||"").trim(),(it.description||"").trim(),(it.strategy||"").trim(),[...(it.production||[])].sort(),it.day,it.state||"borrador",(it.files||[]).map(f=>f.url||f.name||"")].concat(it.autoComentario?["auto"]:[]).concat((it.driveUrl||"").trim()?["drv:"+(it.driveUrl||"").trim()]:[]));
   const confirmada=it=>{
     if(it.confirmadaSig)return it.confirmadaSig===firmaItem(it);
     // Piezas de semanas anteriores a este cambio: no tienen firma, pero si ya tienen su
@@ -9154,7 +9200,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
     const plannerTag="planner_"+weekKey;
     try{
       // Se relee de Supabase ANTES de decidir nada. `vieja` y las guardas de abajo tienen que
-      // mirar el estado REAL, no la copia en memoria del arranque: un equipo con Org Semanal
+      // mirar el estado REAL, no la copia en memoria del arranque: un equipo con Organización
       // abierto desde la mañana, si el cliente aprobó a mediodía, veía la pieza todavía en
       // en_aprobacion y al reconfirmar le borraba la aprobación y le devolvía el día del planner.
       // El volcado de tareas se hace además sobre esta MISMA copia fresca, no sobre la de memoria,
@@ -9200,12 +9246,13 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
         files:enElPortal?(vieja.files||[]):((it.files||[]).length?it.files:(vieja?vieja.files||[]:[])),
         // El día que planificó el equipo, guardado aparte de `date`. Una vez que el cliente
         // aprobó, plannedDay es el ancla de facturación (el mes en que se gastó el cupo) y NO se
-        // reescribe: si tomara `it.day`, mover la pieza de semana en Org Semanal y reconfirmar
+        // reescribe: si tomara `it.day`, mover la pieza de semana en Organización y reconfirmar
         // movería el cupo ya gastado a otro mes.
         plannedDay:clienteAprobo?(vieja.plannedDay||vieja.date||it.day):(it.day||vieja?.plannedDay||null),
         // El switch de automatización viaja del item a la tarea: manda el interruptor de Org
         // Semanal. Contenido → Automatización usa esto para listar las piezas que esperan cadena.
         autoComentario:!!it.autoComentario,
+        driveUrl:(it.driveUrl||"").trim()||vieja?.driveUrl||null,
         // Estado del ciclo de la automatización, que también ve el cliente en su portal:
         // "pendiente" (marcada, sin cadena) → "lista" (cadena armada) → "armada" (activa tras
         // publicar). Si ya iba lista/armada no se degrada al reconfirmar; si el switch se apaga,
@@ -9423,6 +9470,9 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   const [prodOpen,sProdOpen]=useState(null);  // desplegable de producción
   const [drvOpen,sDrvOpen]=useState(null);    // desplegable de drive
   const [guionOpen,sGuionOpen]=useState({});  // panel de guión por día
+  // Días desplegados. Cerrados por defecto: siete cajas abiertas con sus botones ocupaban
+  // varias pantallas. Se abren tocándolos y se cierran tocando cualquier parte libre del cuadro.
+  const [diaAbierto,sDiaAbierto]=useState({});
 
   // Los archivos van a Supabase Storage y en el item queda solo la URL. Antes se guardaban
   // en base64 dentro del propio item, o sea dentro de la fila `planners`, que `DB.loadAll()`
@@ -9466,9 +9516,32 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       sGrabs(migrarGrabs(null).grabs);
     });
   },[grabRefresh]);
-  const[vista,sVista]=useState("semana");
+  // Lo primero que se ve es el calendario del mes (pedido de José, 28-oct-2026).
+  const[vista,sVista]=useState("mes");
   const[driveOpen,sDriveOpen]=useState(false);
-  // Org Semanal es la otra puerta a "enviar al portal", el mismo viaje de ida sin vuelta que en
+  // Agregar desde el mes: la pieza va a la semana de ese día, en la empresa elegida, y se salta a
+  // esa semana con el día abierto y el asistente preguntando. Se escribe directo en `planners`
+  // porque `updatePlan` trabaja sobre la semana que se está mirando, que todavía es otra.
+  const agregarDesdeMes=(ds,tipo,coId)=>{
+    const empresa=String(coId||selCo);
+    const d=new Date(ds+"T12:00:00");const dow=d.getDay();const lunes=new Date(d);lunes.setDate(d.getDate()-(dow===0?6:dow-1));
+    const lunesDs=lunes.getFullYear()+"-"+String(lunes.getMonth()+1).padStart(2,"0")+"-"+String(lunes.getDate()).padStart(2,"0");
+    const hoyL=new Date();hoyL.setHours(12,0,0,0);const dh=hoyL.getDay();hoyL.setDate(hoyL.getDate()-(dh===0?6:dh-1));
+    lunes.setHours(12,0,0,0);
+    const off=Math.round((lunes-hoyL)/(7*864e5));
+    const wk=lunesDs+"_"+empresa;
+    const coE=cos.find(c=>String(c.id)===empresa);
+    const id=uid();
+    sPlanners(prev=>{
+      const pl=prev.find(p=>p.weekKey===wk)||{weekKey:wk,companyId:empresa,companyName:coE?.name||"",items:[]};
+      const its=pl.items||[];
+      const np={...pl,items:[...its,{id,day:ds,type:tipo,title:"",description:"",strategy:"",production:[],state:"borrador",order:its.filter(x=>x.day===ds).length}]};
+      return prev.some(p=>p.weekKey===wk)?prev.map(p=>p.weekKey===wk?np:p):[...prev,np];
+    });
+    sSelCo(empresa);sWkOff(off);sVista("semana");
+    sDiaAbierto(o=>({...o,[ds]:true}));sAbierto(o=>({...o,[id]:true}));sEditandoItem(m=>({...m,[id]:true}));
+  };
+  // Organización es la otra puerta a "enviar al portal", el mismo viaje de ida sin vuelta que en
   // Contenido. Preguntar solo en una de las dos deja la garantía a medias, y esta es la pantalla
   // en la que se trabaja a diario.
   const[envConf,sEnvConf]=useState(null);
@@ -9499,7 +9572,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
   // días o el calendario—, y ahí sí los controles del mes viajan pegados a su rejilla.
   const conmutadorVista=(
     <div style={dGrupo}>
-      {[["semana","Semana"],["mes","Mes"]].map(([k,l])=>(
+      {[["mes","Mes"],["semana","Semana"]].map(([k,l])=>(
         <button key={k} onClick={()=>sVista(k)} style={dPill(vista===k)}>{l}</button>))}
     </div>);
 
@@ -9621,8 +9694,8 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       </div>
     </div>}
 
-    {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo}/>}
-    {vista==="semana"&&<div style={{display:"flex",flexDirection:"column",gap:34}}>
+    {vista==="mes"&&<MesPlanner tasks={tasks} cos={cos} planners={planners} addN={addN} soloEmpresa={selCo} onAgregar={agregarDesdeMes}/>}
+    {vista==="semana"&&<div style={{display:"flex",flexDirection:"column",gap:movil?10:12}}>
     {weekDays.map(wd=>{
       const di=dayItems(wd.ds);
       const grabs=dayGrabEntries(wd.ds);
@@ -9636,26 +9709,81 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
       // El destacado marca los días que ya tienen algo planificado — es lo que interesa
       // de un vistazo. El día de hoy se distingue aparte, con el número en cian.
       const conContenido=di.length>0||grabs.length>0;
-      const acc=conContenido?D.cian:(soltando?D.peri:D.line);
-      return(
-      <div key={wd.ds}
-        onDragOver={e=>{e.preventDefault();sDragOver(wd.ds);}}
-        onDragLeave={()=>sDragOver(null)}
-        onDrop={()=>{if(dragItem)moveItem(dragItem,wd.ds);sDragOver(null);}}
-        style={{borderRadius:20,padding:(conContenido||soltando)?5:0,background:(conContenido||soltando)?"linear-gradient(160deg, rgba(var(--rgb-acento),.35), rgba(var(--rgb-tinta),.05) 45%, rgba(var(--rgb-peri),.22))":"transparent"}}>
-        <div style={{borderRadius:16,border:"1px solid "+(conContenido?"rgba(var(--rgb-acento),.3)":D.line),background:"linear-gradient(170deg, rgba(var(--rgb-panel),.95), rgba(var(--rgb-bg),.98))",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      // El color del día lo pone lo que tiene: el tipo de su primera pieza, o el rojo de
+      // grabación. Antes todos los días eran del mismo gris y no se distinguía uno de otro.
+      const colDia=di.length?(TT[di[0].type]?.c||D.cian):grabs.length?D.rojo:(wd.isToday?D.cian:D.line2);
+      const exp=!!diaAbierto[wd.ds]||di.some(it=>abierto[it.id]);
+      const dropProps={
+        onDragOver:e=>{e.preventDefault();sDragOver(wd.ds);},
+        onDragLeave:()=>sDragOver(null),
+        onDrop:()=>{if(dragItem)moveItem(dragItem,wd.ds);sDragOver(null);},
+      };
+      const badge=(tam)=>(
+        <div style={{width:tam,height:tam,borderRadius:tam*.28,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:conContenido?colDia:(wd.isToday?"rgba(var(--rgb-acento),.12)":D.panel),border:"1px solid "+(conContenido?colDia:(wd.isToday?D.cian:D.line2)),flexShrink:0}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:tam<40?7.5:8,letterSpacing:".14em",color:conContenido?D.bg:D.tx4,opacity:conContenido?.75:1,lineHeight:1}}>{wd.dayShort}</span>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:tam<40?15:19,fontWeight:700,color:conContenido?D.bg:(wd.isToday?D.cian:D.tx),lineHeight:1.15}}>{wd.day}</span>
+        </div>);
+      // Cerrar el día: las piezas abiertas se pliegan y una recién creada sin nada escrito se
+      // descarta, igual que con su botón Cancelar.
+      const cerrarDia=()=>{
+        sDiaAbierto(o=>({...o,[wd.ds]:false}));
+        sAbierto(o=>{const n={...o};di.forEach(it=>{n[it.id]=false;});return n;});
+        sEditandoItem(m=>{const n={...m};di.forEach(it=>{n[it.id]=false;});return n;});
+        const vacios=di.filter(it=>!(it.title||"").trim()&&!(it.description||"").trim()&&!(it.production||[]).length&&!tasks.some(t=>String(t.itemId)===String(it.id)));
+        if(vacios.length)updatePlan(items.filter(x=>!vacios.some(v=>v.id===x.id)));
+      };
 
-          {/* Banda del día */}
-          <div style={{display:"flex",alignItems:"center",gap:14,padding:"10px 16px",background:conContenido?"rgba(var(--rgb-acento),.05)":"rgba(var(--rgb-tinta),.02)",borderBottom:"1px solid "+(conContenido?"rgba(var(--rgb-acento),.3)":D.line),borderLeft:"3px solid "+acc}}>
-            <div style={{width:44,height:44,borderRadius:12,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:conContenido?D.cian:D.panel,flexShrink:0,boxShadow:conContenido?"0 0 18px rgba(var(--rgb-acento),.45)":"none"}}>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:8,letterSpacing:".14em",color:conContenido?"rgba(var(--rgb-bg),.65)":D.tx4,lineHeight:1}}>{wd.dayShort}</span>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:19,fontWeight:700,color:conContenido?D.bg:(wd.isToday?D.cian:D.tx),lineHeight:1.15}}>{wd.day}</span>
-            </div>
+      if(!exp){
+        // ── Día plegado: una sola fila. Las piezas se ven como píldoras de su color. ──
+        return(
+        <div key={wd.ds} {...dropProps} onClick={()=>sDiaAbierto(o=>({...o,[wd.ds]:true}))} title="Toca para abrir el día"
+          style={{display:"flex",alignItems:"center",gap:12,padding:movil?"8px 10px":"9px 14px",borderRadius:14,cursor:"pointer",
+            background:soltando?"rgba(var(--rgb-peri),.12)":conContenido?"linear-gradient(100deg, "+colDia+"1c, "+colDia+"06 55%, transparent)":D.panel,
+            border:"1px solid "+(soltando?D.peri:conContenido?colDia+"55":wd.isToday?"rgba(var(--rgb-acento),.45)":D.line3),
+            borderLeft:"4px solid "+(conContenido?colDia:wd.isToday?D.cian:D.line2),opacity:conContenido||wd.isToday?1:.85}}>
+          {badge(movil?36:40)}
+          <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:movil?62:84,flexShrink:0}}>
+            <span style={{fontSize:13.5,fontWeight:700,color:conContenido?D.tx:D.tx2}}>{wd.dayName}</span>
+            <span style={{fontSize:10.5,color:wd.isToday?D.cian:D.tx4,fontWeight:wd.isToday?700:400}}>{wd.isToday?"Hoy":wd.month}</span>
+          </div>
+          <div style={{flex:"1 1 auto",minWidth:0,display:"flex",gap:5,flexWrap:"nowrap",overflow:"hidden",alignItems:"center"}}>
+            {di.slice(0,movil?2:4).map(it=>{const c=TT[it.type]?.c||D.tx4;const st=STATES[it.state||"borrador"]||STATES.borrador;return(
+              <span key={it.id} title={(TT[it.type]?.l||"")+" · "+(it.title||"Sin título")+" · "+st.l}
+                style={{display:"inline-flex",alignItems:"center",gap:5,minWidth:0,maxWidth:movil?120:200,padding:"4px 9px",borderRadius:999,background:c+"1a",border:"1px solid "+c+"66",color:c,fontSize:11,fontWeight:700,flexShrink:1}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:st.c,flexShrink:0}}/>
+                <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||TT[it.type]?.l}</span>
+              </span>);})}
+            {di.length>(movil?2:4)&&<span style={{fontSize:11,fontWeight:700,color:D.tx3,flexShrink:0}}>+{di.length-(movil?2:4)}</span>}
+            {grabs.length>0&&<span title="Día de grabación" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:999,background:"rgba(var(--rgb-rojo),.1)",border:"1px solid rgba(var(--rgb-rojo),.4)",color:D.rojo,fontSize:11,fontWeight:700,flexShrink:0}}><Ic n="camera" s={11} c={D.rojo}/>{movil?"":"Grabación"}</span>}
+            {!conContenido&&<span style={{fontSize:11.5,color:D.tx5}}>Sin contenido</span>}
+          </div>
+          <button onClick={e=>{e.stopPropagation();addItem(wd.ds);}} title="Agregar contenido a este día"
+            style={{width:30,height:30,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,fontFamily:"inherit",fontSize:16,lineHeight:1,cursor:"pointer",padding:0}}>+</button>
+        </div>);
+      }
+
+      return(
+      <div key={wd.ds} {...dropProps}
+        // Tocar cualquier parte LIBRE del cuadro lo vuelve a plegar. Lo que se puede tocar
+        // (botones, campos, enlaces) y las propias piezas no cuentan; y un clic que llega por
+        // un Portal (un modal abierto desde la pieza) tampoco, porque no está dentro del cuadro.
+        onClick={e=>{
+          if(!e.currentTarget.contains(e.target))return;
+          if(e.target.closest("button,a,input,textarea,select,label,video,img,[data-pieza]"))return;
+          cerrarDia();
+        }}
+        style={{borderRadius:20,padding:4,cursor:"default",background:"linear-gradient(160deg, "+colDia+"66, "+colDia+"14 45%, rgba(var(--rgb-peri),.18))",boxShadow:"0 10px 28px rgba(var(--rgb-sombra),.10)"}}>
+        <div style={{borderRadius:16,border:"1px solid "+colDia+"40",background:"linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99))",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {/* Banda del día: tocarla también lo pliega (ver el onClick del cuadro). */}
+          <div title="Toca para plegar el día" style={{display:"flex",alignItems:"center",gap:12,padding:"9px 14px",background:"linear-gradient(100deg, "+colDia+"22, "+colDia+"05 60%, transparent)",borderBottom:"1px solid "+colDia+"33",borderLeft:"4px solid "+colDia,cursor:"pointer"}}>
+            {badge(40)}
             <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-              <span style={{fontSize:15,fontWeight:700,color:conContenido?D.cian:D.tx}}>{wd.dayName}</span>
-              <span style={{fontSize:11,color:D.tx4}}>{wd.month}</span>
+              <span style={{fontSize:15,fontWeight:700,color:D.tx}}>{wd.dayName}</span>
+              <span style={{fontSize:11,color:wd.isToday?D.cian:D.tx4,fontWeight:wd.isToday?700:400}}>{wd.isToday?"Hoy · ":""}{wd.month}</span>
             </div>
             <span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:11,color:di.length?D.tx2:D.tx4,whiteSpace:"nowrap"}}>{resumen}</span>
+            <span style={{fontSize:11,color:D.tx3}}>▴</span>
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px 14px"}}>
@@ -9675,7 +9803,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 const enMano=!!(deslizando&&deslizando.id===it.id);
                 const sig=siguienteEstado(it);
                 return(
-                <div key={it.id} style={{borderRadius:14,padding:realce?2:0,background:realce?realce.marco:"transparent"}}>
+                <div key={it.id} data-pieza="1" style={{borderRadius:14,padding:realce?2:0,background:realce?realce.marco:"transparent"}}>
                   <div style={{position:"relative",borderRadius:12,overflow:"hidden"}}>
                     {/* Debajo de la fila, lo que asoma al deslizar. A la derecha el basurero, que
                         es un botón de verdad: el gesto lo saca, el toque borra. A la izquierda,
@@ -9693,15 +9821,16 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     onTouchStart={e=>{const t=e.touches[0];if(t)desInicio(t.clientX,t.clientY,it);}}
                     onTouchMove={e=>{const t=e.touches[0];if(t)desMueve(t.clientX,t.clientY,it);}}
                     onTouchEnd={()=>desFin(it)} onTouchCancel={()=>desFin(it)}
-                    onPointerDown={e=>{if(e.pointerType!=="mouse")return;desInicio(e.clientX,e.clientY,it);
-                      // Con el ratón el cursor se sale de la fila a mitad del gesto y el pointerup
-                      // se pierde: la fila se quedaba colgada. Capturado, los eventos siguen
-                      // llegando aquí hasta que se suelta, esté donde esté el cursor.
-                      try{e.currentTarget.setPointerCapture(e.pointerId);}catch(err){}}}
-                    onPointerMove={e=>{if(e.pointerType!=="mouse")return;desMueve(e.clientX,e.clientY,it);}}
+                    onPointerDown={e=>{if(e.pointerType!=="mouse")return;desInicio(e.clientX,e.clientY,it);}}
+                    // Con el ratón el cursor se sale de la fila a mitad del gesto y el pointerup
+                    // se pierde, así que se captura el puntero, pero SOLO cuando el gesto ya es un
+                    // arrastre horizontal. Capturando al apretar, Chrome entregaba el clic a esta
+                    // fila y no al botón de dentro: con el ratón la pieza no se abría nunca.
+                    onPointerMove={e=>{if(e.pointerType!=="mouse")return;desMueve(e.clientX,e.clientY,it);
+                      if(desRef.current&&desRef.current.eje==="x"&&!e.currentTarget.hasPointerCapture(e.pointerId)){try{e.currentTarget.setPointerCapture(e.pointerId);}catch(err){}}}}
                     onPointerUp={e=>{if(e.pointerType!=="mouse")return;desFin(it);}}
                     onPointerCancel={e=>{if(e.pointerType!=="mouse")return;desFin(it);}}
-                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:12,background:D.panel,border:"1px solid "+(realce?est.bor:D.line3),borderLeft:"3px solid "+col,overflow:"hidden",touchAction:"pan-y",userSelect:"none",transform:"translateX("+off+"px)",transition:enMano?"none":"transform .24s cubic-bezier(.2,.9,.3,1)"}}>
+                    style={{width:"100%",boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:"10px 13px",borderRadius:12,background:"linear-gradient(100deg, "+col+"14, rgba(var(--rgb-panel),1) 60%)",border:"1px solid "+(realce?est.bor:col+"40"),borderLeft:"4px solid "+col,overflow:"hidden",touchAction:"pan-y",userSelect:"none",transform:"translateX("+off+"px)",transition:enMano?"none":"transform .24s cubic-bezier(.2,.9,.3,1)"}}>
                     {/* El asa: lo único que arrastra la pieza a otro día. Sin ella, con ratón no
                         se podría deslizar, porque el navegador se queda con el gesto entero. */}
                     {conRaton&&(
@@ -9723,7 +9852,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                       if(!(it.title||"").trim())sEditandoItem(m=>({...m,[it.id]:true}));}} title="Toca para abrir"
                     style={{flex:"1 1 auto",minWidth:0,boxSizing:"border-box",position:"relative",display:"flex",alignItems:"center",gap:12,padding:0,background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                     {realce&&<span style={{position:"absolute",inset:0,borderRadius:12,background:realce.glow,animation:realce.late?"pulseFade 1.6s ease-in-out infinite":"none",pointerEvents:"none"}}/>}
-                    <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
+                    <span style={{position:"relative",padding:"3px 10px",borderRadius:999,background:col,border:"1px solid "+col,color:D.bg,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>
                     <span style={{position:"relative",flex:"1 1 auto",minWidth:0,fontSize:13,fontWeight:600,color:D.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.title||"Sin título…"}</span>
                     {/* Distintivo: este contenido lleva automatización de comentario→DM */}
                     {it.autoComentario&&<span title="Lleva automatización de comentario→DM" style={{position:"relative",flexShrink:0,display:"flex"}}><Ic n="chat" s={12} c={D.peri}/></span>}
@@ -9733,7 +9862,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                     {/* Punto ámbar = escrita pero sin confirmar, así que no está en Contenido */}
                     {((it.title||"").trim()||(it.description||"").trim())&&!confirmada(it)&&
                       <span title="Sin confirmar, no aparece en Contenido" style={{position:"relative",width:7,height:7,borderRadius:"50%",background:PC.ambar,flexShrink:0}}/>}
-                    <span style={{position:"relative",fontSize:11,fontWeight:600,color:est.c,flexShrink:0}}>{est.l}</span>
+                    <span style={{position:"relative",padding:"2px 8px",borderRadius:999,background:est.c+"1a",border:"1px solid "+est.c+"55",fontSize:10.5,fontWeight:700,color:est.c,flexShrink:0,whiteSpace:"nowrap"}}>{est.l}</span>
                     <span style={{position:"relative",fontSize:10,color:D.tx4,flexShrink:0}}>▾</span>
                   </button>
                   </div>
@@ -9768,7 +9897,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 <button onClick={()=>sAbierto(o=>({...o,[it.id]:false}))} title="Achicar"
                   style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:11,flexShrink:0}}>▴</button>);
               const chipTipo=(
-                <span style={{padding:"3px 10px",borderRadius:999,background:col+"1f",border:"1px solid "+col+"59",color:col,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>);
+                <span style={{padding:"3px 10px",borderRadius:999,background:col,border:"1px solid "+col,color:D.bg,fontSize:10.5,fontWeight:700,flexShrink:0}}>{TT[it.type]?.l}</span>);
 
               // El material, grande y tocable. Es lo único que hay que mirar para votar, así que
               // manda en la tarjeta en vez de ser una línea con el nombre del archivo.
@@ -9782,8 +9911,8 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                 </div>):null;
 
               return(
-                <div key={it.id} className="d-in" style={{borderRadius:20,padding:5,background:realce?realce.marco:"linear-gradient(160deg, rgba(var(--rgb-tinta),.28), rgba(var(--rgb-tinta),.05) 45%, rgba(var(--rgb-peri),.18))"}}>
-                  <div style={{position:"relative",borderRadius:16,background:"linear-gradient(170deg, rgba(var(--rgb-panel),.97), rgba(var(--rgb-bg),.99))",border:"1px solid rgba(var(--rgb-tinta),.08)",boxShadow:"inset 0 1px 0 rgba(var(--rgb-luz),.06)",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
+                <div key={it.id} data-pieza="1" className="d-in" style={{borderRadius:20,padding:4,background:realce?realce.marco:"linear-gradient(160deg, "+col+"59, "+col+"12 45%, rgba(var(--rgb-peri),.14))"}}>
+                  <div style={{position:"relative",borderRadius:16,background:"linear-gradient(170deg, "+col+"10, rgba(var(--rgb-panel),.97) 40%, rgba(var(--rgb-bg),.99))",border:"1px solid rgba(var(--rgb-tinta),.08)",boxShadow:"inset 0 1px 0 rgba(var(--rgb-luz),.06)",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
                     {/* La franja del tipo, apagándose hacia abajo. Va antes del realce para que quede por
                         debajo de él y no se corte con su animación. */}
                     <span aria-hidden="true" style={{position:"absolute",left:0,top:0,bottom:0,width:3,borderRadius:"16px 0 0 16px",background:"linear-gradient(180deg, "+col+" 0%, "+col+"66 38%, transparent 100%)",pointerEvents:"none"}}/>
@@ -9889,6 +10018,15 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
                         </div>
                         {/* Enlace directo: la gracia de tener el drive asignado es entrar de un toque,
                             no acordarse de en qué carpeta de la empresa estaba. */}
+                        {/^https?:\/\//i.test((it.driveUrl||"").trim())&&(
+                          <a href={it.driveUrl.trim()} target="_blank" rel="noreferrer"
+                            style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:"rgba(var(--rgb-lav),.07)",border:"1px solid rgba(var(--rgb-lav),.35)",color:D.lav,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
+                            <Ic n="companies" s={13} c={D.lav}/>Drive<Ic n="external" s={11} c={D.lav}/>
+                          </a>)}
+                        {["reel","post"].includes(it.type)&&(
+                          <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:999,background:it.autoComentario?"rgba(var(--rgb-peri),.1)":"transparent",border:"1px solid "+(it.autoComentario?"rgba(var(--rgb-peri),.45)":D.line2),color:it.autoComentario?D.peri:D.tx4,fontSize:12,fontWeight:600}}>
+                            <Ic n="chat" s={12} c={it.autoComentario?D.peri:D.tx4}/>Automatización: {it.autoComentario?"Sí":"No"}
+                          </span>)}
                         {drvSel.map(l=>(
                           <a key={l.id} href={l.url} target="_blank" rel="noreferrer"
                             style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,background:"rgba(var(--rgb-lav),.07)",border:"1px solid rgba(var(--rgb-lav),.35)",color:D.lav,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>
@@ -9914,7 +10052,7 @@ function WeekPlanner({tasks,sT,cos,users,planners,sPlanners,pDrafts,sPDrafts,fCo
 
             {/* Día de grabación */}
             {grabs.map(g=>(
-              <div key={g.id}>
+              <div key={g.id} data-pieza="1">
                 <div style={{borderRadius:14,background:D.panel,border:"1px solid rgba(var(--rgb-rojo),.28)",padding:"10px 14px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                   <Ic n="camera" s={16} c={D.rojo}/>
                   <span style={{flex:"1 1 180px",minWidth:140,fontSize:13.5,fontWeight:600,color:D.tx}}>{g.guion?g.guion.title:"Día de Grabación"}</span>
@@ -11554,7 +11692,7 @@ function ClientView({user:cu,onLogout:ol}){
     return saveChain.current;
   };
 
-  // Aprobar NO agenda. La pieza llega desde Org Semanal arrastrando el día que puso el equipo,
+  // Aprobar NO agenda. La pieza llega desde Organización arrastrando el día que puso el equipo,
   // y el banco de «Listo para agendar» es justamente `!t.date`: dejándolo, la publicación
   // aparecía ya colocada en un día que el cliente no eligió y nunca pasaba por el banco —
   // contradiciendo lo que promete la propia pantalla ("queda lista para agendar en Planificar").
