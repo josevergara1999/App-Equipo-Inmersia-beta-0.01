@@ -33,11 +33,32 @@ app.use(express.json({ limit: "15mb", verify: (req, _res, buf) => { req.rawBody 
 // ===============================
 // 🔐 AUTH TOKENS
 // ===============================
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.GOOGLE_CLIENT_SECRET || "inm") + "_inm_jwt_2026";
+// Sin respaldo en el código. Antes, si faltaba JWT_SECRET, se armaba con el secreto de Google
+// más un texto fijo que está en el repo público: quien lo leyera podía firmar una cookie de admin.
+// Lo mismo con Supabase: la dirección de producción y la clave publishable venían escritas aquí.
+// Ahora todo sale del entorno y, si falta algo, el servidor no arranca y dice qué falta.
+const JWT_SECRET = process.env.JWT_SECRET || "";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
+const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "").trim();
+{
+  const faltan = [];
+  if (!JWT_SECRET) faltan.push("JWT_SECRET no está definida");
+  else if (JWT_SECRET.length < 32) faltan.push("JWT_SECRET es demasiado corta (mínimo 32 caracteres, largo y aleatorio)");
+  if (!SUPABASE_URL) faltan.push("SUPABASE_URL no está definida");
+  else if (!/^https?:\/\//i.test(SUPABASE_URL)) faltan.push("SUPABASE_URL no es una dirección http(s)");
+  if (!SUPABASE_KEY) faltan.push("SUPABASE_SERVICE_KEY (o SUPABASE_KEY) no está definida");
+  if (faltan.length) {
+    // Solo se nombran las variables, nunca su valor.
+    console.error("[arranque] El servidor NO arranca, falta configuración:\n - " + faltan.join("\n - ") +
+      "\nDefine esas variables de entorno (en Render: Environment) y vuelve a desplegar.");
+    process.exit(1);
+  }
+}
 
-function signToken(email) {
+// `extra` lleva marcas de la sesión; hoy solo `mc` (debe cambiar la clave de fábrica).
+function signToken(email, extra) {
   const exp = Date.now() + 30 * 24 * 3600000;
-  const payload = Buffer.from(JSON.stringify({ email, exp })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ email, exp, ...(extra || {}) })).toString("base64url");
   const sig = crypto.createHmac("sha256", JWT_SECRET).update(payload).digest("base64url");
   return payload + "." + sig;
 }
@@ -128,6 +149,18 @@ app.use((req, res, next) => {
 
 app.use("/api", rateLimit(120, "api"));
 
+// Sesión abierta con la clave de fábrica (1234): hasta cambiarla solo puede cambiarla, salir o
+// volver a entrar. Va como middleware de TODO /api, y no dentro de requireAuth, para que ninguna
+// ruta que lea la sesión por su cuenta (authInfo, verifyToken) se lo salte. El login queda
+// permitido porque solo reemplaza la cookie (es lo mismo que salir y entrar) y no devuelve datos.
+const RUTAS_CLAVE_PENDIENTE = new Set(["/auth/password", "/auth/logout", "/auth/login"]);
+app.use("/api", (req, res, next) => {
+  const tok = authInfo(req);
+  if (tok && tok.mc && !RUTAS_CLAVE_PENDIENTE.has(req.path.toLowerCase().replace(/\/+$/, "")))
+    return res.status(403).json({ error: "Tienes que cambiar la contraseña de fábrica antes de seguir", debeCambiarClave: true });
+  next();
+});
+
 // ===============================
 // ✅ igId WHITELIST
 // ===============================
@@ -136,8 +169,8 @@ async function isValidIgId(igId) {
   const now = Date.now();
   if (_igCache && now - _igCacheAt < 300000) return _igCache.has(igId);
   try {
-    const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
-    const sbKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    const sbUrl = SUPABASE_URL;
+    const sbKey = SUPABASE_KEY;
     const r = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.companies&select=value`, {
       headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` }
     });
@@ -354,11 +387,11 @@ async function saveCreds(obj) {
 const hashPass = (pass, salt) => crypto.scryptSync(String(pass), salt, 64).toString("hex");
 const normUser = e => String(e || "").trim().toLowerCase();
 
-function setAuthCookie(req, res, email) {
+function setAuthCookie(req, res, email, extra) {
   // `secure` según el protocolo real: en Render llega por https detrás del proxy, en
   // local por http. Fijarlo en true haría que el navegador descartara la cookie en local.
   const https = req.headers["x-forwarded-proto"] === "https" || req.secure;
-  res.cookie("_iauth", signToken(email), {
+  res.cookie("_iauth", signToken(email, extra), {
     httpOnly: true,
     secure: https,
     sameSite: "lax",
@@ -392,10 +425,13 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
       if (!suya || suya.portalOff) return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
-    setAuthCookie(req, res, email);
+    // Entró con la clave de fábrica: la sesión queda marcada y todo /api responde 403 hasta que la
+    // cambie (ver RUTAS_CLAVE_PENDIENTE). La marca va firmada dentro de la cookie.
+    const debeCambiarClave = pass === DEFAULT_PASS;
+    setAuthCookie(req, res, email, debeCambiarClave ? { mc: 1 } : null);
     // Último ingreso por persona: lo muestra el CRM para detectar agencias que dejaron de usar la app.
     enCola(async () => { const u = (await sbGet("ultimos_ingresos", {})) || {}; u[email] = new Date().toISOString(); await sbPut("ultimos_ingresos", u); }).catch(() => {});
-    res.json({ ok: true, email, usandoClavePorDefecto: !c });
+    res.json({ ok: true, email, usandoClavePorDefecto: !c, debeCambiarClave });
   } catch (err) { console.error("login:", err); res.status(500).json({ error: err.message }); }
 });
 
@@ -408,7 +444,7 @@ app.post("/api/auth/password", requireAuth, rateLimit(20, "password"), async (re
     if (!yo || normUser(yo.email) !== email) return res.status(403).json({ error: "Solo puedes cambiar tu propia contraseña" });
     const nueva = String(req.body?.nueva || "");
     if (!email) return res.status(400).json({ error: "Falta el usuario" });
-    if (nueva.length < 6) return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
+    if (nueva.length < 8) return res.status(400).json({ error: "La nueva contraseña debe tener al menos 8 caracteres" });
     if (nueva === DEFAULT_PASS) return res.status(400).json({ error: "Elige una contraseña distinta a la de fábrica" });
 
     const creds = await loadCreds();
@@ -441,8 +477,8 @@ if (pushReady) {
 }
 
 const SB = () => ({
-  url: process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co",
-  key: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT",
+  url: SUPABASE_URL,
+  key: SUPABASE_KEY,
 });
 async function loadSubs() {
   const { url, key } = SB();
@@ -698,10 +734,26 @@ async function idEmpresaCliente(coName, companiesArr) {
 // equipo eso era un pendiente anotado en CLAUDE.md; desde que el portal del cliente publica en
 // Instagram es la diferencia entre publicar en su cuenta o en la de otra empresa cambiando un
 // número. Devuelve null si es un cliente sin empresa resuelta: fail-closed, como scopeCliente.
+//
+// Si un cliente pide OTRA empresa devuelve null (→ 403) en vez de cambiarla en silencio por la
+// suya: un rechazo en voz alta se ve, una sustitución muda no.
 async function empresaPermitida(req, pedida) {
   const co = clienteDe(authInfo(req));
   if (!co) return pedida ? String(pedida) : null;
-  return await idEmpresaCliente(co);
+  const mia = await idEmpresaCliente(co);
+  if (!mia) return null;
+  if (pedida != null && String(pedida) !== "" && String(pedida) !== mia) return null;
+  return mia;
+}
+// Para /api/social/* y /api/ig/*: la empresa con la que se trabaja. Un cliente solo la suya, sacada
+// de SU sesión (nunca del navegador); si pide otra, responde 403 aquí mismo y devuelve null. El
+// equipo sigue igual que antes: manda la que quiera ("" si no mandó ninguna).
+async function empresaDeLaSesion(req, res, pedida) {
+  const p = pedida == null ? "" : String(pedida);
+  if (!clienteDe(authInfo(req))) return p;
+  const mia = await empresaPermitida(req, p);
+  if (!mia) { res.status(403).json({ error: "no puedes acceder a esa empresa" }); return null; }
+  return mia;
 }
 // Claves que un cliente puede LEER (ya scopeadas por scopeCliente). Todo lo demás ni lo ve.
 const CLAVES_CLIENTE = ["companies", "tasks", "galerias"];
@@ -2433,8 +2485,8 @@ app.post("/api/auth/logout", (req, res) => {
 // 📅 GCAL SYNC - persistent
 // ===============================
 async function getGCalAccessToken(email) {
-  const sbUrl = process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || "sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbUrl = SUPABASE_URL;
+  const sbKey = SUPABASE_KEY;
 
   const loadRes = await fetch(`${sbUrl}/rest/v1/app_data?key=eq.gcal_tokens&select=value`, {
     headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` }
@@ -2532,8 +2584,8 @@ app.get("/api/auth/callback/meta",async(req,res)=>{
     const llRes=await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortData.access_token}`);
     const llData=await llRes.json();
     const token=llData.access_token||shortData.access_token;
-    const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-    const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+    const sbUrl=SUPABASE_URL;
+    const sbKey=SUPABASE_KEY;
     await fetch(`${sbUrl}/rest/v1/app_data`,{
       method:"POST",
       headers:{"apikey":sbKey,"Authorization":`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
@@ -2890,10 +2942,14 @@ app.get("/api/meta/insights",requireAuth,async(req,res)=>{
 // ===============================
 // 🤖 ATLAS VOICE ASSISTANT API
 // ===============================
+// Sin valor por defecto: antes había uno escrito aquí, en el repo público, y bastaba leerlo para
+// entrar a /api/atlas/*. Si ATLAS_API_KEY no está definida, la API de Atlas queda apagada (503).
 const requireAtlas=(req,res,next)=>{
-  const key=req.headers['x-atlas-key'];
-  const validKey=process.env.ATLAS_API_KEY||'atlas2026XkP9mWqVz3bNj';
-  if(!key||key!==validKey)return res.status(401).json({error:'unauthorized'});
+  const validKey=process.env.ATLAS_API_KEY;
+  if(!validKey)return res.status(503).json({error:'atlas_no_configurado'});
+  const key=Buffer.from(String(req.headers['x-atlas-key']||''));
+  const ok=Buffer.from(validKey);
+  if(key.length!==ok.length||!crypto.timingSafeEqual(key,ok))return res.status(401).json({error:'unauthorized'});
   next();
 };
 
@@ -3021,8 +3077,8 @@ app.get("/api/atlas/metrics",requireAtlas,async(req,res)=>{
 // Prospectos (leads) pushed by Atlas's leads_tool.py — stored as a single app_data
 // row (key="prospects") like everything else in this app, deduped by place_id.
 async function loadProspects(){
-  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbUrl=SUPABASE_URL;
+  const sbKey=SUPABASE_KEY;
   const r=await fetch(`${sbUrl}/rest/v1/app_data?key=eq.prospects&select=value`,{
     headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`}
   });
@@ -3030,8 +3086,8 @@ async function loadProspects(){
   return d?.[0]?.value||[];
 }
 async function saveProspects(list){
-  const sbUrl=process.env.SUPABASE_URL||"https://cvytwyvaxccbcpfqezlr.supabase.co";
-  const sbKey=process.env.SUPABASE_SERVICE_KEY||process.env.SUPABASE_KEY||"sb_publishable_qMN54n9jRGicBX81xsV5-g_3mxen2AT";
+  const sbUrl=SUPABASE_URL;
+  const sbKey=SUPABASE_KEY;
   await fetch(`${sbUrl}/rest/v1/app_data`,{
     method:"POST",
     headers:{apikey:sbKey,Authorization:`Bearer ${sbKey}`,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
@@ -3097,7 +3153,7 @@ function storageKey() {
   // La subida a Storage necesita service_role: la publishable key no puede escribir.
   return process.env.SUPABASE_SERVICE_KEY || "";
 }
-const storageUrl = () => process.env.SUPABASE_URL || "https://cvytwyvaxccbcpfqezlr.supabase.co";
+const storageUrl = () => SUPABASE_URL;
 
 // Supabase manda el motivo real dentro del cuerpo, y devuelve 400 para cosas muy distintas
 // entre sí: bucket que no existe, tipo de archivo no permitido, archivo sobre el tope del
@@ -3380,6 +3436,10 @@ app.post("/api/social/connect", requireAuth, async (req, res) => {
 // desaparecer. Por eso el mapa se reescribe entero en vez de ir agregando.
 app.get("/api/social/accounts", requireAuth, async (req, res) => {
   try {
+    // Un cliente solo puede preguntar por la suya (403 si pide otra); el equipo manda la query,
+    // o ninguna para ver todas, que es el comportamiento de siempre.
+    const quiere = await empresaDeLaSesion(req, res, req.query.companyId);
+    if (quiere === null) return;
     const s = await loadSocial();
     let lista = null;
     if (zernioKey()) {
@@ -3389,9 +3449,7 @@ app.get("/api/social/accounts", requireAuth, async (req, res) => {
     if (!lista) {
       // Sin Zernio (o caído) no se reescribe el mapa: se responde con lo guardado + Meta.
       const todas = await cuentasPublicacion();
-      const mia0 = await empresaPermitida(req, null);
-      const q0 = mia0 || req.query.companyId;
-      return res.json(q0 ? (todas[q0] || {}) : todas);
+      return res.json(quiere ? (todas[quiere] || {}) : todas);
     }
     const porProfile = {};
     for (const a of lista) {
@@ -3415,10 +3473,6 @@ app.get("/api/social/accounts", requireAuth, async (req, res) => {
     await saveSocial(s2 => { s2.cuentas = cuentas; return s2; });
     // Encima, las cuentas que publican directo por Meta (mandan sobre Zernio).
     const todas = await cuentasPublicacion();
-    // Un cliente solo puede preguntar por la suya. Para el equipo, empresaPermitida devuelve
-    // null y manda la query, que es el comportamiento de siempre.
-    const mia = await empresaPermitida(req, null);
-    const quiere = mia || req.query.companyId;
     res.json(quiere ? (todas[quiere] || {}) : todas);
   } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
 });
@@ -3485,6 +3539,14 @@ app.post("/api/social/publish", requireAuth, async (req, res) => {
 // estado real, la ficha de Contenido cantaría victoria antes de tiempo.
 app.get("/api/social/post/:id", requireAuth, async (req, res) => {
   try {
+    // Un cliente solo consulta publicaciones de SUS piezas: el id tiene que estar en una tarea de
+    // su empresa (la de la sesión). El equipo consulta cualquiera, como antes.
+    if (clienteDe(authInfo(req))) {
+      const mia = await empresaPermitida(req, null);
+      const tareas = mia ? ((await sbGet("tasks", [])) || []) : [];
+      const suya = tareas.some(t => t && String(t.companyId) === mia && t.socialPost && String(t.socialPost.id) === String(req.params.id));
+      if (!suya) return res.status(403).json({ error: "no puedes acceder a esa publicación" });
+    }
     const d = await zernio(`/posts/${encodeURIComponent(req.params.id)}`);
     const post = d?.post || d;
     res.json({ status: post?.status || null, platforms: post?.platforms || [] });
@@ -3822,7 +3884,8 @@ async function publicarAhoraMeta(cid, p) {
 }
 
 app.get("/api/ig/status", requireAuth, async (req, res) => {
-  const cid = String(req.query.companyId || "");
+  const cid = await empresaDeLaSesion(req, res, req.query.companyId);
+  if (cid === null) return;
   if (!igAppId() || !igAppSecret())
     return res.json({ configurado: false, motivo: "faltan IG_APP_ID e IG_APP_SECRET en el servidor" });
   const s = await loadIG();
@@ -3840,7 +3903,8 @@ app.get("/api/ig/status", requireAuth, async (req, res) => {
 });
 
 app.get("/api/ig/connect", requireAuth, async (req, res) => {
-  const cid = String(req.query.companyId || "");
+  const cid = await empresaDeLaSesion(req, res, req.query.companyId);
+  if (cid === null) return;
   if (!cid) return res.status(400).json({ error: "companyId requerido" });
   if (!igAppId()) return res.status(400).json({ error: "falta IG_APP_ID en el servidor" });
   // Si la cuenta ya publica por aquí, reconectarla para comentarios no le puede quitar ese permiso.
@@ -3972,7 +4036,8 @@ app.get("/api/ig/callback", async (req, res) => {
 
 // Las publicaciones reales de la cuenta, para poder elegir en cuál se aplica la automatización.
 app.get("/api/ig/publicaciones", requireAuth, async (req, res) => {
-  const cid = String(req.query.companyId || "");
+  const cid = await empresaDeLaSesion(req, res, req.query.companyId);
+  if (cid === null) return;
   const c = await igToken(cid);
   if (!c?.token) return res.status(409).json({ error: "no_conectada" });
   try {
@@ -3995,11 +4060,16 @@ app.get("/api/ig/publicaciones", requireAuth, async (req, res) => {
 
 // ── Reglas: palabra que dispara → mensaje que se manda ──
 app.get("/api/ig/reglas", requireAuth, async (req, res) => {
+  const cid = await empresaDeLaSesion(req, res, req.query.companyId);
+  if (cid === null) return;
   const s = await loadIG();
-  res.json({ reglas: s.reglas[String(req.query.companyId || "")] || [] });
+  res.json({ reglas: s.reglas[cid] || [] });
 });
 app.put("/api/ig/reglas", requireAuth, async (req, res) => {
-  const { companyId, reglas } = req.body || {};
+  const { reglas } = req.body || {};
+  // La empresa sale de la sesión para un cliente (403 si manda otra); el equipo manda la del cuerpo.
+  const companyId = await empresaDeLaSesion(req, res, (req.body || {}).companyId);
+  if (companyId === null) return;
   if (!companyId) return res.status(400).json({ error: "companyId requerido" });
   if (!Array.isArray(reglas)) return res.status(400).json({ error: "reglas debe ser una lista" });
   const limpias = reglas.slice(0, 20).map(r => {

@@ -18,8 +18,10 @@ Babel transpila **en el navegador**. Un error de sintaxis JSX no da aviso al gua
 **página en blanco**. Valida siempre antes de recargar:
 
 ```js
-// node, desde la raíz del repo
-const Babel = require("./public/index_files/babel.min.js.descarga");
+// node, desde la raíz del repo. `public/index_files/` se borró (loop 2 de seguridad: era una
+// copia vieja servida en público con la clave de Supabase); baja babel.min.js de
+// https://unpkg.com/@babel/standalone/babel.min.js a una carpeta FUERA de public/.
+const Babel = require("../babel.min.js");
 const html = require("fs").readFileSync("public/index.html", "utf8");
 const code = html.match(/<script[^>]*type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 Babel.transform(code, { presets: ["react"] }); // lanza con el número de línea

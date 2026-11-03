@@ -4,7 +4,10 @@ node_modules/
 # Secretos — NUNCA subir. SUPABASE_SERVICE_KEY da acceso total a la base de datos.
 .env
 .env.*
+.env*
 !.env.example
+# Secreto de cliente OAuth de Google descargado de Google Cloud: nunca va al repo.
+client_secret_*.json
 
 # Archivos de demo/pruebas locales (generados, no forman parte de la app)
 public/__mocktest*.html

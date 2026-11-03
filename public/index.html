@@ -682,19 +682,19 @@ const INIT_USERS=[
   // históricos siguen guardados bajo esa clave en `teamPay` y deben seguir sumando.
   // `vota:true` = decide si una pieza puede salir al portal del cliente. Es aparte del rol:
   // el resto del equipo ve y trabaja el contenido, pero no cuenta para la votación.
-  {id:2,name:"Cleme",superadmin:true,email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",pass:"1234",vota:true},
-  {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b",pass:"1234"},
-  {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"Sales",avatar:"GA",color:"#ffd93d",pass:"1234",vota:true},
-  {id:5,name:"Javi",superadmin:true,email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",pass:"1234",vota:true},
-  {id:6,name:"Jose",superadmin:true,email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",pass:"1234",vota:true},
-  {id:7,name:"INMERSIA",email:"inmersiatours@gmail.com",gmail:"inmersiatours@gmail.com",role:"admin",avatar:"IN",color:"#c9a0ff",pass:"1234"},
-  {id:100,name:"Huemul",email:"huemul",role:"cliente",avatar:"HU",color:"#9d6bff",pass:"1234",companyName:"Huemul"},
-  {id:101,name:"Fauna",email:"fauna",role:"cliente",avatar:"FA",color:"#4ecdc4",pass:"1234",companyName:"Fauna"},
-  {id:102,name:"Antue",email:"antue",role:"cliente",avatar:"AN",color:"#ff6b6b",pass:"1234",companyName:"Antue"},
+  {id:2,name:"Cleme",superadmin:true,email:"cleme@inmersia.cl",gmail:"clementeignacio19@gmail.com",role:"admin",avatar:"CL",color:"#4ecdc4",vota:true},
+  {id:3,name:"Tiago",email:"tiago@inmersia.cl",role:"editor",avatar:"TI",color:"#ff6b6b"},
+  {id:4,name:"Gali",email:"gali@inmersia.cl",gmail:"gcastilloaguirre@gmail.com",role:"Sales",avatar:"GA",color:"#ffd93d",vota:true},
+  {id:5,name:"Javi",superadmin:true,email:"javi@inmersia.cl",gmail:"j.agutoledo@gmail.com",role:"admin",avatar:"JA",color:"#6bcbff",vota:true},
+  {id:6,name:"Jose",superadmin:true,email:"jose@inmersia.cl",gmail:"jose.vergara.diaz.vr@gmail.com",role:"admin",avatar:"JO",color:"#ff9ff3",vota:true},
+  {id:7,name:"INMERSIA",email:"inmersiatours@gmail.com",gmail:"inmersiatours@gmail.com",role:"admin",avatar:"IN",color:"#c9a0ff"},
+  {id:100,name:"Huemul",email:"huemul",role:"cliente",avatar:"HU",color:"#9d6bff",companyName:"Huemul"},
+  {id:101,name:"Fauna",email:"fauna",role:"cliente",avatar:"FA",color:"#4ecdc4",companyName:"Fauna"},
+  {id:102,name:"Antue",email:"antue",role:"cliente",avatar:"AN",color:"#ff6b6b",companyName:"Antue"},
   // `companyName` tiene que calzar con el nombre de la empresa en `companies` (la búsqueda
   // ignora mayúsculas). El servidor no necesita saber de los clientes: no están en TEAM y el
   // login acepta la de fábrica mientras no se haya guardado otra en `user_creds`.
-  {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:PC.verde,pass:"1234",companyName:"valle aventura"},
+  {id:103,name:"Valle Aventura",email:"valleaventura",role:"cliente",avatar:"VA",color:PC.verde,companyName:"valle aventura"},
 ];
 
 // El correo del portal de una empresa: su nombre, normalizado. Tiene que dar EXACTAMENTE lo
@@ -1585,16 +1585,48 @@ function Login({users:us,onLogin:ol}){
     // solo entrega la empresa que calce con el correo, y si no calza ninguna, no entrega nada.
     try{
       const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:u?u.email:el,password:p})});
-      if(r.ok)return ol(u||clientePorCorreo(el));
+      if(r.ok){
+        const d=await r.json().catch(()=>({}));
+        // Entró con la clave de fábrica: el servidor no deja hacer nada más hasta cambiarla.
+        if(d.debeCambiarClave){sPend({u:u||clientePorCorreo(el),email:u?u.email:el,actual:p});sP("");return;}
+        return ol(u||clientePorCorreo(el));
+      }
       if(r.status===401)return sEr("Credenciales incorrectas");
       throw new Error("servidor");
     }catch(_){
-      // Sin servidor solo se puede comprobar contra la lista local, que a un cliente generado
-      // desde la app no lo tiene. Se dice lo que pasa en vez de «credenciales incorrectas».
-      if(u&&u.pass===p)ol(u);
-      else sEr(u?"Credenciales incorrectas":"Sin conexión con el servidor. Inténtalo de nuevo.");
+      // Sin servidor no hay forma de entrar: la lista local ya no lleva contraseñas, y sin la
+      // cookie del servidor la app no podría leer ni guardar nada.
+      sEr("Sin conexión con el servidor. Inténtalo de nuevo.");
     }
   };
+
+  // Cambio obligatorio de la clave de fábrica, antes de entrar.
+  const[pend,sPend]=useState(null);
+  const[n1,sN1]=useState("");
+  const[n2,sN2]=useState("");
+  const guardarNueva=async()=>{
+    if(n1.length<8)return sEr("La nueva contraseña debe tener al menos 8 caracteres");
+    if(n1==="1234")return sEr("Elige una contraseña distinta a la de fábrica");
+    if(n1!==n2)return sEr("Las contraseñas no coinciden");
+    try{await API.changePassword(pend.email,pend.actual,n1);}
+    catch(err){return sEr(err.message);}
+    const quien=pend.u;sPend(null);sN1("");sN2("");ol(quien);
+  };
+  const cancelarNueva=async()=>{try{await fetch("/api/auth/logout",{method:"POST"});}catch(_){}sPend(null);sN1("");sN2("");sEr("");};
+
+  if(pend)return(
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}>
+      <div className="su" style={{width:420,padding:34,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:20}}>
+        <h1 style={{textAlign:"center",marginBottom:12}}>INMERSIA</h1>
+        <p style={{marginBottom:14}}>Entraste con la contraseña de fábrica. Para seguir, elige una nueva de al menos 8 caracteres.</p>
+        {er && <div style={{color:"red",marginBottom:10}}>{er}</div>}
+        <input type="password" value={n1} onChange={x=>{sN1(x.target.value);sEr("")}} placeholder="Nueva contraseña"/>
+        <input type="password" value={n2} onChange={x=>{sN2(x.target.value);sEr("")}} placeholder="Repite la nueva contraseña"/>
+        <button onClick={guardarNueva} style={{width:"100%",marginTop:10,padding:10}}>Guardar y entrar</button>
+        <button onClick={cancelarNueva} style={{width:"100%",marginTop:10,padding:10}}>Cancelar</button>
+      </div>
+    </div>
+  );
 
   const loginGoogle=()=>{
     window.location.href="/api/auth/google-login";
@@ -11285,7 +11317,7 @@ function PerfilModal({open,onClose,user,co,onToast,onEmail}){
     sMsg(null);
     if(!actual||!nueva)return sMsg({texto:"Completa la contraseña actual y la nueva",ok:false});
     if(nueva!==repite)return sMsg({texto:"La nueva contraseña y su repetición no coinciden",ok:false});
-    if(nueva.length<6)return sMsg({texto:"La nueva contraseña debe tener al menos 6 caracteres",ok:false});
+    if(nueva.length<8)return sMsg({texto:"La nueva contraseña debe tener al menos 8 caracteres",ok:false});
     sGuardando(true);
     try{
       await API.changePassword(user.email,actual,nueva);
