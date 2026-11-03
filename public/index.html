@@ -3338,9 +3338,13 @@ const cotConfigInicial=()=>({
   packs:Object.entries(PLANS).filter(([k])=>k!=="custom").map(([k,p])=>({id:k,nombre:p.name,precio:p.price,incluye:{...p.tasks},descripcion:""})),
   servicios:EXTRAS.filter(e=>e.price>0).map(e=>({id:e.id,nombre:e.name,unidad:e.unit,precio:e.price})),
 });
+// Lo que incluye un plan, como frases: los ítems libres que escribe cada agencia y, si los usa,
+// los contadores de piezas de contenido (TT). Lo usan la tarjeta, el editor y el PDF.
+const lineasPlan=p=>[...(p.items||[]).filter(it=>String(it.texto||"").trim()).map(it=>(String(it.cant||"").trim()?String(it.cant).trim()+" ":"")+String(it.texto).trim()),
+  ...Object.entries(p.incluye||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k).toLowerCase())];
 const escHtml=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const totalesCot=c=>{
-  const packs=(c.packs||[]).reduce((a,p)=>a+(+p.precio||0)*(+p.meses||1),0);
+  const packs=(c.packs||[]).reduce((a,p)=>a+(+p.precio||0)*(p.periodo==="unico"?1:(+p.meses||1)),0);
   const serv=(c.servicios||[]).reduce((a,s)=>a+(+s.precio||0)*(+s.cantidad||0),0);
   const bruto=packs+serv;
   const desc=Math.round(bruto*((+c.descuento||0)/100));
@@ -3357,7 +3361,7 @@ function imprimirCotizacion(c,pl0){
   const t=totalesCot(c);
   const $=n=>"$"+Math.round(n||0).toLocaleString("es-CL");
   const tipos=inc=>Object.entries(inc||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k).toLowerCase()+(n>1&&!/s$|\s/.test(TT[k]?.l||k)?"s":"")).join(" · ");
-  const filasPacks=(c.packs||[]).map(p=>`<tr><td><b>${escHtml(p.nombre)}</b><div class="d">${escHtml(tipos(p.incluye))}${p.descripcion?"<br>"+escHtml(p.descripcion):""}</div></td><td class="n">${p.meses||1} ${(p.meses||1)>1?"meses":"mes"}</td><td class="n">${$(p.precio)}</td><td class="n">${$(p.precio*(p.meses||1))}</td></tr>`).join("");
+  const filasPacks=(c.packs||[]).map(p=>{const u=p.periodo==="unico";const li=lineasPlan(p);return `<tr><td><b>${escHtml(p.nombre)}</b>${p.descripcion?`<div class="d">${escHtml(p.descripcion)}</div>`:""}${li.length?`<ul class="d" style="margin:5px 0 0;padding-left:17px">${li.map(x=>`<li>${escHtml(x)}</li>`).join("")}</ul>`:""}</td><td class="n">${u?"Pago único":(p.meses||1)+" "+((p.meses||1)>1?"meses":"mes")}</td><td class="n">${$(p.precio)}${u?"":'<div class="d">al mes</div>'}</td><td class="n">${$(p.precio*(u?1:(p.meses||1)))}</td></tr>`;}).join("");
   const filasServ=(c.servicios||[]).filter(s=>+s.cantidad>0).map(s=>`<tr><td>${escHtml(s.nombre)}${s.unidad?` <span class="d">(${escHtml(s.unidad)})</span>`:""}</td><td class="n">${s.cantidad}</td><td class="n">${$(s.precio)}</td><td class="n">${$(s.precio*s.cantidad)}</td></tr>`).join("");
   const vence=(()=>{try{const d=new Date(c.fecha+"T12:00:00");d.setDate(d.getDate()+(+c.validezDias||0));return d.toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"});}catch(_){return"";}})();
   const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cotización N° ${c.numero} · ${escHtml(c.cliente)}</title>
@@ -3376,7 +3380,7 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#0f9e9a;ma
 <div style="text-align:right"><div style="font-size:18px;font-weight:700">Cotización N° ${c.numero}</div><div class="m">${escHtml(new Date(c.fecha+"T12:00:00").toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"}))}${vence?"<br>Válida hasta el "+escHtml(vence):""}</div></div></div>
 <div class="m">Para</div><div style="font-size:17px;font-weight:600">${escHtml(c.cliente)}</div>${c.contactoCliente?`<div class="m">${escHtml(c.contactoCliente)}</div>`:""}
 ${pl.intro?`<p>${escHtml(pl.intro)}</p>`:""}
-${filasPacks?`<h3>Plan mensual</h3><table><tr><th>Pack</th><th class="n">Duración</th><th class="n">Valor mensual</th><th class="n">Subtotal</th></tr>${filasPacks}</table>`:""}
+${filasPacks?`<h3>Planes</h3><table><tr><th>Plan</th><th class="n">Duración</th><th class="n">Valor</th><th class="n">Subtotal</th></tr>${filasPacks}</table>`:""}
 ${filasServ?`<h3>Servicios</h3><table><tr><th>Servicio</th><th class="n">Cantidad</th><th class="n">Valor unitario</th><th class="n">Subtotal</th></tr>${filasServ}</table>`:""}
 <table class="tot"><tr><td>Subtotal</td><td class="n">${$(t.bruto)}</td></tr>${t.desc?`<tr><td>Descuento ${c.descuento}%</td><td class="n">-${$(t.desc)}</td></tr>`:""}<tr><td>Neto</td><td class="n">${$(t.neto)}</td></tr>${c.conIva?`<tr><td>IVA 19%</td><td class="n">${$(t.iva)}</td></tr>`:""}<tr class="g"><td>Total</td><td class="n">${$(t.total)}</td></tr></table>
 ${c.notas?`<h3>Notas</h3><div class="box">${escHtml(c.notas)}</div>`:""}
@@ -3429,7 +3433,7 @@ function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
     return{...x,servicios:n?[...otros,{...(x.servicios.find(y=>y.id===s.id)||s),cantidad:n}]:otros};});
   const guardar=async(imprimir)=>{
     if(!f.cliente.trim())return addN("❌ ¿Para quién es la cotización?");
-    if(!f.packs.length&&!f.servicios.length)return addN("❌ Elige al menos un pack o un servicio");
+    if(!f.packs.length&&!f.servicios.length)return addN("❌ Elige al menos un plan o un servicio");
     sBusy(true);
     try{
       const item=await guardarCot(f);sF(item);
@@ -3456,10 +3460,10 @@ function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
   return(<div className="d-in" style={{maxWidth:1100,margin:"0 auto"}}>
     <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:18}}>
       <div><h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Cotizaciones</h1>
-        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{lista.length} emitidas · plantilla, packs y servicios en un solo lugar</div></div>
+        <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{lista.length} emitidas · planes, servicios y plantilla en un solo lugar</div></div>
     </div>
     <div style={{display:"flex",gap:24,marginBottom:16,borderBottom:"1px solid var(--border)"}}>
-      {[["nueva",f.id?"Cotización N° "+f.numero:"Nueva cotización"],["historial","Historial"],["plantilla","Plantilla y precios"]].map(([k,l])=>(
+      {[["nueva",f.id?"Cotización N° "+f.numero:"Nueva cotización"],["historial","Historial"],["planes","Mis planes"],["plantilla","Plantilla y servicios"]].map(([k,l])=>(
         <button key={k} onClick={()=>sTab(k)} style={{padding:"0 2px 10px",background:"transparent",border:"none",borderBottom:"2px solid "+(tab===k?"var(--accent)":"transparent"),marginBottom:-1,color:tab===k?"var(--tx)":"var(--tx4)",fontFamily:"inherit",fontSize:14,fontWeight:tab===k?700:600,cursor:"pointer"}}>{l}</button>))}
     </div>
 
@@ -3482,18 +3486,19 @@ function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
         </div>
 
         <div style={caja}>
-          <span style={rot}>Packs mensuales · elige uno o más</span>
+          <span style={rot}>Planes · elige uno o más</span>
+          {!cfg.packs.length&&<div style={{fontSize:13,color:D.tx3}}>Todavía no hay planes. <button onClick={()=>sTab("planes")} style={{background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,padding:0}}>Crear mis planes</button></div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
             {cfg.packs.map(p=>{const elegido=f.packs.find(y=>y.id===p.id);return(
               <div key={p.id} onClick={()=>togPack(p)} style={{cursor:"pointer",padding:"11px 12px",borderRadius:12,border:"1px solid "+(elegido?"var(--accent)":D.line2),background:elegido?"rgba(var(--rgb-acento),.07)":"transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
                   <Ic n={elegido?"check":"plus"} s={12} c={elegido?D.cian:D.tx4}/>
-                  <b style={{fontSize:13,flex:1}}>{p.nombre}</b>
-                  <span className="num" style={{fontSize:12.5,fontWeight:700,color:elegido?D.cian:D.tx2}}>{fP(+p.precio||0)}</span>
+                  <b style={{fontSize:13,flex:1}}>{p.nombre}{p.destacado&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:"var(--accent)"}}>★</span>}</b>
+                  <span className="num" style={{fontSize:12.5,fontWeight:700,color:elegido?D.cian:D.tx2,textAlign:"right"}}>{fP(+p.precio||0)}<span style={{fontSize:10,fontWeight:500,color:D.tx4}}>{p.periodo==="unico"?" único":" /mes"}</span></span>
                 </div>
-                <div style={{fontSize:11,color:D.tx4,marginTop:5,lineHeight:1.45}}>{Object.entries(p.incluye||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k)).join(" · ")||"Sin contenidos definidos"}</div>
+                <div style={{fontSize:11,color:D.tx4,marginTop:5,lineHeight:1.45}}>{lineasPlan(p).join(" · ")||"Sin detalle de lo que incluye"}</div>
                 {elegido&&<div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:6,marginTop:8,fontSize:11.5,color:D.tx3}}>
-                  Meses <input type="number" min="1" value={elegido.meses} onChange={e=>sF(x=>({...x,packs:x.packs.map(y=>y.id===p.id?{...y,meses:Math.max(1,+e.target.value||1)}:y)}))} style={{width:56,padding:"3px 6px",textAlign:"center"}}/>
+                  {p.periodo!=="unico"&&<>Meses <input type="number" min="1" value={elegido.meses} onChange={e=>sF(x=>({...x,packs:x.packs.map(y=>y.id===p.id?{...y,meses:Math.max(1,+e.target.value||1)}:y)}))} style={{width:56,padding:"3px 6px",textAlign:"center"}}/></>}
                   Valor <input type="number" min="0" value={elegido.precio} onChange={e=>sF(x=>({...x,packs:x.packs.map(y=>y.id===p.id?{...y,precio:+e.target.value||0}:y)}))} style={{width:0,flex:"1 1 70px",minWidth:0,padding:"3px 6px",textAlign:"right"}}/>
                 </div>}
               </div>);})}
@@ -3527,7 +3532,7 @@ function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
       {/* Resumen pegado a la derecha: el total se ve mientras se arma. */}
       <div style={{...caja,position:"sticky",top:16}}>
         <span style={rot}>Resumen</span>
-        {[["Packs",t.packs],["Servicios",t.serv]].map(([l,v])=>(<div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,color:D.tx3,marginBottom:4}}><span>{l}</span><span className="num">{fP(v)}</span></div>))}
+        {[["Planes",t.packs],["Servicios",t.serv]].map(([l,v])=>(<div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,color:D.tx3,marginBottom:4}}><span>{l}</span><span className="num">{fP(v)}</span></div>))}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:13,color:D.tx3,margin:"8px 0"}}>
           <span>Descuento %</span><input type="number" min="0" max="100" value={f.descuento} onChange={e=>sF(x=>({...x,descuento:Math.min(100,Math.max(0,+e.target.value||0))}))} style={{width:70,padding:"4px 8px",textAlign:"right"}}/>
         </div>
@@ -3566,7 +3571,91 @@ function CotizacionesPg({cos,pros,sPros,users,cu,addN}){
         </div>);})}
     </div>}
 
-    {tab==="plantilla"&&<CotPlantilla cfg={cfg} onGuardar={c=>{guardarCfg(c);addN("✅ Plantilla y precios guardados");}}/>}
+    {tab==="planes"&&<CotPlanes cfg={cfg} onGuardar={c=>{guardarCfg(c);addN("✅ Planes guardados");}}/>}
+    {tab==="plantilla"&&<CotPlantilla cfg={cfg} onGuardar={c=>{guardarCfg(c);addN("✅ Plantilla y servicios guardados");}}/>}
+  </div>);
+}
+
+// «Mis planes»: cada agencia arma su propio catálogo. Un plan es nombre, precio, cobro (mensual o
+// pago único) y una lista libre de lo que incluye, porque cada agencia vende cosas distintas
+// (ads, web, fotografía, community…). Los contadores de piezas (TT) quedan como opción para las
+// que producen contenido. Se edita en una copia y se guarda de una vez, como la plantilla.
+// Las cotizaciones guardan una copia del plan elegido: editar o borrar un plan no cambia las emitidas.
+function CotPlanes({cfg,onGuardar}){
+  const[ps,sPs]=useState(cfg.packs||[]);
+  useEffect(()=>sPs(cfg.packs||[]),[cfg]);
+  const[abierto,sAbierto]=useState(null);
+  const sucio=JSON.stringify(ps)!==JSON.stringify(cfg.packs||[]);
+  const set=(i,k,v)=>sPs(x=>x.map((p,j)=>j===i?{...p,[k]:v}:p));
+  const setIt=(i,n,k,v)=>sPs(x=>x.map((p,j)=>j!==i?p:{...p,items:(p.items||[]).map((it,m)=>m===n?{...it,[k]:v}:it)}));
+  const addIt=i=>sPs(x=>x.map((p,j)=>j!==i?p:{...p,items:[...(p.items||[]),{id:uid(),cant:"",texto:""}]}));
+  const delIt=(i,n)=>sPs(x=>x.map((p,j)=>j!==i?p:{...p,items:(p.items||[]).filter((_,m)=>m!==n)}));
+  const mover=(i,d)=>sPs(x=>{const j=i+d;if(j<0||j>=x.length)return x;const y=[...x];[y[i],y[j]]=[y[j],y[i]];return y;});
+  const nuevo=()=>{const id=uid();sPs(x=>[...x,{id,nombre:"",precio:0,periodo:"mensual",descripcion:"",destacado:false,items:[{id:uid(),cant:"",texto:""}],incluye:{}}]);sAbierto(id);};
+  const duplicar=i=>{const id=uid();sPs(x=>{const p=x[i];return[...x.slice(0,i+1),{...p,id,nombre:(p.nombre||"Plan")+" (copia)",items:(p.items||[]).map(it=>({...it,id:uid()})),incluye:{...(p.incluye||{})}},...x.slice(i+1)];});sAbierto(id);};
+  const quitar=i=>{if(confirm("¿Eliminar el plan «"+(ps[i].nombre||"sin nombre")+"»? Las cotizaciones ya emitidas no cambian."))sPs(x=>x.filter((_,j)=>j!==i));};
+  const guardar=()=>onGuardar({...cfg,packs:ps.map(p=>({...p,nombre:String(p.nombre||"").trim()||"Plan sin nombre",items:(p.items||[]).filter(it=>String(it.texto||"").trim())}))});
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3,marginBottom:12};
+  const mini={padding:"6px 11px",borderRadius:999,background:"transparent",border:"1px solid "+D.line2,color:D.tx2,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600};
+  const lbl={fontSize:11.5,fontWeight:600,color:D.tx3,margin:"12px 0 6px"};
+  return(<div>
+    <div style={{fontSize:13,color:D.tx3,marginBottom:14,lineHeight:1.5}}>Arma los planes que vende tu empresa, con lo que incluye cada uno. Después, al cotizar, los eliges con un toque.</div>
+    {!ps.length&&<div style={{...caja,textAlign:"center",color:D.tx3,fontSize:13}}>Todavía no tienes planes. Crea el primero.</div>}
+    {ps.map((p,i)=>{const ab=abierto===p.id;const li=lineasPlan(p);return(
+      <div key={p.id} style={{...caja,border:"1px solid "+(ab?"var(--accent)":p.destacado?"rgba(var(--rgb-acento),.45)":D.line3)}}>
+        <div onClick={()=>sAbierto(ab?null:p.id)} style={{display:"flex",alignItems:"flex-start",gap:12,cursor:"pointer",flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 200px",minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <b style={{fontSize:15}}>{p.nombre||"Plan sin nombre"}</b>
+              {p.destacado&&<span style={{fontSize:10.5,fontWeight:700,padding:"2px 8px",borderRadius:999,background:"rgba(var(--rgb-acento),.12)",color:"var(--accent)"}}>★ Recomendado</span>}
+            </div>
+            {p.descripcion&&<div style={{fontSize:12,color:D.tx3,marginTop:3}}>{p.descripcion}</div>}
+            <div style={{fontSize:12,color:D.tx4,marginTop:5,lineHeight:1.5}}>{li.length?li.join(" · "):"Sin detalle de lo que incluye"}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div className="num" style={{fontSize:18,fontWeight:700}}>{fP(+p.precio||0)}</div>
+            <div style={{fontSize:11,color:D.tx4}}>{p.periodo==="unico"?"pago único":"al mes · neto"}</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+          <button onClick={()=>sAbierto(ab?null:p.id)} style={{...mini,color:ab?"var(--accent)":D.tx2}}>{ab?"Listo":"Editar"}</button>
+          <button onClick={()=>duplicar(i)} style={mini}>Duplicar</button>
+          <button onClick={()=>mover(i,-1)} disabled={i===0} style={{...mini,opacity:i===0?.4:1}} title="Subir">↑</button>
+          <button onClick={()=>mover(i,1)} disabled={i===ps.length-1} style={{...mini,opacity:i===ps.length-1?.4:1}} title="Bajar">↓</button>
+          <button onClick={()=>quitar(i)} style={{...mini,color:PC.rojo,marginLeft:"auto"}}>Eliminar</button>
+        </div>
+        {ab&&<div style={{borderTop:"1px solid "+D.line3,marginTop:12,paddingTop:4}}>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:"2 1 200px"}}><Fd label="Nombre del plan"><input value={p.nombre} onChange={e=>set(i,"nombre",e.target.value)} placeholder="Ej: Plan Crecimiento" autoFocus={!p.nombre&&!window.matchMedia?.("(pointer:coarse)").matches}/></Fd></div>
+            <div style={{flex:"1 1 120px"}}><Fd label="Precio neto"><input type="number" min="0" value={p.precio} onChange={e=>set(i,"precio",+e.target.value||0)} style={{textAlign:"right"}}/></Fd></div>
+            <div style={{flex:"1 1 140px"}}><Fd label="Cobro"><select value={p.periodo||"mensual"} onChange={e=>set(i,"periodo",e.target.value)}><option value="mensual">Mensual</option><option value="unico">Pago único</option></select></Fd></div>
+          </div>
+          <Fd label="Descripción corta (opcional)"><input value={p.descripcion||""} onChange={e=>set(i,"descripcion",e.target.value)} placeholder="Ej: Ideal para negocios que parten en redes"/></Fd>
+          <div style={lbl}>Qué incluye</div>
+          {(p.items||[]).map((it,n)=>(<div key={it.id||n} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+            <input value={it.cant||""} onChange={e=>setIt(i,n,"cant",e.target.value)} placeholder="Cant." style={{width:64,flex:"0 0 64px",textAlign:"center"}}/>
+            <input value={it.texto||""} onChange={e=>setIt(i,n,"texto",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addIt(i);}}} placeholder="Ej: campañas de Meta Ads, reunión mensual, landing page…" style={{flex:1,minWidth:0}}/>
+            <button onClick={()=>delIt(i,n)} title="Quitar" style={{background:"transparent",border:"none",color:D.tx4,cursor:"pointer",fontSize:14,padding:4}}>✕</button>
+          </div>))}
+          <button onClick={()=>addIt(i)} style={{...mini,borderStyle:"dashed",color:D.tx3}}>+ Agregar ítem</button>
+          <div style={lbl}>Piezas de contenido (opcional)</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {Object.keys(TT).filter(k=>k!=="repost"&&k!=="custom").map(k=>(<label key={k} style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:D.tx3}}>
+              {TT[k].l}<input type="number" min="0" value={(p.incluye||{})[k]||0} onChange={e=>set(i,"incluye",{...(p.incluye||{}),[k]:Math.max(0,+e.target.value||0)})} style={{width:52,padding:"3px 5px",textAlign:"center"}}/>
+            </label>))}
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:D.tx2,marginTop:14,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!p.destacado} onChange={e=>set(i,"destacado",e.target.checked)} style={{width:"auto"}}/>Marcar como recomendado
+          </label>
+        </div>}
+      </div>);})}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:4}}>
+      <button onClick={nuevo} style={{...mini,padding:"9px 16px",borderStyle:"dashed",color:D.tx2}}>+ Nuevo plan</button>
+      <div style={{flex:1}}/>
+      {sucio&&<span style={{fontSize:12,color:PC.ambar}}>Cambios sin guardar</span>}
+      <Bt v="s" onClick={()=>sPs(cfg.packs||[])}>Descartar</Bt>
+      <Bt v="p" icon="save" onClick={guardar}>Guardar planes</Bt>
+    </div>
   </div>);
 }
 
@@ -3577,7 +3666,6 @@ function CotPlantilla({cfg,onGuardar}){
   useEffect(()=>sC(cfg),[cfg]);
   const pl=c.plantilla;
   const setPl=(k,v)=>sC(x=>({...x,plantilla:{...x.plantilla,[k]:v}}));
-  const setPack=(i,k,v)=>sC(x=>({...x,packs:x.packs.map((p,j)=>j===i?{...p,[k]:v}:p)}));
   const setServ=(i,k,v)=>sC(x=>({...x,servicios:x.servicios.map((s,j)=>j===i?{...s,[k]:v}:s)}));
   const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3,marginBottom:14};
   const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,marginBottom:10,display:"block"};
@@ -3599,24 +3687,6 @@ function CotPlantilla({cfg,onGuardar}){
     </div>
 
     <div style={caja}>
-      <span style={rot}>Packs mensuales</span>
-      {c.packs.map((p,i)=>(<div key={p.id} style={{padding:"10px 0",borderBottom:"1px solid "+D.line3}}>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-          <input value={p.nombre} onChange={e=>setPack(i,"nombre",e.target.value)} placeholder="Nombre del pack" style={{flex:"1 1 160px",fontWeight:600}}/>
-          <input type="number" min="0" value={p.precio} onChange={e=>setPack(i,"precio",+e.target.value||0)} style={{width:120,textAlign:"right"}} title="Valor mensual neto"/>
-          <button onClick={()=>sC(x=>({...x,packs:x.packs.filter((_,j)=>j!==i)}))} style={quitar} title="Quitar pack">✕</button>
-        </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:7}}>
-          {Object.keys(TT).filter(k=>k!=="repost").map(k=>(<label key={k} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,color:D.tx3}}>
-            {TT[k].l}<input type="number" min="0" value={(p.incluye||{})[k]||0} onChange={e=>setPack(i,"incluye",{...(p.incluye||{}),[k]:Math.max(0,+e.target.value||0)})} style={{width:48,padding:"2px 5px",textAlign:"center"}}/>
-          </label>))}
-        </div>
-        <input value={p.descripcion||""} onChange={e=>setPack(i,"descripcion",e.target.value)} placeholder="Descripción que sale en la cotización (opcional)" style={{width:"100%",boxSizing:"border-box",marginTop:7,fontSize:12}}/>
-      </div>))}
-      <button onClick={()=>sC(x=>({...x,packs:[...x.packs,{id:uid(),nombre:"Nuevo pack",precio:0,incluye:{},descripcion:""}]}))} style={{marginTop:10,padding:"8px 14px",borderRadius:999,background:"transparent",border:"1px dashed "+D.line2,color:D.tx3,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Agregar pack</button>
-    </div>
-
-    <div style={caja}>
       <span style={rot}>Servicios con valor unitario</span>
       {c.servicios.map((s,i)=>(<div key={s.id} style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+D.line3}}>
         <input value={s.nombre} onChange={e=>setServ(i,"nombre",e.target.value)} style={{flex:"2 1 180px"}}/>
@@ -3628,7 +3698,7 @@ function CotPlantilla({cfg,onGuardar}){
     </div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
       <Bt v="s" onClick={()=>sC(cfg)}>Descartar cambios</Bt>
-      <Bt v="p" icon="save" onClick={()=>onGuardar(c)}>Guardar plantilla y precios</Bt>
+      <Bt v="p" icon="save" onClick={()=>onGuardar({...c,packs:cfg.packs})}>Guardar plantilla y servicios</Bt>
     </div>
   </div>);
 }
