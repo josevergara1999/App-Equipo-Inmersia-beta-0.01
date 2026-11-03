@@ -957,6 +957,13 @@ const tm=()=>{const d=new Date();d.setDate(d.getDate()+1);return d.toISOString()
 const fSrc=f=>f?.url||f?.data||"";
 const isImg=f=>(f?.type||"").startsWith("image");
 const isVid=f=>(f?.type||"").startsWith("video");
+// Fecha y hora de Chile como "AAAA-MM-DDTHH:MM:00", el formato de socialPost.programadaPara.
+const ahoraCLIso=()=>new Intl.DateTimeFormat("sv-SE",{timeZone:"America/Santiago",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date()).replace(" ","T")+":00";
+// Lo que queda en la pieza tras pedir «publicar ahora». Con Meta directo, un video puede seguir
+// procesándose en Instagram: entonces no está publicada todavía, y el servidor la termina solo.
+const spTrasPublicar=d=>d&&d.status==="procesando"
+  ?{via:"meta",platform:"instagram",contenedor:d.contenedor,programadaPara:ahoraCLIso(),ahora:true,creadoAt:new Date().toISOString()}
+  :{id:d.postId||null,platform:"instagram",at:new Date().toISOString(),...(d.via?{via:d.via}:{}),...(d.mediaId?{mediaId:d.mediaId}:{}),...(d.permalink?{permalink:d.permalink}:{})};
 
 // ═══ UI Components ══════════════════════════════════════════════
 // ═══ ICON SYSTEM ════════════════════════════════════════════════
@@ -6359,7 +6366,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     if(d&&d.authUrl){
       window.open(d.authUrl,"_blank","noopener");
       addN("Autoriza la cuenta en la pestaña nueva y vuelve aquí para actualizar.");
-    }else addN("❌ "+((d&&d.error)||"Zernio no devolvió la URL de autorización"));
+    }else addN("❌ "+((d&&d.error)||"No se pudo generar el enlace para conectar Instagram"));
   };
   const refrescarIG=async()=>{
     sIgCarga(true);sIgErr("");
@@ -6391,7 +6398,7 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
     }
     sPubId(t.id);
     try{
-      const d=await API.socialPublish({companyId:selCo,platform:"instagram",
+      const d=await API.socialPublish({companyId:selCo,platform:"instagram",taskId:t.id,
         // SOLO el pie que se escribió para publicar (`caption`). Antes caía a `description`, que
         // en las piezas de Organización arrastra las notas internas ("📌 Estrategia: …"), y a
         // `title`, que es un nombre interno ("Post 1 Fauna"): cualquiera de los dos se publicaba
@@ -6416,8 +6423,11 @@ function ContenidoPg({cos,tasks,sT,addN,users,avisar,correosDe,cu,planners,sPlan
         // Instagram la publique de verdad.
         upT(t.id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando},pubError:null});
         addN("🕐 \""+t.title+"\" programada para "+t.date+" a las "+(t.publishTime||"12:00"));
+      }else if(d.status==="procesando"){
+        upT(t.id,{socialPost:spTrasPublicar(d),pubError:null});
+        addN("⏳ Instagram está procesando el video de \""+t.title+"\". Sale sola en unos minutos.");
       }else{
-        upT(t.id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()},pubError:null});
+        upT(t.id,{state:"publicado",socialPost:spTrasPublicar(d),pubError:null});
         addN("📸 \""+t.title+"\" publicada en Instagram");
         avisarA([...encargados(t),...adminsEq()],"📸 Publicada en Instagram","\""+t.title+"\" ya salió en el Instagram de "+(co?.name||"")+".");
       }
@@ -12697,7 +12707,7 @@ function ClientView({user:cu,onLogout:ol}){
     const programar=!!cuando&&new Date(cuando).getTime()>Date.now();
     sBusy(true);
     try{
-      const d=await API.socialPublish({companyId:co?.id,platform:"instagram",caption:(caption||"").trim(),
+      const d=await API.socialPublish({companyId:co?.id,platform:"instagram",taskId:id,caption:(caption||"").trim(),
         media:[{type:isVid(f)?"video":"image",url:f.url}],
         ...(programar?{scheduledFor:cuando,timezone:"America/Santiago"}:{})});
       if(!d||d.error){
@@ -12711,8 +12721,12 @@ function ClientView({user:cu,onLogout:ol}){
         await safeSaveTask(id,{socialPost:{id:d.postId||null,platform:"instagram",programadaPara:cuando},pubError:null});
         sToast("🕐 Programada para el "+date+" a las "+publishTime);
         avisarEquipo("🕐 "+nomCli+" programó una publicación","\""+t.title+"\" queda programada en Instagram para el "+date+" a las "+publishTime+".");
+      }else if(d.status==="procesando"){
+        await safeSaveTask(id,{socialPost:spTrasPublicar(d),pubError:null});
+        sToast("⏳ Instagram está procesando tu video. Sale solo en unos minutos.");
+        return true;
       }else{
-        await safeSaveTask(id,{state:"publicado",socialPost:{id:d.postId||null,platform:"instagram",at:new Date().toISOString()},pubError:null});
+        await safeSaveTask(id,{state:"publicado",socialPost:spTrasPublicar(d),pubError:null});
         sToast("📸 ¡Publicada en Instagram!");
         avisarEquipo("📸 "+nomCli+" publicó","\""+t.title+"\" ya salió en su Instagram.");
       }

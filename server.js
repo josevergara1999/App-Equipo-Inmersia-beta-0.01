@@ -1294,7 +1294,8 @@ const pulso = async (fase, extra) => {
 };
 
 async function sincronizarProgramadas() {
-  if (!zernioKey()) { await pulso("sin_llave"); return; }
+  // Sin Zernio igual corre: las cuentas conectadas por Meta publican sin él.
+  if (!zernioKey() && !(igAppId() && igAppSecret())) { await pulso("sin_llave"); return; }
   if (progEnCurso) { await pulso("saltada_porque_la_anterior_sigue"); return; }
   progEnCurso = true;
   try {
@@ -1312,7 +1313,7 @@ async function sincronizarProgramadas() {
 }
 async function _sincronizarProgramadas() {
   await pulso("empieza");
-  const cuentas = (await loadSocial()).cuentas || {};
+  const cuentas = await cuentasPublicacion();
   const tasks = (await sbGet("tasks", [])) || [];
   const visto = [];   // qué vio de cada pieza candidata, para poder mirarlo desde fuera
   const cambios = {};   // id -> {socialPost, state?, pubError?}
@@ -1331,6 +1332,16 @@ async function _sincronizarProgramadas() {
       hoyCL: hoyCL(), minutosCL: minutosCL(),
       tocaComprobar: !!(sp && sp.id && sp.programadaPara) && !enFuturoCL(String((sp && sp.programadaPara) || "").slice(0, 10), String((sp && sp.programadaPara) || "").slice(11, 16), -1),
     });
+    // Por Meta: lo que ya va por Meta, o lo nuevo de una empresa que publica por Meta. Lo que
+    // Zernio ya tiene puesto sigue su curso allá hasta que salga o cambie.
+    const cuentaCo = cuentas[String(t.companyId)] && cuentas[String(t.companyId)].instagram;
+    if ((sp && sp.via === "meta") || (!(sp && sp.id) && cuentaCo && cuentaCo.via === "meta")) {
+      const v = visto[visto.length - 1]; v.via = "meta";
+      try { await pasoMetaProg(t, sp, cuentas, cambios, avisos, v); }
+      catch (e) { console.error("prog meta:", t.id, e.message); v.errorMeta = String(e && e.message); }
+      continue;
+    }
+    if (!zernioKey()) continue;
     const ok = programable(t, cuentas);
     // 2 minutos, que es lo que tarda en volver a pasar por aquí. Con un margen mayor, una pieza
     // agendada "para dentro de un rato" caía en el hueco: ni se programaba ni se publicaba.
@@ -1391,6 +1402,7 @@ async function _sincronizarProgramadas() {
       // duerme de 03:00 a 07:00). Sin esto se quedaba agendada para siempre, sin publicar y sin
       // que nadie lo supiera: exactamente el fallo silencioso que esto viene a cerrar.
       const minutosTarde = minutosCL() - enMin(t.publishTime);
+      if (ok.cuenta.via === "meta") continue;
       if (t.date === hoyCL() && minutosTarde <= 120) {
         // Se le pasó por poco: el cliente pidió esa hora, publicarla con unos minutos de retraso
         // es lo que quería. Sale ahora.
@@ -1418,6 +1430,7 @@ async function _sincronizarProgramadas() {
     } else if (!ok) continue;                      // nada puesto y nada que poner
 
     if (!ok || !futuro) continue;
+    if (ok.cuenta.via === "meta") continue;   // ya retirada de Zernio: la toma Meta en el próximo repaso
     try {
       const d = await zernio("/posts", { method: "POST", body: JSON.stringify({
         content: String(t.caption || ""),
@@ -1520,7 +1533,7 @@ setInterval(() => repasoCorto(), 600000);
 // tarda en quedar puesto en Zernio lo que el cliente acaba de agendar, y lo que tarda en
 // saberse si salió—. Va aparte para no multiplicar por cinco los avisos por horario y las
 // llamadas a Meta del resto del repaso, que no ganan nada con ello.
-setInterval(() => sincronizarProgramadas().catch(e => console.error("programadas:", e.message)), 120000);
+setInterval(() => sincronizarProgramadas().catch(e => console.error("programadas:", e.message)), +process.env.PROG_MS || 120000);   // PROG_MS solo para pruebas locales
 app.post("/api/notifs/repaso", requireAuth, async (req, res) => { const d = await repasoDiario(true); await repasoCorto(); res.json(d); });
 
 // ===============================
@@ -3329,6 +3342,7 @@ async function ensureProfile(companyId, nombre) {
 }
 
 app.get("/api/social/status", requireAuth, async (req, res) => {
+  if (igAppId() && igAppSecret()) return res.json({ ready: true, via: "meta" });
   if (!zernioKey()) return res.json({ ready: false, motivo: "falta ZERNIO_API_KEY en el servidor" });
   try {
     const d = await zernio("/accounts");
@@ -3343,6 +3357,16 @@ app.post("/api/social/connect", requireAuth, async (req, res) => {
   const { companyId: pedida, nombre, platform = "instagram" } = req.body || {};
   const companyId = await empresaPermitida(req, pedida);
   if (!companyId) return res.status(pedida ? 403 : 400).json({ error: pedida ? "no puedes conectar esa empresa" : "companyId requerido" });
+  // Con la app de Meta configurada, la cuenta se conecta directo a Instagram (con permiso de
+  // publicar) y no a Zernio, que cobra por cuenta.
+  if (platform === "instagram" && igAppId() && igAppSecret()) {
+    const url = "https://www.instagram.com/oauth/authorize"
+      + `?client_id=${encodeURIComponent(igAppId())}`
+      + `&redirect_uri=${encodeURIComponent(igRedirectURI(req))}`
+      + `&scope=${encodeURIComponent(IG_SCOPE_PUB)}`
+      + `&response_type=code&state=${encodeURIComponent(igState(companyId))}`;
+    return res.json({ authUrl: url, via: "meta" });
+  }
   try {
     const profileId = await ensureProfile(companyId, nombre);
     const d = await zernio(`/connect/${encodeURIComponent(platform)}?profileId=${encodeURIComponent(profileId)}`);
@@ -3357,8 +3381,18 @@ app.post("/api/social/connect", requireAuth, async (req, res) => {
 app.get("/api/social/accounts", requireAuth, async (req, res) => {
   try {
     const s = await loadSocial();
-    const d = await zernio("/accounts");
-    const lista = Array.isArray(d) ? d : (d.accounts || []);
+    let lista = null;
+    if (zernioKey()) {
+      try { const d = await zernio("/accounts"); lista = Array.isArray(d) ? d : (d.accounts || []); }
+      catch (e) { console.error("social/accounts, Zernio:", e.message); }
+    }
+    if (!lista) {
+      // Sin Zernio (o caído) no se reescribe el mapa: se responde con lo guardado + Meta.
+      const todas = await cuentasPublicacion();
+      const mia0 = await empresaPermitida(req, null);
+      const q0 = mia0 || req.query.companyId;
+      return res.json(q0 ? (todas[q0] || {}) : todas);
+    }
     const porProfile = {};
     for (const a of lista) {
       // Zernio devuelve profileId poblado como objeto ({_id, name}), no como string. Un
@@ -3379,11 +3413,13 @@ app.get("/api/social/accounts", requireAuth, async (req, res) => {
       }
     }
     await saveSocial(s2 => { s2.cuentas = cuentas; return s2; });
+    // Encima, las cuentas que publican directo por Meta (mandan sobre Zernio).
+    const todas = await cuentasPublicacion();
     // Un cliente solo puede preguntar por la suya. Para el equipo, empresaPermitida devuelve
     // null y manda la query, que es el comportamiento de siempre.
     const mia = await empresaPermitida(req, null);
     const quiere = mia || req.query.companyId;
-    res.json(quiere ? (cuentas[quiere] || {}) : cuentas);
+    res.json(quiere ? (todas[quiere] || {}) : todas);
   } catch (err) { res.status(502).json({ error: err.message, detalle: err.data || null }); }
 });
 
@@ -3405,6 +3441,26 @@ app.post("/api/social/publish", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Los enlaces de Drive/Dropbox devuelven una página HTML en vez del archivo. Sube la pieza a la app." });
   if (platform === "instagram" && caption.length > IG_CAPTION_MAX)
     return res.status(400).json({ error: `El texto pasa de ${IG_CAPTION_MAX} caracteres (van ${caption.length}).` });
+
+  // Publicación directa por Meta si la cuenta tiene el permiso.
+  if (platform === "instagram" && (await cuentaMetaPub(companyId))) {
+    // Programar no crea nada en Instagram: el motor deja anotada la hora y la publica él.
+    if (scheduledFor) return res.json({ ok: true, postId: null, status: "programada", via: "meta" });
+    let pieza = null;
+    const { taskId } = req.body || {};
+    if (taskId != null) {
+      const t = ((await sbGet("tasks", [])) || []).find(x => x && String(x.id) === String(taskId));
+      if (t && String(t.companyId) === String(companyId)) pieza = piezaMeta({ ...t, caption });
+    }
+    if (!pieza) {
+      const m = media[0];
+      const vid = m.type === "video";
+      pieza = { ok: true, tipo: contentType === "story" ? "STORIES" : vid ? "REELS" : "IMAGE", items: [{ url: m.url, video: vid }], caption };
+    }
+    if (!pieza.ok) return res.status(400).json({ error: "No se puede publicar: " + pieza.motivo });
+    try { return res.json(await publicarAhoraMeta(companyId, pieza)); }
+    catch (e) { return res.status(e.http || 502).json({ error: e.message }); }
+  }
 
   try {
     const s = await loadSocial();
@@ -3452,7 +3508,7 @@ app.get("/api/social/post/:id", requireAuth, async (req, res) => {
 // habitual en el resto de APIs de Meta— graph.instagram.com contesta "Unsupported request -
 // method type: get", un error que no menciona la autenticación por ninguna parte y manda a
 // buscar el fallo en los permisos, que es donde no está.
-const IG_API = "https://graph.instagram.com/v25.0";
+const IG_API = (process.env.IG_API_URL || "https://graph.instagram.com/v25.0").trim();   // IG_API_URL solo para pruebas locales
 const igAppId = () => (process.env.IG_APP_ID || "").trim();
 const igAppSecret = () => (process.env.IG_APP_SECRET || "").trim();
 const igVerifyToken = () => (process.env.IG_WEBHOOK_VERIFY_TOKEN || "").trim();
@@ -3514,6 +3570,257 @@ async function igToken(companyId) {
   return c;   // se devuelve el viejo: puede que aún sirva
 }
 
+// ===============================
+// 📤 PUBLICAR DIRECTO EN INSTAGRAM (Meta, sin Zernio)
+// ===============================
+// Zernio cobra por cuenta conectada (las 2 primeras gratis, después 6 USD/mes cada una). La
+// misma app de Meta que ya responde comentarios puede publicar si la cuenta concede
+// `instagram_business_content_publish`, así que una empresa con ese permiso publica por aquí y
+// Zernio queda solo para las cuentas que ya estaban conectadas allá.
+//
+// Instagram publica en dos tiempos: se crea un CONTENEDOR con la URL del archivo (Instagram lo
+// descarga y, si es video, lo procesa) y, cuando está FINISHED, se publica con media_publish.
+// No hay programación del lado de Instagram: la hace `sincronizarProgramadas`, que deja anotada
+// la intención y crea el contenedor IG_PUB_PREP_MIN antes de la hora, para que un reel tenga
+// tiempo de procesarse y salga a su hora.
+//
+// LO QUE EVITA PUBLICAR DOS VECES: un contenedor solo se puede publicar una vez. Si media_publish
+// se corta sin respuesta, el repaso siguiente pregunta por el contenedor: PUBLISHED quiere decir
+// que salió, y se cierra la pieza sin volver a publicar.
+const IG_PUB_PREP_MIN = 15;
+const IG_SCOPE_PUB = IG_SCOPE + ",instagram_business_content_publish";
+// Piezas que se están publicando AHORA desde el botón. El motor las salta mientras tanto: si no,
+// una pieza con la hora recién pasada la publicarían los dos.
+const publicandoAhora = new Set();
+const llavePub = (cid, url) => String(cid) + "|" + String(url || "");
+
+async function igFetch(ruta, params, metodo, tok) {
+  const qs = new URLSearchParams({ ...(params || {}), access_token: tok });
+  const r = await fetch(`${IG_API}/${ruta}?${qs}`, { method: metodo || "GET", signal: AbortSignal.timeout(25000) });
+  const txt = await r.text();
+  let d = {}; try { d = JSON.parse(txt); } catch { /* se maneja abajo */ }
+  if (!r.ok || (d && d.error)) {
+    const er = (d && d.error) || {};
+    const e = new Error(er.error_user_msg || er.message || `Instagram respondió ${r.status}`);
+    e.status = r.status; e.code = er.code; e.sub = er.error_subcode;
+    throw e;
+  }
+  // Los ids se sacan del texto: son números de 17-18 cifras y no se pueden pasar por un Number.
+  const id = (txt.match(/"id"\s*:\s*"?(\d+)"?/) || [])[1] || (d && d.id) || null;
+  return { ...d, id };
+}
+
+// ¿La cuenta puede publicar? Se mira la lista de permisos que entregó el OAuth y, si no vino,
+// se pregunta por la cuota de publicación, que solo responde con el permiso concedido.
+async function igPuedePublicar(igId, token, permisos) {
+  const lista = Array.isArray(permisos) ? permisos : String(permisos || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (lista.length) return lista.includes("instagram_business_content_publish");
+  try { await igFetch(`${igId}/content_publishing_limit`, { fields: "quota_usage" }, "GET", token); return true; }
+  catch (e) { console.log("IG: la cuenta no publica:", e.message); return false; }
+}
+
+// Mapa empresa → cuenta para publicar: lo de Zernio, pisado por la conexión directa de Meta
+// cuando esa cuenta tiene el permiso de publicar.
+async function cuentasPublicacion() {
+  const soc = (await loadSocial()).cuentas || {};
+  const ig = await loadIG();
+  const out = { ...soc };
+  for (const [cid, c] of Object.entries(ig.cuentas || {})) {
+    if (c && c.publica === true && c.igId)
+      out[cid] = { ...(out[cid] || {}), instagram: { accountId: "meta:" + c.igId, platform: "instagram", username: c.username || "", via: "meta" } };
+  }
+  return out;
+}
+async function cuentaMetaPub(cid) {
+  const s = await loadIG();
+  const c = s.cuentas[String(cid)];
+  if (!c || c.publica !== true || !c.token) return null;
+  return await igToken(String(cid));
+}
+
+const esVideoArch = f => /^video/i.test(String((f && f.type) || "")) || /\.(mp4|mov|m4v|webm)(\?|$)/i.test(String((f && f.url) || ""));
+
+// Qué se publica de una pieza: tipo para Instagram, archivos y texto. Las mismas guardas que el
+// botón del equipo: con varias versiones y ninguna elegida no se adivina.
+function piezaMeta(t) {
+  const files = ((t && t.files) || []).filter(Boolean);
+  if (files.length > 1 && t.materialAdjunto !== true && !t.varianteElegida)
+    return { ok: false, motivo: "tiene varias versiones y ninguna elegida" };
+  let items;
+  // Un post con varios archivos marcados como material (no como versiones) es un carrusel.
+  if (t.type === "post" && t.materialAdjunto === true && files.length > 1) items = files.slice(0, 10);
+  else { const f = archivoDeT(t); items = f ? [f] : []; }
+  if (!items.length || items.some(f => !/^https?:\/\//i.test(String(f.url || ""))))
+    return { ok: false, motivo: "el archivo no está en el almacenamiento: Instagram necesita una URL pública" };
+  if (items.some(f => /drive\.google|dropbox|onedrive|icloud/i.test(String(f.url))))
+    return { ok: false, motivo: "los enlaces de Drive o Dropbox no sirven: hay que subir el archivo a la app" };
+  const caption = String(t.caption || "");
+  if (caption.length > IG_CAPTION_MAX) return { ok: false, motivo: `el texto pasa de ${IG_CAPTION_MAX} caracteres` };
+  const tipo = t.type === "historia" ? "STORIES" : items.length > 1 ? "CAROUSEL" : esVideoArch(items[0]) ? "REELS" : "IMAGE";
+  if (tipo === "CAROUSEL" && items.some(esVideoArch)) return { ok: false, motivo: "por ahora el carrusel solo admite fotos" };
+  return { ok: true, tipo, items: items.map(f => ({ url: f.url, video: esVideoArch(f) })), caption };
+}
+
+// Instagram solo acepta JPG en las fotos. Se traduce su error, que no lo dice así.
+function explicaIG(e, p) {
+  const m = String((e && e.message) || e || "").replace(/\.+$/, "");
+  const png = p && p.items && p.items.some(i => !i.video && !/\.jpe?g(\?|$)/i.test(i.url));
+  if (png && /image|format|media/i.test(m)) return m + ". Instagram solo acepta fotos en JPG: si la pieza es PNG, súbela en JPG.";
+  if (/permission|scope|not authorized|\(#10\)|\(#200\)/i.test(m)) return m + ". La cuenta no dio el permiso para publicar: hay que volver a conectar Instagram.";
+  return m;
+}
+
+async function igCrearContenedor(c, p) {
+  const crear = params => igFetch(`${encodeURIComponent(c.igId)}/media`, params, "POST", c.token);
+  const it = p.items[0];
+  if (p.tipo === "CAROUSEL") {
+    const hijos = [];
+    for (const x of p.items) hijos.push((await crear({ image_url: x.url, is_carousel_item: "true" })).id);
+    return (await crear({ media_type: "CAROUSEL", children: hijos.join(","), caption: p.caption })).id;
+  }
+  if (p.tipo === "STORIES") return (await crear({ media_type: "STORIES", [it.video ? "video_url" : "image_url"]: it.url })).id;
+  if (p.tipo === "REELS") return (await crear({ media_type: "REELS", video_url: it.url, caption: p.caption, share_to_feed: "true" })).id;
+  return (await crear({ image_url: it.url, caption: p.caption })).id;
+}
+const igEstadoContenedor = async (c, id) => String((await igFetch(encodeURIComponent(id), { fields: "status_code,status" }, "GET", c.token)).status_code || "");
+async function igPublicarContenedor(c, id) {
+  const d = await igFetch(`${encodeURIComponent(c.igId)}/media_publish`, { creation_id: id }, "POST", c.token);
+  let permalink = null;
+  try { permalink = (await igFetch(encodeURIComponent(d.id), { fields: "permalink" }, "GET", c.token)).permalink || null; } catch { /* no es necesario */ }
+  return { mediaId: d.id, permalink };
+}
+
+// Minutos que faltan para fecha+hora de Chile (negativo si ya pasó).
+const minHastaCL = (fecha, hora) =>
+  (Date.parse(fecha + "T00:00:00Z") - Date.parse(hoyCL() + "T00:00:00Z")) / 60000 + enMin(hora) - minutosCL();
+const firmaMeta = (t, cuando, p) => JSON.stringify([cuando || "", String(t.caption || "").trim(), p && p.ok ? p.tipo : "", p && p.ok ? p.items.map(i => i.url) : []]);
+
+// Un paso del motor para una pieza que publica por Meta. Escribe en `cambios` y `avisos`, igual
+// que el resto de sincronizarProgramadas.
+async function pasoMetaProg(t, sp, cuentas, cambios, avisos, v) {
+  const id = String(t.id);
+  const cid = String(t.companyId);
+  const p = piezaMeta(t);
+  if (p.ok && publicandoAhora.has(llavePub(cid, p.items[0].url))) { v.meta = "la está publicando el botón"; return; }
+  const cuentaOk = !!(cuentas[cid] && cuentas[cid].instagram && cuentas[cid].instagram.via === "meta");
+  const ahora = !!(sp && sp.ahora);
+  const cancelada = t.state !== "aprobado" || (!t.date && !ahora);
+  const cuando = ahora ? sp.programadaPara : (t.date && t.publishTime) ? momentoProg(t) : (t.date && sp && sp.programadaPara) || null;
+  const firma = firmaMeta(t, cuando, p);
+  const base = { via: "meta", platform: "instagram", programadaPara: cuando, sig: firma, auto: true };
+  const nowIso = new Date().toISOString();
+
+  // 1) Ya hay un contenedor en Instagram: se sigue su curso.
+  if (sp && sp.contenedor) {
+    if (cancelada || !cuentaOk) { cambios[id] = { socialPost: null }; v.meta = "cancelada con contenedor creado (caduca solo)"; return; }
+    if (sp.sig && sp.sig !== firma) { cambios[id] = { socialPost: base }; v.meta = "cambió antes de salir: se rehace"; return; }
+    const c = await cuentaMetaPub(cid);
+    if (!c) { v.meta = "sin token"; return; }
+    let estado;
+    try { estado = await igEstadoContenedor(c, sp.contenedor); }
+    catch (e) { v.meta = "no se pudo consultar: " + e.message; return; }
+    v.meta = "contenedor " + estado;
+    const fecha = String(sp.programadaPara || "").slice(0, 10), hora = String(sp.programadaPara || "").slice(11, 16);
+    if (estado === "PUBLISHED") {
+      cambios[id] = { socialPost: { ...sp, at: nowIso }, state: "publicado", pubError: null };
+      avisos.push({ t, tipo: "salio" });
+    } else if (estado === "FINISHED") {
+      if (fecha && minHastaCL(fecha, hora) > 0) return;          // listo, esperando su hora
+      try {
+        const r = await igPublicarContenedor(c, sp.contenedor);
+        cambios[id] = { socialPost: { ...sp, at: nowIso, mediaId: r.mediaId, id: r.mediaId, permalink: r.permalink }, state: "publicado", pubError: null };
+        avisos.push({ t, tipo: "salio" });
+      } catch (e) {
+        // Sin respuesta no se sabe si salió: el repaso siguiente lo ve en el estado del contenedor.
+        if (e.name === "TimeoutError" || e.name === "AbortError" || !e.status) { v.meta = "publicar sin respuesta, se revisa en el próximo repaso"; return; }
+        const fallos = (sp.fallos || 0) + 1;
+        cambios[id] = { socialPost: { ...sp, fallos, ...(fallos >= 3 ? { fallo: true, contenedor: null } : {}) },
+          pubError: { at: nowIso, msg: "Instagram no dejó publicar: " + explicaIG(e, p) } };
+        if (fallos >= 3) avisos.push({ t, tipo: "fallo", detalle: explicaIG(e, p) });
+      }
+    } else if (estado === "ERROR" || estado === "EXPIRED") {
+      const msg = estado === "EXPIRED" ? "el archivo preparado caducó antes de publicarse" : "Instagram no pudo procesar el archivo (revisa formato: video MP4/MOV H.264, foto JPG)";
+      cambios[id] = { socialPost: { ...base, fallo: true }, pubError: { at: nowIso, msg } };
+      avisos.push({ t, tipo: "fallo", detalle: msg });
+    } else if (sp.creadoAt && Date.now() - Date.parse(sp.creadoAt) > 60 * 60000) {
+      const msg = "Instagram lleva más de una hora procesando el archivo";
+      cambios[id] = { socialPost: { ...base, fallo: true }, pubError: { at: nowIso, msg } };
+      avisos.push({ t, tipo: "fallo", detalle: msg });
+    }
+    return;   // IN_PROGRESS: se mira en el próximo repaso
+  }
+
+  // 2) Nada creado todavía.
+  if (cancelada || !cuentaOk || !p.ok || !cuando) {
+    if (sp) cambios[id] = { socialPost: null };
+    if (!p.ok && t.state === "aprobado" && t.date && t.publishTime && cuentaOk && !(t.pubError && t.pubError.msg === p.motivo))
+      cambios[id] = { socialPost: null, pubError: { at: nowIso, msg: "No se puede publicar: " + p.motivo } };
+    v.meta = "nada que programar";
+    return;
+  }
+  if (sp && sp.fallo && sp.sig === firma) { v.meta = "falló con esto mismo: espera a que se corrija"; return; }
+
+  const falta = minHastaCL(cuando.slice(0, 10), cuando.slice(11, 16));
+  v.meta = "faltan " + Math.round(falta) + " min";
+  if (falta > IG_PUB_PREP_MIN) {
+    if (!sp || sp.sig !== firma || sp.via !== "meta") {
+      cambios[id] = { socialPost: base, pubError: null };
+      if (!sp || sp.programadaPara !== cuando) avisos.push({ t, tipo: "programada" });
+    }
+    return;
+  }
+  if (falta < -120) { avisos.push({ t, tipo: "tarde" }); return; }
+
+  const c = await cuentaMetaPub(cid);
+  if (!c) { v.meta = "sin token"; return; }
+  try {
+    const contenedor = await igCrearContenedor(c, p);
+    cambios[id] = { socialPost: { ...base, contenedor, creadoAt: nowIso }, pubError: null };
+    if (!sp) avisos.push({ t, tipo: "programada" });
+  } catch (e) {
+    const msg = explicaIG(e, p);
+    cambios[id] = { socialPost: { ...base, fallo: true }, pubError: { at: nowIso, msg: "Instagram no aceptó el archivo: " + msg } };
+    avisos.push({ t, tipo: "fallo", detalle: msg });
+  }
+}
+
+// Publicar ya, desde el botón (equipo o portal). Espera hasta ~50 s a que Instagram procese; si
+// un video tarda más, devuelve el contenedor y el motor lo termina de publicar solo.
+async function publicarAhoraMeta(cid, p) {
+  const c = await cuentaMetaPub(cid);
+  if (!c) { const e = new Error("no_conectada"); e.http = 409; throw e; }
+  const llave = llavePub(cid, p.items[0].url);
+  if (publicandoAhora.has(llave)) { const e = new Error("Esta pieza ya se está publicando."); e.http = 409; throw e; }
+  publicandoAhora.add(llave);
+  let soltarYa = true;
+  try {
+    let contenedor;
+    try { contenedor = await igCrearContenedor(c, p); }
+    catch (e) { const e2 = new Error(explicaIG(e, p)); e2.http = 502; throw e2; }
+    const hasta = Date.now() + 50000;
+    while (Date.now() < hasta) {
+      const estado = await igEstadoContenedor(c, contenedor).catch(() => "");
+      if (estado === "FINISHED") {
+        try { const r = await igPublicarContenedor(c, contenedor); soltarYa = false; return { ok: true, status: "published", postId: r.mediaId, mediaId: r.mediaId, permalink: r.permalink, via: "meta" }; }
+        catch (e) {
+          if (!e.status) { soltarYa = false; return { ok: true, status: "procesando", contenedor, via: "meta" }; }   // el motor revisa
+          const e2 = new Error(explicaIG(e, p)); e2.http = 502; throw e2;
+        }
+      }
+      if (estado === "PUBLISHED") { soltarYa = false; return { ok: true, status: "published", postId: null, via: "meta" }; }
+      if (estado === "ERROR" || estado === "EXPIRED") { const e = new Error("Instagram no pudo procesar el archivo (video MP4/MOV H.264, foto JPG)."); e.http = 502; throw e; }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    soltarYa = false;
+    return { ok: true, status: "procesando", contenedor, via: "meta" };
+  } finally {
+    // Si salió (o quedó en camino), el candado sigue 3 minutos: es lo que tarda la app en
+    // guardar el resultado en la pieza, y mientras tanto el motor no tiene que tocarla.
+    if (soltarYa) publicandoAhora.delete(llave);
+    else setTimeout(() => publicandoAhora.delete(llave), 180000);
+  }
+}
+
 app.get("/api/ig/status", requireAuth, async (req, res) => {
   const cid = String(req.query.companyId || "");
   if (!igAppId() || !igAppSecret())
@@ -3524,6 +3831,7 @@ app.get("/api/ig/status", requireAuth, async (req, res) => {
     configurado: true,
     conectada: !!c,
     username: c?.username || null,
+    publica: !!(c && c.publica === true),
     expiraEn: c?.expira ? Math.max(0, Math.round((c.expira - Date.now()) / 86400000)) : null,
     reglas: s.reglas[cid] || [],
     // Solo mientras no haya conexión: una vez conectada, un error viejo confunde más que ayuda.
@@ -3531,14 +3839,16 @@ app.get("/api/ig/status", requireAuth, async (req, res) => {
   });
 });
 
-app.get("/api/ig/connect", requireAuth, (req, res) => {
+app.get("/api/ig/connect", requireAuth, async (req, res) => {
   const cid = String(req.query.companyId || "");
   if (!cid) return res.status(400).json({ error: "companyId requerido" });
   if (!igAppId()) return res.status(400).json({ error: "falta IG_APP_ID en el servidor" });
+  // Si la cuenta ya publica por aquí, reconectarla para comentarios no le puede quitar ese permiso.
+  const conPub = req.query.publicar === "1" || ((await loadIG()).cuentas[cid] || {}).publica === true;
   const url = "https://www.instagram.com/oauth/authorize"
     + `?client_id=${encodeURIComponent(igAppId())}`
     + `&redirect_uri=${encodeURIComponent(igRedirectURI(req))}`
-    + `&scope=${encodeURIComponent(IG_SCOPE)}`
+    + `&scope=${encodeURIComponent(conPub ? IG_SCOPE_PUB : IG_SCOPE)}`
     + `&response_type=code&state=${encodeURIComponent(igState(cid))}`;
   res.json({ authUrl: url });
 });
@@ -3596,6 +3906,8 @@ app.get("/api/ig/callback", async (req, res) => {
       return fin(false, `Instagram entregó el permiso pero no deja consultar la cuenta (${detalle}). Suele ser que a la cuenta le falta el rol de evaluador en la app, o que la app aún no tiene acceso avanzado aprobado.`);
     }
 
+    const permisos = corto.permissions || (Array.isArray(corto.data) && corto.data[0] && corto.data[0].permissions) || null;
+    const publica = await igPuedePublicar(igId, token, permisos);
     await saveIG(s => {
       // Una cuenta de Instagram pertenece a UNA empresa. Si estaba enganchada a otra —basta con
       // haberla conectado una vez con otra seleccionada— se suelta de allí antes de guardarla
@@ -3621,6 +3933,7 @@ app.get("/api/ig/callback", async (req, res) => {
         igId, username: me?.username || "", token,
         expira: Date.now() + ((largo?.expires_in || 5184000) * 1000),
         conectadaEl: new Date().toISOString(),
+        publica, permisos: permisos || null,
       };
       return s;
     });
@@ -3653,7 +3966,7 @@ app.get("/api/ig/callback", async (req, res) => {
       });
     } catch (e) { console.error("IG aviso de conexión:", e.message); }
 
-    fin(true, `@${me?.username || igId} conectada`);
+    fin(true, `@${me?.username || igId} conectada` + (publica ? " (también para publicar)" : ""));
   } catch (e) { fin(false, e.message); }
 });
 
