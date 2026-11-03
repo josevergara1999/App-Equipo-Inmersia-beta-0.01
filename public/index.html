@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="/icon-180.png?v=2">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=2">
 <title>INMERSIA · Content Management Platform</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- Las preguntas del brief. El MISMO archivo que dibuja el formulario público (brief.html) y
      que valida el servidor: una pregunta se escribe una sola vez. Va antes del script de Babel
      porque solo define el global `BRIEF`. -->
@@ -39,8 +39,8 @@
 html,body{min-height:100%}
 body{font-family:var(--font-ui);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
-:root{--r:10px;--r-lg:14px;--font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Inter","Segoe UI","Helvetica Neue",system-ui,sans-serif;--font-mono:var(--font-ui)}
-/* Rótulos y cifras: antes JetBrains Mono. Con Inter se conserva el ancho fijo de los números para que las columnas sigan alineadas. */
+:root{--r:10px;--r-lg:14px;--font-ui:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",system-ui,sans-serif;--font-mono:var(--font-ui)}
+/* Rótulos y cifras: antes JetBrains Mono. Con Space Grotesk se conserva el ancho fijo de los números para que las columnas sigan alineadas. */
 [style*="--font-mono"]{font-variant-numeric:tabular-nums}
 @media(max-width:760px){.cot-grid{grid-template-columns:1fr!important}}
 
@@ -3064,8 +3064,8 @@ function imprimirCotizacion(c,pl){
   const filasServ=(c.servicios||[]).filter(s=>+s.cantidad>0).map(s=>`<tr><td>${escHtml(s.nombre)}${s.unidad?` <span class="d">(${escHtml(s.unidad)})</span>`:""}</td><td class="n">${s.cantidad}</td><td class="n">${$(s.precio)}</td><td class="n">${$(s.precio*s.cantidad)}</td></tr>`).join("");
   const vence=(()=>{try{const d=new Date(c.fecha+"T12:00:00");d.setDate(d.getDate()+(+c.validezDias||0));return d.toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"});}catch(_){return"";}})();
   const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cotización N° ${c.numero} · ${escHtml(c.cliente)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Inter,system-ui,sans-serif;color:#14181f;margin:0;padding:40px;max-width:820px;margin:auto}
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{font:14px/1.55 "Space Grotesk",-apple-system,BlinkMacSystemFont,"Helvetica Neue",system-ui,sans-serif;color:#14181f;margin:0;padding:40px;max-width:820px;margin:auto}
 h1{font-size:26px;margin:0}.top{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #0f9e9a;padding-bottom:18px;margin-bottom:22px}
 .m{color:#5d6573;font-size:12.5px}.d{color:#5d6573;font-size:12px;font-weight:400}table{width:100%;border-collapse:collapse;margin:14px 0}
 th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5d6573;text-align:left;border-bottom:1px solid #e3e6eb;padding:8px 6px}
@@ -3074,7 +3074,7 @@ td{border-bottom:1px solid #eef0f3;padding:10px 6px;vertical-align:top}.n{text-a
 .box{background:#f5f6f8;border-radius:10px;padding:14px 16px;margin-top:18px;white-space:pre-wrap;font-size:12.5px}
 h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#0f9e9a;margin:22px 0 4px}footer{margin-top:30px;color:#5d6573;font-size:11.5px;text-align:center}
 @media print{body{padding:0}.noprint{display:none}}</style></head><body>
-<div class="noprint" style="text-align:right;margin-bottom:14px"><button onclick="print()" style="font:600 13px -apple-system,BlinkMacSystemFont,Inter,sans-serif;padding:9px 18px;border-radius:999px;border:0;background:#0f9e9a;color:#fff;cursor:pointer">Imprimir o guardar PDF</button></div>
+<div class="noprint" style="text-align:right;margin-bottom:14px"><button onclick="print()" style="font:600 13px 'Space Grotesk',-apple-system,sans-serif;padding:9px 18px;border-radius:999px;border:0;background:#0f9e9a;color:#fff;cursor:pointer">Imprimir o guardar PDF</button></div>
 <div class="top"><div><h1>${escHtml(pl.emisor)}</h1><div class="m">${[pl.rut&&"RUT "+escHtml(pl.rut),escHtml(pl.web),escHtml(pl.email),escHtml(pl.telefono)].filter(Boolean).join(" · ")}</div></div>
 <div style="text-align:right"><div style="font-size:18px;font-weight:700">Cotización N° ${c.numero}</div><div class="m">${escHtml(new Date(c.fecha+"T12:00:00").toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"}))}${vence?"<br>Válida hasta el "+escHtml(vence):""}</div></div></div>
 <div class="m">Para</div><div style="font-size:17px;font-weight:600">${escHtml(c.cliente)}</div>${c.contactoCliente?`<div class="m">${escHtml(c.contactoCliente)}</div>`:""}
@@ -12158,7 +12158,7 @@ if('serviceWorker' in navigator){
       'display:flex;align-items:center;gap:10px;padding:10px 10px 10px 16px;' +
       'border-radius:14px;background:var(--bg3);border:1px solid var(--border2);' +
       'box-shadow:0 8px 32px -8px rgba(var(--rgb-sombra),.75);max-width:calc(100vw - 32px);' +
-      'font:500 13px/1.4 -apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;color:#E7EAF3';
+      'font:500 13px/1.4 "Space Grotesk",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:#E7EAF3';
 
     var texto = document.createElement('span');
     texto.textContent = 'Hay una versión nueva de la app.';
@@ -12168,7 +12168,7 @@ if('serviceWorker' in navigator){
     recargar.textContent = 'Recargar';
     recargar.style.cssText = 'flex:none;border:1px solid rgba(var(--rgb-acento),.4);border-radius:9px;' +
       'background:rgba(var(--rgb-acento),.12);color:var(--accent);padding:6px 12px;cursor:pointer;' +
-      'font:600 13px/1 -apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif';
+      'font:600 13px/1 "Space Grotesk",-apple-system,BlinkMacSystemFont,system-ui,sans-serif';
     recargar.onclick = function () { location.reload(); };
 
     var cerrar = document.createElement('button');
