@@ -393,6 +393,8 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
     }
 
     setAuthCookie(req, res, email);
+    // Último ingreso por persona: lo muestra el CRM para detectar agencias que dejaron de usar la app.
+    enCola(async () => { const u = (await sbGet("ultimos_ingresos", {})) || {}; u[email] = new Date().toISOString(); await sbPut("ultimos_ingresos", u); }).catch(() => {});
     res.json({ ok: true, email, usandoClavePorDefecto: !c });
   } catch (err) { console.error("login:", err); res.status(500).json({ error: err.message }); }
 });
@@ -638,7 +640,7 @@ async function sbPut(key, value) {
 // Claves que NUNCA salen del servidor: son tokens y secretos que solo maneja el backend (OAuth,
 // webhooks, push). El frontend no los lee ni los escribe. Excluirlos del proxy hace que, aunque
 // alguien con sesión válida —incluido un cliente— llame a /api/data, jamás reciba un token.
-const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social", "integraciones", "mp_links"]);
+const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social", "integraciones", "mp_links", "prospectos_saldo", "prospectos_vistos", "prospectos_cfg", "ultimos_ingresos", "api_keys", "api_uso"]);
 // Se leen desde la app pero solo las escribe el servidor (el webhook de Mercado Pago).
 const CLAVES_SOLO_SERVIDOR = new Set(["mp_pagos"]);
 
@@ -836,10 +838,14 @@ app.post("/api/data/:key", requireAuth, async (req, res) => {
       );
       const ok = await sbPut("tasks", nuevas);
       if (!ok) return res.status(502).json({ error: "Supabase rechazó la escritura" });
+      if (await hayWebhook("pieza.aprobada").catch(() => false)) avisarAprobadas(actuales, nuevas);
       return res.json({ ok: true });
     }
+    // Webhook «pieza.aprobada»: solo se relee lo anterior si alguien escucha ese evento.
+    const antesTasks = req.params.key === "tasks" && await hayWebhook("pieza.aprobada").catch(() => false) ? await sbGet("tasks", []) : null;
     const ok = await sbPut(req.params.key, req.body.value);
     if (!ok) return res.status(502).json({ error: "Supabase rechazó la escritura" });
+    if (antesTasks) avisarAprobadas(antesTasks, req.body.value);
     res.json({ ok: true });
   } catch (e) { console.error("data save:", e.message); res.status(502).json({ error: e.message }); }
 });
@@ -4518,11 +4524,518 @@ app.post("/api/mp/webhook", rateLimit(120, "mp-webhook"), async (req, res) => {
         date: String(p.date_approved || new Date().toISOString()).slice(0, 10), payer: (p.payer && p.payer.email) || "" });
       nuevo = await sbPut("mp_pagos", l);
     });
+    if (nuevo) emitirEvento("pago.recibido", { id: String(pid), empresaId: companyId, mes: +month + 1, año: +year, cuota: cuota === "50_1" ? 1 : 2, monto: p.transaction_amount });
     if (nuevo) crearNotif({ type: "pago", title: "💳 Pago recibido por Mercado Pago",
       body: "$" + Math.round(p.transaction_amount || 0).toLocaleString("es-CL") + " · cuota " + (cuota === "50_1" ? "1" : "2") + " de " + (+month + 1) + "/" + year,
       to: [], dedupKey: "mp_" + pid }).catch(() => {});
   } catch (e) { console.error("mp webhook:", e.message); }
 });
+
+// ===============================
+// 🎯 PROSPECTOS POR ZONA (actualizaciones de 15 calificados)
+// ===============================
+// La agencia elige rubros y zonas (comunas, regiones o todo Chile). Cada «actualización» busca
+// negocios en Google Places, descarta los que ya tuvo alguna vez (por id del lugar, teléfono,
+// dominio web e Instagram), los califica y entrega solo los 15 mejores a la pestaña Prospectos.
+//
+// Cupo: 5 actualizaciones al mes (se renuevan el día 1) + `extra` (packs comprados, no vencen).
+// Si la zona se agota y salen menos de 15, se descuenta solo la parte entregada (8 de 15 = 0,5).
+// El saldo vive en `prospectos_saldo`, privado: lo escribe solo el servidor y lo recarga el CRM.
+// `prospectos_vistos` guarda todo lo entregado alguna vez, para no repetir aunque lo borren.
+const PROS_POR_ACT = 15;
+const PROS_CUPO_MES = 5;
+const PLACES_URL = process.env.PLACES_API_URL || "https://places.googleapis.com/v1/places:searchText"; // configurable solo para pruebas locales
+const PLACES_MASK = "nextPageToken,places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber," +
+  "places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.priceLevel," +
+  "places.businessStatus,places.googleMapsUri,places.primaryTypeDisplayName";
+// «Todo Chile» = las ciudades con más comercio, en este orden. Una por búsqueda.
+const CIUDADES_CHILE = ["Santiago", "Providencia", "Las Condes", "Vitacura", "Ñuñoa", "Viña del Mar", "Valparaíso",
+  "Concepción", "La Serena", "Antofagasta", "Temuco", "Rancagua", "Talca", "Puerto Montt", "Chillán", "Iquique",
+  "Arica", "Valdivia", "Osorno", "Calama", "Copiapó", "Los Ángeles", "Punta Arenas", "Curicó", "Pucón"];
+const PRECIO_RANGO = { PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
+
+const prosMes = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7); // hora Chile
+async function prosSaldo() {
+  const s = (await sbGet("prospectos_saldo", null)) || {};
+  const mes = prosMes();
+  if (s.mes !== mes) { s.mes = mes; s.usadasMes = 0; }
+  s.cupoMes = s.cupoMes ?? PROS_CUPO_MES;
+  s.extra = +s.extra || 0;
+  s.historial = Array.isArray(s.historial) ? s.historial : [];
+  return s;
+}
+const prosDisponible = s => Math.max(0, Math.round(((s.cupoMes - s.usadasMes) + s.extra) * 10) / 10);
+const soloDigitos = t => String(t || "").replace(/\D/g, "").slice(-9);
+const dominio = u => { try { return new URL(/^https?:/i.test(u) ? u : "https://" + u).hostname.replace(/^www\./, "").toLowerCase(); } catch (_) { return ""; } };
+// Hosts compartidos por muchos negocios (redes, constructores de sitios, IPs): no sirven para
+// reconocer un negocio repetido, así que no entran al filtro por dominio.
+const DOM_COMPARTIDO = /^(\d+\.){3}\d+$|(^|\.)(instagram|facebook|linktr|linktree|wa|whatsapp|google|business\.site|sites\.google|tiktok|youtube|bit|beacons|taplink)\./;
+const domClave = u => { const d = dominio(u); return d && !/^(\d+\.){3}\d+$/.test(d) && !DOM_COMPARTIDO.test(d + ".") ? d : ""; };
+const IG_RE = /instagram\.com\/([A-Za-z0-9_.]{2,30})/i;
+const IG_BASURA = new Set(["p", "reel", "reels", "explore", "accounts", "stories", "tv", "share", "instagram"]);
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,10}/g;
+const igDe = txt => { const m = IG_RE.exec(String(txt || "")); return m && !IG_BASURA.has(m[1].toLowerCase()) ? m[1].replace(/\.$/, "") : ""; };
+
+const quienPuedeProspectar = req => { const u = quienDelEquipo(req); return u && (u.role === "admin" || u.superadmin || u.role === "Sales") ? u : null; };
+
+async function placesBuscar(texto, pageToken) {
+  const key = process.env.GOOGLE_PLACES_API_KEY;
+  const r = await fetch(PLACES_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": PLACES_MASK },
+    body: JSON.stringify(pageToken ? { textQuery: texto, pageToken, pageSize: 20 } : { textQuery: texto, pageSize: 20, languageCode: "es", regionCode: "CL" }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Google Places: " + ((d.error && d.error.message) || r.status));
+  return d;
+}
+
+// Puntaje 0–10: negocio establecido (reseñas, nota, precio) y con presencia digital mejorable.
+function prosPuntaje(p) {
+  let s = 0; const motivos = [];
+  const n = p.review_count || 0, rango = PRECIO_RANGO[p.price_level];
+  if (n >= 100) { s += 3; motivos.push(n + " reseñas"); } else if (n >= 30) { s += 2; motivos.push(n + " reseñas"); } else if (n >= 10) s += 1;
+  if ((p.rating || 0) >= 4.3) { s += 1; motivos.push("nota " + p.rating); }
+  if (rango >= 2) { s += 2; motivos.push("precio medio-alto"); }
+  if (p.website) { s += 1; motivos.push("tiene web"); }
+  if (p.instagram_handle) { s += 2; motivos.push("tiene Instagram"); }
+  if (p.email) s += 1;
+  if (rango !== undefined && rango <= 1 && n < 15) { s -= 3; motivos.push("parece informal"); }
+  return { puntaje: Math.max(0, Math.min(10, s)), motivo: motivos.join(", ") };
+}
+
+async function prosEnriquecer(p) {
+  if (p.website) {
+    const ig = igDe(p.website);
+    if (ig) { p.instagram_handle = ig; return p; }
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 6000);
+      const r = await fetch(p.website, { signal: ctl.signal, redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; InmersiaBot/1.0)" } });
+      clearTimeout(t);
+      const html = (await r.text()).slice(0, 400000);
+      p.instagram_handle = igDe(html);
+      const mail = (html.match(EMAIL_RE) || []).find(e => !/\.(png|jpe?g|webp|gif|svg)$/i.test(e) && !/sentry|wixpress|example|godaddy|domain/i.test(e));
+      if (mail) p.email = mail.toLowerCase();
+    } catch (_) {}
+  }
+  return p;
+}
+
+// Hace UNA actualización. Devuelve el lote entregado; no toca el saldo.
+async function prosEjecutar(cfg, yaVistos) {
+  const rubros = (cfg.rubros || []).map(s => String(s).trim()).filter(Boolean).slice(0, 8);
+  const zonas = [];
+  for (const z of (cfg.zonas || [])) {
+    if (z.tipo === "pais") CIUDADES_CHILE.forEach(c => zonas.push(c + ", Chile"));
+    else if (z.nombre) zonas.push(String(z.nombre).trim() + (z.tipo === "region" ? ", región, Chile" : ", Chile"));
+  }
+  if (!rubros.length || !zonas.length) throw new Error("Elige al menos un rubro y una zona.");
+  const minimo = Math.max(0, Math.min(10, +cfg.minimoPuntaje || 4));
+  // Combinaciones rubro × zona, rotando desde donde quedó la última vez para no repetir búsquedas.
+  const combos = [];
+  for (const z of zonas) for (const r of rubros) combos.push(r + " en " + z);
+  const inicio = (+cfg.cursor || 0) % combos.length;
+  const orden = combos.slice(inicio).concat(combos.slice(0, inicio));
+
+  const visto = { id: new Set(yaVistos.id), tel: new Set(yaVistos.tel), dom: new Set(yaVistos.dom), ig: new Set(yaVistos.ig) };
+  const candidatos = [];
+  let busquedas = 0, revisados = 0, usadoHasta = inicio;
+  for (let i = 0; i < orden.length && candidatos.length < 60 && busquedas < 12; i++) {
+    let token = null, paginas = 0;
+    do {
+      const d = await placesBuscar(orden[i], token); busquedas++; paginas++;
+      for (const pl of d.places || []) {
+        revisados++;
+        if (pl.businessStatus && pl.businessStatus !== "OPERATIONAL") continue;
+        const tel = soloDigitos(pl.nationalPhoneNumber || pl.internationalPhoneNumber), dom = domClave(pl.websiteUri || "");
+        if (visto.id.has(pl.id) || (tel && visto.tel.has(tel)) || (dom && visto.dom.has(dom))) continue;
+        visto.id.add(pl.id); if (tel) visto.tel.add(tel); if (dom) visto.dom.add(dom);
+        candidatos.push({
+          id: pl.id, place_id: pl.id, name: (pl.displayName && pl.displayName.text) || "", address: pl.formattedAddress || "",
+          phone: pl.nationalPhoneNumber || "", website: pl.websiteUri || "", rating: pl.rating || "", review_count: pl.userRatingCount || 0,
+          price_level: pl.priceLevel || "", maps_url: pl.googleMapsUri || "", rubro: (pl.primaryTypeDisplayName && pl.primaryTypeDisplayName.text) || "",
+          busqueda: orden[i], instagram_handle: "", email: "",
+        });
+      }
+      token = d.nextPageToken;
+    } while (token && paginas < 3 && candidatos.length < 60 && busquedas < 12);
+    usadoHasta = (inicio + i + 1) % combos.length;
+  }
+  // Enriquecer de a 6 en paralelo, luego calificar.
+  for (let i = 0; i < candidatos.length; i += 6) await Promise.all(candidatos.slice(i, i + 6).map(prosEnriquecer));
+  const calificados = candidatos
+    .filter(p => !(p.instagram_handle && visto.ig.has(p.instagram_handle.toLowerCase())))
+    .map(p => Object.assign(p, prosPuntaje(p)))
+    .filter(p => (p.website || p.instagram_handle) && p.puntaje >= minimo)
+    .sort((a, b) => b.puntaje - a.puntaje || b.review_count - a.review_count)
+    .slice(0, PROS_POR_ACT);
+  return { calificados, busquedas, revisados, cursor: usadoHasta };
+}
+
+let prosCorriendo = false;
+async function prosActualizar(origen, por) {
+  if (!process.env.GOOGLE_PLACES_API_KEY) throw Object.assign(new Error("Falta configurar la búsqueda (GOOGLE_PLACES_API_KEY en el servidor)."), { code: 503 });
+  if (prosCorriendo) throw Object.assign(new Error("Ya hay una actualización en curso. Espera a que termine."), { code: 409 });
+  prosCorriendo = true;
+  try {
+    const cfg = (await sbGet("prospectos_cfg", null)) || {};
+    const saldo = await prosSaldo();
+    if (prosDisponible(saldo) < 0.1) throw Object.assign(new Error("No te quedan actualizaciones este mes. Compra un pack para seguir."), { code: 402 });
+    const existentes = (await loadProspects()) || [];
+    const vistos = (await sbGet("prospectos_vistos", null)) || { id: [], tel: [], dom: [], ig: [] };
+    for (const p of existentes) {
+      if (p.id) vistos.id.push(p.id);
+      const t = soloDigitos(p.phone); if (t) vistos.tel.push(t);
+      const d = domClave(p.website || ""); if (d) vistos.dom.push(d);
+      if (p.instagram_handle) vistos.ig.push(String(p.instagram_handle).toLowerCase());
+    }
+    const r = await prosEjecutar(cfg, vistos);
+    const lote = "lote_" + Date.now().toString(36);
+    const ahora = new Date().toISOString();
+    const nuevos = r.calificados.map(p => ({ ...p, status: "pendiente", origen: "zona", lote, created_at: ahora,
+      fit_flag: p.puntaje >= 7 ? "INCLUIR" : "REVISAR", fit_reason: p.motivo,
+      area: "z:" + (p.busqueda.split(" en ")[1] || "").replace(/, (región, )?Chile$/, ""), category: "r:" + (p.busqueda.split(" en ")[0] || "") }));
+    const consumo = Math.round(nuevos.length / PROS_POR_ACT * 10) / 10;
+    await enCola(async () => {
+      const lista = (await loadProspects()) || [];
+      const ids = new Set(lista.map(x => x.id));
+      await saveProspects(lista.concat(nuevos.filter(n => !ids.has(n.id))));
+      const v = (await sbGet("prospectos_vistos", null)) || { id: [], tel: [], dom: [], ig: [] };
+      for (const p of nuevos) {
+        v.id.push(p.id); const t = soloDigitos(p.phone); if (t) v.tel.push(t);
+        const d = domClave(p.website); if (d) v.dom.push(d); if (p.instagram_handle) v.ig.push(p.instagram_handle.toLowerCase());
+      }
+      await sbPut("prospectos_vistos", v);
+      const s = await prosSaldo();
+      // Primero el cupo del mes, después los packs.
+      const delMes = Math.min(consumo, Math.max(0, s.cupoMes - s.usadasMes));
+      s.usadasMes = Math.round((s.usadasMes + delMes) * 10) / 10;
+      s.extra = Math.round((s.extra - (consumo - delMes)) * 10) / 10;
+      s.historial.unshift({ fecha: ahora, origen, por: por || "", entregados: nuevos.length, consumo, busquedas: r.busquedas, revisados: r.revisados, lote });
+      s.historial = s.historial.slice(0, 60);
+      await sbPut("prospectos_saldo", s);
+      const c = (await sbGet("prospectos_cfg", null)) || {};
+      c.cursor = r.cursor; await sbPut("prospectos_cfg", c);
+    });
+    if (nuevos.length) emitirEvento("prospecto.nuevo", { cantidad: nuevos.length, origen, ids: nuevos.map(n => n.id) });
+    if (nuevos.length) crearNotif({ type: "prospectos", title: "🎯 " + nuevos.length + " prospectos nuevos", body: "Revísalos en Prospectos → Pendientes.", to: [], dedupKey: lote }).catch(() => {});
+    return { entregados: nuevos.length, consumo, agotada: nuevos.length < PROS_POR_ACT, busquedas: r.busquedas, revisados: r.revisados };
+  } finally { prosCorriendo = false; }
+}
+
+app.get("/api/prospectos/estado", requireAuth, async (req, res) => {
+  if (!quienPuedeProspectar(req)) return res.status(403).json({ error: "solo admin o ventas" });
+  try {
+    const cfg = (await sbGet("prospectos_cfg", null)) || {};
+    const s = await prosSaldo();
+    res.json({ cfg: { rubros: cfg.rubros || [], zonas: cfg.zonas || [], minimoPuntaje: cfg.minimoPuntaje ?? 4, auto: cfg.auto || { activo: false, dia: 1, hora: 9 } },
+      saldo: { cupoMes: s.cupoMes, usadasMes: s.usadasMes, extra: s.extra, disponible: prosDisponible(s), mes: s.mes },
+      historial: s.historial.slice(0, 15), solicitudes: (s.solicitudes || []).filter(x => x.estado === "pendiente"), porActualizacion: PROS_POR_ACT, configurado: !!process.env.GOOGLE_PLACES_API_KEY, corriendo: prosCorriendo,
+      packs: [{ id: "p5", cantidad: 5, precio: "9 USD" }, { id: "p15", cantidad: 15, precio: "24 USD" }] });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.put("/api/prospectos/config", requireAuth, rateLimit(30, "pros-cfg"), async (req, res) => {
+  if (!quienPuedeProspectar(req)) return res.status(403).json({ error: "solo admin o ventas" });
+  const b = req.body || {};
+  const zonas = (Array.isArray(b.zonas) ? b.zonas : []).slice(0, 30).map(z => ({ tipo: ["comuna", "region", "pais"].includes(z.tipo) ? z.tipo : "comuna", nombre: String(z.nombre || "").slice(0, 80) }))
+    .filter(z => z.tipo === "pais" || z.nombre);
+  const rubros = (Array.isArray(b.rubros) ? b.rubros : []).map(r => String(r).trim().slice(0, 60)).filter(Boolean).slice(0, 8);
+  const a = b.auto || {};
+  try {
+    await enCola(async () => {
+      const c = (await sbGet("prospectos_cfg", null)) || {};
+      Object.assign(c, { rubros, zonas, minimoPuntaje: Math.max(0, Math.min(10, +b.minimoPuntaje || 4)),
+        auto: { activo: !!a.activo, dia: Math.max(0, Math.min(6, +a.dia || 0)), hora: Math.max(0, Math.min(23, +a.hora || 9)), ultima: (c.auto && c.auto.ultima) || "" } });
+      await sbPut("prospectos_cfg", c);
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/prospectos/actualizar", requireAuth, rateLimit(6, "pros-act"), async (req, res) => {
+  const u = quienPuedeProspectar(req);
+  if (!u) return res.status(403).json({ error: "solo admin o ventas" });
+  try { res.json(await prosActualizar("manual", u.name)); }
+  catch (e) { console.error("prospectos actualizar:", e.message); res.status(e.code || 502).json({ error: e.message }); }
+});
+
+// La agencia pide un pack: queda en el saldo y el CRM lo ve en /api/crm/estado. El cobro y la
+// carga del pack los hace Inmersia desde el CRM (POST /api/crm/creditos-prospectos).
+app.post("/api/prospectos/solicitar-pack", requireAuth, rateLimit(5, "pros-pack"), async (req, res) => {
+  const u = quienPuedeProspectar(req);
+  if (!u) return res.status(403).json({ error: "solo admin o ventas" });
+  const pack = ["p5", "p15"].includes((req.body || {}).pack) ? req.body.pack : "p5";
+  try {
+    await enCola(async () => {
+      const s = await prosSaldo();
+      s.solicitudes = (Array.isArray(s.solicitudes) ? s.solicitudes : []).filter(x => x.estado === "pendiente");
+      s.solicitudes.push({ id: uid8(), pack, por: u.name, fecha: new Date().toISOString(), estado: "pendiente" });
+      await sbPut("prospectos_saldo", s);
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+const uid8 = () => crypto.randomBytes(4).toString("hex");
+
+// Mensaje de primer contacto con IA, para un prospecto concreto.
+app.post("/api/prospectos/:id/mensaje", requireAuth, rateLimit(20, "pros-msg"), async (req, res) => {
+  const u = quienPuedeProspectar(req);
+  if (!u) return res.status(403).json({ error: "solo admin o ventas" });
+  try {
+    const p = ((await loadProspects()) || []).find(x => String(x.id) === String(req.params.id));
+    if (!p) return res.status(404).json({ error: "prospecto no encontrado" });
+    const conf = (await sbGet("empresa_config", null)) || {};
+    const canal = ["instagram", "whatsapp", "email"].includes(req.body && req.body.canal) ? req.body.canal : "instagram";
+    const prompt = `Escribe un primer mensaje de contacto en español de Chile (sin voseo, sin emojis en exceso, máximo 600 caracteres) por ${canal}, de parte de ${u.name} de la agencia ${conf.nombreComercial || "INMERSIA"}, para el negocio «${p.name}» (${p.rubro || p.category || ""}, ${p.address || ""}). Datos: ${p.review_count || 0} reseñas en Google con nota ${p.rating || "s/n"}; web: ${p.website || "no tiene"}; Instagram: ${p.instagram_handle ? "@" + p.instagram_handle : "no encontrado"}. ${p.profile_notes ? "Notas: " + p.profile_notes : ""} Que sea cercano, concreto, mencione algo específico del negocio, proponga una idea de contenido y termine con una pregunta simple para agendar 15 minutos. Devuelve solo el mensaje.`;
+    const txt = await callGemini([{ role: "user", parts: [{ text: prompt }] }]);
+    res.json({ mensaje: txt.trim() });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// Actualización automática programada (hora de Chile). Revisa cada 15 minutos.
+setInterval(async () => {
+  try {
+    if (!process.env.GOOGLE_PLACES_API_KEY || prosCorriendo) return;
+    const c = (await sbGet("prospectos_cfg", null)) || {};
+    const a = c.auto || {};
+    if (!a.activo) return;
+    const cl = new Date(Date.now() - 3 * 3600e3), hoy = cl.toISOString().slice(0, 10);
+    if (cl.getUTCDay() !== +a.dia || cl.getUTCHours() < +a.hora || a.ultima === hoy) return;
+    await enCola(async () => { const x = (await sbGet("prospectos_cfg", null)) || {}; x.auto = Object.assign({}, x.auto, { ultima: hoy }); await sbPut("prospectos_cfg", x); });
+    const r = await prosActualizar("automática", "");
+    console.log("prospectos auto:", r.entregados, "entregados");
+  } catch (e) { console.error("prospectos auto:", e.message); }
+}, 15 * 60e3);
+
+// ===============================
+// 🛰️ ENLACE CON EL CRM INMERSIA (consola interna aparte)
+// ===============================
+// El CRM llama con la cabecera X-CRM-Key = CRM_KEY (variable de entorno de esta instancia).
+// Sin CRM_KEY configurada, estas rutas no existen (404).
+function requireCRM(req, res, next) {
+  const k = process.env.CRM_KEY || "", h = String(req.headers["x-crm-key"] || "");
+  if (!k) return res.status(404).json({ error: "no disponible" });
+  const a = Buffer.from(crypto.createHash("sha256").update(k).digest()), b = Buffer.from(crypto.createHash("sha256").update(h).digest());
+  if (!crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: "clave CRM inválida" });
+  next();
+}
+app.get("/api/crm/estado", rateLimit(30, "crm"), requireCRM, async (req, res) => {
+  try {
+    const [cos, s, ses] = await Promise.all([sbGet("companies", []), prosSaldo(), sbGet("ultimos_ingresos", {})]);
+    const fechas = Object.values(ses || {}).filter(Boolean).sort();
+    res.json({ ok: true, usuarios: TEAM.length, clientes: (cos || []).length, ultimoIngreso: fechas[fechas.length - 1] || null,
+      prospectos: { cupoMes: s.cupoMes, usadasMes: s.usadasMes, extra: s.extra, solicitudes: (s.solicitudes || []).filter(x => x.estado === "pendiente") } });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/crm/creditos-prospectos", rateLimit(30, "crm"), requireCRM, async (req, res) => {
+  const n = Math.round((+(req.body || {}).cantidad || 0) * 10) / 10;
+  if (!(n > 0 && n <= 500)) return res.status(400).json({ error: "cantidad inválida (1 a 500)" });
+  try {
+    let extra = 0;
+    await enCola(async () => {
+      const s = await prosSaldo();
+      s.extra = Math.round((s.extra + n) * 10) / 10; extra = s.extra;
+      (s.solicitudes || []).forEach(x => { if (x.estado === "pendiente") x.estado = "atendida"; });
+      s.historial.unshift({ fecha: new Date().toISOString(), origen: "crédito CRM", por: String((req.body || {}).motivo || "").slice(0, 120), entregados: 0, consumo: -n });
+      s.historial = s.historial.slice(0, 60);
+      await sbPut("prospectos_saldo", s);
+    });
+    res.json({ ok: true, extra });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// ===============================
+// 🔑 API Y CONEXIONES (llaves de API + webhooks)
+// ===============================
+// Lo que se vende es acceso a los DATOS de la agencia, nunca al código: todo corre aquí y la
+// llave solo recibe resultados. Cada llave tiene permisos por área, límite por minuto y por mes,
+// y se revoca en un clic. Se guarda solo el hash (sha256): la llave completa se muestra UNA vez.
+// `api_keys` y `api_uso` están en CLAVES_PRIVADAS.
+const API_ALCANCES = {
+  "empresas:leer": "Ver empresas (clientes) y su plan",
+  "contenido:leer": "Ver piezas de contenido y su estado",
+  "prospectos:leer": "Ver prospectos",
+  "prospectos:crear": "Crear prospectos (por ejemplo desde tu web o un formulario)",
+  "pagos:leer": "Ver pagos recibidos por Mercado Pago",
+};
+const API_EVENTOS = { "pieza.aprobada": "Un cliente aprobó una pieza", "pago.recibido": "Entró un pago por Mercado Pago", "prospecto.nuevo": "Llegaron prospectos nuevos" };
+const API_MES_MAX = +process.env.API_LIMITE_MES || 10000;
+const API_MIN_MAX = 60;
+const hashLlave = k => crypto.createHash("sha256").update(String(k)).digest("hex");
+const _apiMin = new Map(); setInterval(() => _apiMin.clear(), 60000);
+
+async function apiCfg() { const c = (await sbGet("api_keys", null)) || {}; c.llaves = c.llaves || []; c.webhooks = c.webhooks || []; return c; }
+
+// Contador mensual en memoria que se vuelca cada minuto: escribir la fila en cada llamada
+// sería una escritura a Supabase por request.
+let _apiUsoPend = {};
+setInterval(async () => {
+  const pend = _apiUsoPend; _apiUsoPend = {};
+  if (!Object.keys(pend).length) return;
+  try {
+    await enCola(async () => {
+      const u = (await sbGet("api_uso", null)) || {}; const mes = prosMes();
+      if (u.mes !== mes) { u.mes = mes; u.porLlave = {}; }
+      for (const [id, n] of Object.entries(pend)) u.porLlave[id] = (u.porLlave[id] || 0) + n;
+      await sbPut("api_uso", u);
+    });
+  } catch (e) { console.error("api uso:", e.message); }
+}, 60000);
+let _apiUsoCache = { at: 0, v: {} };
+async function apiUsoMes() {
+  if (Date.now() - _apiUsoCache.at < 30000) return _apiUsoCache.v;
+  const u = (await sbGet("api_uso", null)) || {};
+  _apiUsoCache = { at: Date.now(), v: u.mes === prosMes() ? (u.porLlave || {}) : {} };
+  return _apiUsoCache.v;
+}
+
+function requireApiKey(alcance) {
+  return async (req, res, next) => {
+    try {
+      const k = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim() || String(req.headers["x-api-key"] || "");
+      if (!/^inm_[a-f0-9]{40}$/.test(k)) return res.status(401).json({ error: "Falta la llave de API (cabecera Authorization: Bearer inm_...)" });
+      const c = await apiCfg();
+      const llave = c.llaves.find(x => x.hash === hashLlave(k) && !x.revocada);
+      if (!llave) return res.status(401).json({ error: "Llave inválida o revocada" });
+      if (!(llave.alcances || []).includes(alcance)) return res.status(403).json({ error: "Esta llave no tiene permiso para " + alcance });
+      const nMin = (_apiMin.get(llave.id) || 0) + 1; _apiMin.set(llave.id, nMin);
+      if (nMin > API_MIN_MAX) return res.status(429).json({ error: "Límite de " + API_MIN_MAX + " llamadas por minuto" });
+      const usoMes = ((await apiUsoMes())[llave.id] || 0) + (_apiUsoPend[llave.id] || 0);
+      if (usoMes >= API_MES_MAX) return res.status(429).json({ error: "Se alcanzó el límite mensual de " + API_MES_MAX + " llamadas" });
+      _apiUsoPend[llave.id] = (_apiUsoPend[llave.id] || 0) + 1;
+      res.setHeader("X-Limite-Mes", API_MES_MAX); res.setHeader("X-Uso-Mes", usoMes + 1);
+      req.apiLlave = llave; next();
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  };
+}
+
+// --- Gestión de llaves y webhooks (solo admin, desde Integraciones) ---
+app.get("/api/conexiones", requireAuth, soloAdmin, async (req, res) => {
+  try {
+    const c = await apiCfg(); const uso = await apiUsoMes();
+    res.json({
+      alcances: API_ALCANCES, eventos: API_EVENTOS, limiteMes: API_MES_MAX, limiteMin: API_MIN_MAX,
+      llaves: c.llaves.filter(x => !x.revocada).map(x => ({ id: x.id, nombre: x.nombre, prefijo: x.prefijo, alcances: x.alcances, creada: x.creada, por: x.por, usoMes: (uso[x.id] || 0) + (_apiUsoPend[x.id] || 0) })),
+      webhooks: c.webhooks.map(w => ({ id: w.id, url: w.url, eventos: w.eventos, creado: w.creado, ultimo: w.ultimo || null })),
+    });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/conexiones/llaves", requireAuth, soloAdmin, rateLimit(10, "api-llave"), async (req, res) => {
+  const nombre = String((req.body || {}).nombre || "").trim().slice(0, 60) || "Llave sin nombre";
+  const alcances = (Array.isArray((req.body || {}).alcances) ? req.body.alcances : []).filter(a => API_ALCANCES[a]);
+  if (!alcances.length) return res.status(400).json({ error: "Elige al menos un permiso" });
+  const llave = "inm_" + crypto.randomBytes(20).toString("hex");
+  try {
+    await enCola(async () => {
+      const c = await apiCfg();
+      if (c.llaves.filter(x => !x.revocada).length >= 10) throw Object.assign(new Error("Máximo 10 llaves activas"), { code: 400 });
+      c.llaves.push({ id: uid8(), nombre, hash: hashLlave(llave), prefijo: llave.slice(0, 8) + "…" + llave.slice(-4), alcances, creada: new Date().toISOString(), por: req.miembro.name });
+      await sbPut("api_keys", c);
+    });
+    res.json({ ok: true, llave }); // única vez que viaja completa
+  } catch (e) { res.status(e.code || 502).json({ error: e.message }); }
+});
+app.delete("/api/conexiones/llaves/:id", requireAuth, soloAdmin, async (req, res) => {
+  try {
+    await enCola(async () => { const c = await apiCfg(); const l = c.llaves.find(x => x.id === req.params.id); if (l) { l.revocada = new Date().toISOString(); l.revocadaPor = req.miembro.name; } await sbPut("api_keys", c); });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/conexiones/webhooks", requireAuth, soloAdmin, rateLimit(10, "api-wh"), async (req, res) => {
+  const url = String((req.body || {}).url || "").trim();
+  const eventos = (Array.isArray((req.body || {}).eventos) ? req.body.eventos : []).filter(e => API_EVENTOS[e]);
+  let u; try { u = new URL(url); } catch (_) { return res.status(400).json({ error: "URL inválida" }); }
+  if (u.protocol !== "https:" || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(u.hostname)) return res.status(400).json({ error: "La URL tiene que ser https y pública" });
+  if (!eventos.length) return res.status(400).json({ error: "Elige al menos un evento" });
+  const secreto = "whsec_" + crypto.randomBytes(16).toString("hex");
+  try {
+    await enCola(async () => { const c = await apiCfg(); if (c.webhooks.length >= 10) throw Object.assign(new Error("Máximo 10 webhooks"), { code: 400 });
+      c.webhooks.push({ id: uid8(), url, eventos, secreto: cifrar(secreto), creado: new Date().toISOString(), por: req.miembro.name }); await sbPut("api_keys", c); });
+    res.json({ ok: true, secreto });
+  } catch (e) { res.status(e.code || 502).json({ error: e.message }); }
+});
+app.delete("/api/conexiones/webhooks/:id", requireAuth, soloAdmin, async (req, res) => {
+  try { await enCola(async () => { const c = await apiCfg(); c.webhooks = c.webhooks.filter(w => w.id !== req.params.id); await sbPut("api_keys", c); }); res.json({ ok: true }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/conexiones/webhooks/:id/probar", requireAuth, soloAdmin, rateLimit(10, "api-whp"), async (req, res) => {
+  try { const c = await apiCfg(); const w = c.webhooks.find(x => x.id === req.params.id); if (!w) return res.status(404).json({ error: "no existe" });
+    const r = await enviarWebhook(w, "prueba", { mensaje: "Webhook de prueba desde la plataforma" }); res.json(r); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// Envío firmado: X-Inmersia-Firma = sha256=HMAC(secreto, "<timestamp>.<cuerpo>").
+async function enviarWebhook(w, evento, datos) {
+  const cuerpo = JSON.stringify({ evento, fecha: new Date().toISOString(), datos });
+  const ts = Math.floor(Date.now() / 1000);
+  const firma = crypto.createHmac("sha256", descifrar(w.secreto)).update(ts + "." + cuerpo).digest("hex");
+  let estado = 0, error = "";
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(w.url, { method: "POST", signal: ctl.signal, redirect: "manual", headers: { "Content-Type": "application/json", "X-Inmersia-Evento": evento, "X-Inmersia-Timestamp": String(ts), "X-Inmersia-Firma": "sha256=" + firma }, body: cuerpo });
+    clearTimeout(t); estado = r.status;
+  } catch (e) { error = e.name === "AbortError" ? "sin respuesta en 8 s" : e.message; }
+  enCola(async () => { const c = await apiCfg(); const x = c.webhooks.find(y => y.id === w.id); if (x) { x.ultimo = { evento, fecha: new Date().toISOString(), estado, error }; await sbPut("api_keys", c); } }).catch(() => {});
+  return { ok: estado >= 200 && estado < 300, estado, error };
+}
+async function emitirEvento(evento, datos) {
+  try {
+    const c = await apiCfg();
+    for (const w of c.webhooks.filter(w => (w.eventos || []).includes(evento))) enviarWebhook(w, evento, datos).catch(() => {});
+  } catch (e) { console.error("webhook", evento, e.message); }
+}
+// ¿Alguien escucha este evento? Evita leer `tasks` de más en cada guardado cuando no hay webhooks.
+let _whCache = { at: 0, ev: new Set() };
+async function hayWebhook(evento) {
+  if (Date.now() - _whCache.at > 60000) { const c = await apiCfg(); _whCache = { at: Date.now(), ev: new Set(c.webhooks.flatMap(w => w.eventos || [])) }; }
+  return _whCache.ev.has(evento);
+}
+function avisarAprobadas(antes, despues) {
+  const prev = new Map((antes || []).map(t => [t.id, t.state]));
+  for (const t of despues || []) {
+    if (t.state === "aprobado" && prev.has(t.id) && prev.get(t.id) !== "aprobado")
+      emitirEvento("pieza.aprobada", { id: t.id, titulo: t.title || "", tipo: t.type || "", empresaId: t.companyId || "", empresa: t.company || "" });
+  }
+}
+
+// --- Endpoints públicos v1 (con llave) ---
+const v1 = express.Router();
+v1.use(rateLimit(120, "api-v1"));
+v1.get("/empresas", requireApiKey("empresas:leer"), async (req, res) => {
+  const cos = (await sbGet("companies", [])) || [];
+  res.json({ datos: cos.map(c => ({ id: c.id, nombre: c.name, plan: c.plan || "", activa: !c.archived })) });
+});
+v1.get("/contenido", requireApiKey("contenido:leer"), async (req, res) => {
+  let ts = (await sbGet("tasks", [])) || [];
+  if (req.query.empresa) ts = ts.filter(t => String(t.companyId) === String(req.query.empresa));
+  if (req.query.estado) ts = ts.filter(t => t.state === req.query.estado);
+  const lim = Math.min(500, +req.query.limite || 100);
+  res.json({ total: ts.length, datos: ts.slice(0, lim).map(t => ({ id: t.id, titulo: t.title || "", tipo: t.type || "", estado: t.state || "", empresaId: t.companyId || "", fecha: t.date || null, hora: t.publishTime || null, diaPlanificado: t.plannedDay || null })) });
+});
+v1.get("/prospectos", requireApiKey("prospectos:leer"), async (req, res) => {
+  let ps = (await loadProspects()) || [];
+  if (req.query.estado) ps = ps.filter(p => (p.status || "pendiente") === req.query.estado);
+  const lim = Math.min(500, +req.query.limite || 100);
+  res.json({ total: ps.length, datos: ps.slice(0, lim).map(p => ({ id: p.id, nombre: p.name, estado: p.status || "pendiente", etapa: p.etapa || null, telefono: p.phone || "", web: p.website || "", instagram: p.instagram_handle || "", correo: p.email || "", direccion: p.address || "", creado: p.created_at || null })) });
+});
+v1.post("/prospectos", requireApiKey("prospectos:crear"), async (req, res) => {
+  const b = req.body || {}; const nombre = String(b.nombre || "").trim().slice(0, 120);
+  if (!nombre) return res.status(400).json({ error: "falta nombre" });
+  const p = { id: "api_" + uid8() + uid8(), name: nombre, phone: String(b.telefono || "").slice(0, 40), website: String(b.web || "").slice(0, 200), instagram_handle: String(b.instagram || "").replace(/^@/, "").slice(0, 40),
+    email: String(b.correo || "").slice(0, 120), address: String(b.direccion || "").slice(0, 200), profile_notes: String(b.notas || "").slice(0, 1000),
+    status: "pendiente", origen: "api", area: "z:API", category: "r:" + (String(b.rubro || "").slice(0, 40) || "Desde API"), created_at: new Date().toISOString(), fit_flag: "REVISAR", fit_reason: "creado por API (" + req.apiLlave.nombre + ")" };
+  try { await enCola(async () => { const l = (await loadProspects()) || []; l.push(p); await saveProspects(l); });
+    emitirEvento("prospecto.nuevo", { cantidad: 1, origen: "api", ids: [p.id] });
+    res.status(201).json({ ok: true, id: p.id }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+v1.get("/pagos", requireApiKey("pagos:leer"), async (req, res) => {
+  const l = (await sbGet("mp_pagos", [])) || [];
+  res.json({ datos: l.map(x => ({ id: x.paymentId, empresaId: x.companyId, mes: x.month + 1, año: x.year, cuota: x.type === "50_1" ? 1 : 2, monto: x.amount, fecha: x.date })) });
+});
+v1.use((req, res) => res.status(404).json({ error: "ruta no encontrada" }));
+app.use("/api/v1", v1);
 
 // ===============================
 // 🟢 SERVIR FRONTEND

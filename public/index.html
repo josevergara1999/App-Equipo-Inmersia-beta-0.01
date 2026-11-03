@@ -2512,7 +2512,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
           Cargando los pagos…
         </div>)}
         {pg==="payments"&&puede("payments")&&pagosListo&&(<div className="fi" style={{maxWidth:900,margin:"0 auto"}}>
-          <PayBillPg users={users.filter(u=>u.role!=="cliente")} teamPay={teamPay} sTP={sTP} addN={addN} cos={cos} plans={PLANS} billing={mBill} month={MO[cM]} year={cY} remEx={remEx} billRcpts={billRcpts} sBR={sBR} cM={cM} cY={cY} avisar={avisar} correosDe={correosDe} cu={cu}/>
+          <PayBillPg tasks={tasks} users={users.filter(u=>u.role!=="cliente")} teamPay={teamPay} sTP={sTP} addN={addN} cos={cos} plans={PLANS} billing={mBill} month={MO[cM]} year={cY} remEx={remEx} billRcpts={billRcpts} sBR={sBR} cM={cM} cY={cY} avisar={avisar} correosDe={correosDe} cu={cu}/>
         </div>)}
 
         </div>
@@ -3237,10 +3237,6 @@ const INT_CATALOGO=[
     {id:"meta",nombre:"Meta Ads",color:"#0866FF",sigla:"M",interna:true,desc:"Métricas de campañas y asesor de anuncios."},
     {id:"ig",nombre:"Instagram",color:"#E1306C",sigla:"IG",interna:true,desc:"Publicación programada y comentario → mensaje privado. Se conecta por empresa, en Contenido → Automatización."},
   ]},
-  {grupo:"Apps y API",items:[
-    {id:"api",nombre:"API y apps externas",color:"#7C5CFF",sigla:"API",prox:true,
-      desc:"Claves de API para conectar la plataforma con Zapier, Make o tu web. Dan acceso a tus datos (contenido, prospectos, cobros) con permisos y límites, nunca al código de la plataforma."},
-  ]},
 ];
 const fechaCorta=iso=>{try{return new Date(iso).toLocaleDateString("es-CL",{day:"numeric",month:"short",year:"numeric"});}catch(_){return"";}};
 
@@ -3315,6 +3311,98 @@ function IntegracionesPg({isA,addN}){
           </div>);})}
       </div>
     </div>))}
+    <ConexionesAPI isA={isA} addN={addN}/>
+  </div>);
+}
+
+// API y conexiones: llaves con permisos por área y webhooks firmados. La llave completa y el
+// secreto del webhook se muestran UNA sola vez; el servidor guarda solo el hash.
+function ConexionesAPI({isA,addN}){
+  const[d,sD]=useState(null);
+  const[nueva,sNueva]=useState(null);   // {nombre, alcances:[]}
+  const[mostrar,sMostrar]=useState(null); // {titulo, valor}
+  const[wh,sWh]=useState(null);         // {url, eventos:[]}
+  const[busy,sBusy]=useState(false);
+  const cargar=useCallback(async()=>{try{const r=await fetch("/api/conexiones",{credentials:"same-origin"});if(r.ok)sD(await r.json());}catch(_){}},[]);
+  useEffect(()=>{if(isA)cargar();},[isA,cargar]);
+  if(!isA)return null;
+  if(!d)return <div style={{fontSize:12.5,color:D.tx4,marginTop:20}}>Cargando API…</div>;
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3};
+  const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,margin:"22px 0 10px",display:"block"};
+  const inp={width:"100%",boxSizing:"border-box"};
+  const post=async(url,body,metodo="POST")=>{sBusy(true);try{const r=await fetch(url,{method:metodo,credentials:"same-origin",headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok){addN&&addN(j.error||"No se pudo");return null;}return j;}finally{sBusy(false);}};
+  const crearLlave=async()=>{const j=await post("/api/conexiones/llaves",nueva);if(j){sNueva(null);sMostrar({titulo:"Tu llave de API",valor:j.llave,nota:"Cópiala ahora: por seguridad no se vuelve a mostrar. Úsala en la cabecera Authorization: Bearer <llave>."});cargar();}};
+  const revocar=async l=>{if(!confirm("¿Revocar la llave «"+l.nombre+"»? Lo que la use deja de funcionar al instante."))return;if(await post("/api/conexiones/llaves/"+l.id,null,"DELETE")){addN&&addN("Llave revocada");cargar();}};
+  const crearWh=async()=>{const j=await post("/api/conexiones/webhooks",wh);if(j){sWh(null);sMostrar({titulo:"Secreto del webhook",valor:j.secreto,nota:"Con este secreto verificas la cabecera X-Inmersia-Firma: sha256=HMAC(secreto, timestamp + \".\" + cuerpo). No se vuelve a mostrar."});cargar();}};
+  const borrarWh=async w=>{if(!confirm("¿Eliminar el webhook a "+w.url+"?"))return;if(await post("/api/conexiones/webhooks/"+w.id,null,"DELETE"))cargar();};
+  const probarWh=async w=>{const j=await post("/api/conexiones/webhooks/"+w.id+"/probar");if(j)addN&&addN(j.ok?"✅ Respondió "+j.estado:"Falló: "+(j.error||("respondió "+j.estado)));cargar();};
+  const tog=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
+  const base=location.origin+"/api/v1";
+  return(<div>
+    <span style={rot}>API y conexiones</span>
+    <div style={{...caja,marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{width:40,height:40,borderRadius:11,background:"#7C5CFF",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11}}>API</div>
+        <div style={{flex:"1 1 240px",minWidth:0}}><div style={{fontSize:15,fontWeight:600}}>Llaves de API</div>
+          <div style={{fontSize:12.5,color:D.tx2,lineHeight:1.5}}>Conecta tu web, Zapier, Make u otro sistema a tus datos. Cada llave tiene permisos por área, {d.limiteMin} llamadas por minuto y {d.limiteMes.toLocaleString("es-CL")} al mes. Da acceso a datos, nunca al código de la plataforma.</div></div>
+        <Bt v="p" icon="plus" onClick={()=>sNueva({nombre:"",alcances:[]})}>Nueva llave</Bt>
+      </div>
+      {d.llaves.length>0&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
+        {d.llaves.map(l=>(<div key={l.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:"var(--bg3)"}}>
+          <div style={{flex:"1 1 200px",minWidth:0}}><div style={{fontWeight:600,fontSize:13.5}}>{l.nombre} <span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:D.tx4,fontWeight:400}}>{l.prefijo}</span></div>
+            <div style={{fontSize:11.5,color:D.tx4}}>{l.alcances.join(" · ")} · {l.usoMes.toLocaleString("es-CL")} llamadas este mes · creada {fechaCorta(l.creada)}{l.por?" por "+l.por:""}</div></div>
+          <Bt v="g" onClick={()=>revocar(l)}>Revocar</Bt>
+        </div>))}
+      </div>}
+      <details style={{marginTop:12,fontSize:12.5,color:D.tx3}}>
+        <summary style={{cursor:"pointer"}}>Cómo se usa</summary>
+        <div style={{marginTop:8,lineHeight:1.6}}>Dirección base: <code style={{fontFamily:"var(--font-mono)"}}>{base}</code><br/>
+          <code style={{fontFamily:"var(--font-mono)"}}>GET /empresas</code> · <code style={{fontFamily:"var(--font-mono)"}}>GET /contenido?empresa=&estado=</code> · <code style={{fontFamily:"var(--font-mono)"}}>GET /prospectos?estado=</code> · <code style={{fontFamily:"var(--font-mono)"}}>POST /prospectos</code> (nombre, telefono, web, instagram, correo, rubro, notas) · <code style={{fontFamily:"var(--font-mono)"}}>GET /pagos</code><br/>
+          Ejemplo: <code style={{fontFamily:"var(--font-mono)",wordBreak:"break-all"}}>curl -H "Authorization: Bearer inm_…" {base}/prospectos</code></div>
+      </details>
+    </div>
+    <div style={caja}>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{width:40,height:40,borderRadius:11,background:"#0EA5A4",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11}}>WH</div>
+        <div style={{flex:"1 1 240px",minWidth:0}}><div style={{fontSize:15,fontWeight:600}}>Webhooks</div>
+          <div style={{fontSize:12.5,color:D.tx2,lineHeight:1.5}}>Avisamos a tu sistema al instante cuando pasa algo: {Object.values(d.eventos).join(", ").toLowerCase()}. Cada aviso va firmado.</div></div>
+        <Bt v="s" icon="plus" onClick={()=>sWh({url:"",eventos:[]})}>Nuevo webhook</Bt>
+      </div>
+      {d.webhooks.length>0&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
+        {d.webhooks.map(w=>(<div key={w.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:"var(--bg3)"}}>
+          <div style={{flex:"1 1 200px",minWidth:0}}><div style={{fontWeight:600,fontSize:13,wordBreak:"break-all"}}>{w.url}</div>
+            <div style={{fontSize:11.5,color:D.tx4}}>{w.eventos.join(" · ")}{w.ultimo?" · último: "+w.ultimo.evento+" "+(w.ultimo.estado?("→ "+w.ultimo.estado):("falló: "+w.ultimo.error)):""}</div></div>
+          <Bt v="s" disabled={busy} onClick={()=>probarWh(w)}>Probar</Bt><Bt v="g" onClick={()=>borrarWh(w)}>Eliminar</Bt>
+        </div>))}
+      </div>}
+    </div>
+
+    <Md open={!!nueva} onClose={()=>sNueva(null)} title="Nueva llave de API" width={480}>
+      {nueva&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <label style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>Nombre (para reconocerla)<input value={nueva.nombre} onChange={e=>sNueva(x=>({...x,nombre:e.target.value}))} placeholder="Ej: Formulario de mi web" style={inp}/></label>
+        <div style={{fontSize:11.5,color:D.tx3}}>Permisos</div>
+        {Object.entries(d.alcances).map(([k,l])=>(<button key={k} type="button" onClick={()=>sNueva(x=>({...x,alcances:tog(x.alcances,k)}))} style={{display:"flex",gap:10,alignItems:"center",textAlign:"left",padding:"9px 12px",borderRadius:10,border:"1px solid "+(nueva.alcances.includes(k)?"var(--accent)":"var(--border)"),background:nueva.alcances.includes(k)?"rgba(var(--rgb-acento),.08)":"transparent",color:"var(--tx)",cursor:"pointer",fontFamily:"inherit"}}>
+          <span style={{width:16,height:16,borderRadius:5,border:"2px solid "+(nueva.alcances.includes(k)?"var(--accent)":"var(--tx4)"),background:nueva.alcances.includes(k)?"var(--accent)":"transparent",flexShrink:0}}/>
+          <span><span style={{fontFamily:"var(--font-mono)",fontSize:11.5}}>{k}</span><br/><span style={{fontSize:12,color:D.tx3}}>{l}</span></span></button>))}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Bt v="s" onClick={()=>sNueva(null)}>Cancelar</Bt><Bt v="p" disabled={busy||!nueva.alcances.length} onClick={crearLlave}>Crear llave</Bt></div>
+      </div>}
+    </Md>
+    <Md open={!!wh} onClose={()=>sWh(null)} title="Nuevo webhook" width={480}>
+      {wh&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <label style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>URL (https) que recibe los avisos<input value={wh.url} onChange={e=>sWh(x=>({...x,url:e.target.value}))} placeholder="https://hooks.zapier.com/…" style={inp}/></label>
+        {Object.entries(d.eventos).map(([k,l])=>(<button key={k} type="button" onClick={()=>sWh(x=>({...x,eventos:tog(x.eventos,k)}))} style={{display:"flex",gap:10,alignItems:"center",textAlign:"left",padding:"9px 12px",borderRadius:10,border:"1px solid "+(wh.eventos.includes(k)?"var(--accent)":"var(--border)"),background:"transparent",color:"var(--tx)",cursor:"pointer",fontFamily:"inherit"}}>
+          <span style={{width:16,height:16,borderRadius:5,border:"2px solid "+(wh.eventos.includes(k)?"var(--accent)":"var(--tx4)"),background:wh.eventos.includes(k)?"var(--accent)":"transparent",flexShrink:0}}/>
+          <span><span style={{fontFamily:"var(--font-mono)",fontSize:11.5}}>{k}</span> · <span style={{fontSize:12,color:D.tx3}}>{l}</span></span></button>))}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Bt v="s" onClick={()=>sWh(null)}>Cancelar</Bt><Bt v="p" disabled={busy||!wh.eventos.length||!wh.url} onClick={crearWh}>Crear webhook</Bt></div>
+      </div>}
+    </Md>
+    <Md open={!!mostrar} onClose={()=>sMostrar(null)} title={mostrar?.titulo||""} width={520}>
+      {mostrar&&<div>
+        <div data-no-i18n style={{fontFamily:"var(--font-mono)",fontSize:13,padding:"12px 14px",borderRadius:10,background:"var(--bg3)",wordBreak:"break-all",userSelect:"all"}}>{mostrar.valor}</div>
+        <div style={{fontSize:12.5,color:D.tx3,marginTop:10,lineHeight:1.5}}>{mostrar.nota}</div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}><Bt v="p" icon="check" onClick={()=>{navigator.clipboard?.writeText(mostrar.valor);addN&&addN("Copiado");}}>Copiar</Bt><Bt v="s" onClick={()=>sMostrar(null)}>Listo</Bt></div>
+      </div>}
+    </Md>
   </div>);
 }
 
@@ -3805,9 +3893,184 @@ function AvancesPg({users,tasks,pros,cu,isA}){
   </div>);
 }
 
+// Prospectos por zona: la agencia elige rubros y zonas, y cada «actualización» le trae 15
+// prospectos nuevos y calificados, sin repetir nunca uno que ya tuvo. La búsqueda, el cupo y
+// la deduplicación viven en el servidor (/api/prospectos/*): aquí solo se configura y se pide.
+const REGIONES_CL=["Arica y Parinacota","Tarapacá","Antofagasta","Atacama","Coquimbo","Valparaíso","Metropolitana de Santiago","O'Higgins","Maule","Ñuble","Biobío","La Araucanía","Los Ríos","Los Lagos","Aysén","Magallanes"];
+const COMUNAS_CL=["Santiago","Providencia","Las Condes","Vitacura","Lo Barnechea","Ñuñoa","La Reina","Peñalolén","Maipú","La Florida","Puente Alto","San Miguel","Viña del Mar","Valparaíso","Concón","Reñaca","Quilpué","La Serena","Coquimbo","Antofagasta","Iquique","Arica","Calama","Copiapó","Rancagua","Machalí","Talca","Curicó","Chillán","Chillán Viejo","Pinto","Las Trancas","Concepción","San Pedro de la Paz","Talcahuano","Los Ángeles","Temuco","Pucón","Villarrica","Valdivia","Osorno","Puerto Varas","Puerto Montt","Frutillar","Castro","Coyhaique","Punta Arenas","Puerto Natales"];
+const RUBROS_SUG=["restaurantes","cafeterías","clínicas estéticas","centros de estética","gimnasios","hoteles","cabañas","tiendas de ropa","inmobiliarias","dentistas","peluquerías","barberías","veterinarias","pastelerías","centros de yoga","tours y turismo"];
+const DIAS_SEM=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const n1=x=>(Math.round((+x||0)*10)/10).toLocaleString("es-CL");
+
+function ProsZonas({sPros,addN}){
+  const[est,sEst]=useState(null);
+  const[busy,sBusy]=useState(false);
+  const[cfgOpen,sCfgOpen]=useState(false);
+  const[packOpen,sPackOpen]=useState(false);
+  const[histOpen,sHistOpen]=useState(false);
+  const[f,sF]=useState(null);
+  const[rub,sRub]=useState("");
+  const[err,sErr]=useState("");
+  const cargar=useCallback(async()=>{
+    try{const r=await fetch("/api/prospectos/estado",{credentials:"same-origin"});if(r.ok)sEst(await r.json());}catch(_){}
+  },[]);
+  useEffect(()=>{cargar();},[cargar]);
+  if(!est)return null;
+  const c=est.cfg||{},s=est.saldo||{};
+  const listo=(c.rubros||[]).length&&(c.zonas||[]).length;
+  const resumenZonas=(c.zonas||[]).map(z=>z.tipo==="pais"?"Todo Chile":z.nombre+(z.tipo==="region"?" (región)":"")).join(", ");
+
+  const actualizar=async()=>{
+    if(!listo){abrirCfg();return;}
+    sBusy(true);sErr("");
+    try{
+      const r=await fetch("/api/prospectos/actualizar",{method:"POST",credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){sErr(d.error||"No se pudo actualizar.");return;}
+      const lista=await DB.load("prospects");if(Array.isArray(lista))sPros(lista);
+      addN&&addN(d.entregados?("🎯 "+d.entregados+" prospectos nuevos"+(d.agotada?" (la zona se está agotando: se descontó "+n1(d.consumo)+")":"")):"No quedan prospectos nuevos con esos filtros. Amplía zonas o rubros: no se descontó nada.");
+      cargar();
+    }catch(e){sErr("Sin conexión con el servidor.");}
+    finally{sBusy(false);}
+  };
+  const abrirCfg=()=>{sF({rubros:[...(c.rubros||[])],zonas:(c.zonas||[]).length?c.zonas.map(z=>({...z})):[{tipo:"comuna",nombre:""}],minimoPuntaje:c.minimoPuntaje??4,auto:{activo:false,dia:1,hora:9,...(c.auto||{})}});sRub("");sCfgOpen(true);};
+  const guardarCfg=async()=>{
+    const body={...f,zonas:f.zonas.filter(z=>z.tipo==="pais"||z.nombre.trim())};
+    if(!body.rubros.length||!body.zonas.length){addN&&addN("Agrega al menos un rubro y una zona");return;}
+    const r=await fetch("/api/prospectos/config",{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(r.ok){sCfgOpen(false);addN&&addN("✅ Búsqueda guardada");cargar();}else{const d=await r.json().catch(()=>({}));addN&&addN(d.error||"No se pudo guardar");}
+  };
+  const pedirPack=async id=>{
+    const r=await fetch("/api/prospectos/solicitar-pack",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({pack:id})});
+    if(r.ok){sPackOpen(false);addN&&addN("✅ Pedido enviado. Te contactamos para el pago y se carga el pack.");cargar();}else addN&&addN("No se pudo enviar el pedido");
+  };
+  const addRub=v=>{const t=String(v||"").trim();if(!t||f.rubros.includes(t)||f.rubros.length>=8)return;sF(x=>({...x,rubros:[...x.rubros,t]}));sRub("");};
+  const inp={padding:"9px 11px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg3)",color:"var(--tx)",fontFamily:"inherit",fontSize:13.5,minWidth:0};
+  const rot={fontSize:12,fontWeight:700,color:"var(--tx3)",marginBottom:8,display:"block"};
+  const pct=Math.min(100,Math.max(0,(s.cupoMes?((s.cupoMes-s.usadasMes)/s.cupoMes):0)*100));
+
+  return(<div className="card" style={{padding:"16px 18px",marginBottom:18}}>
+    <div style={{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 260px",minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}><Ic n="pin" s={16}/><span style={{fontSize:16,fontWeight:700}}>Búsqueda por zona</span></div>
+        <div style={{fontSize:12.5,color:"var(--tx3)",marginTop:4,lineHeight:1.45}}>
+          {listo?<>{c.rubros.join(", ")} · {resumenZonas}{c.auto?.activo?<> · automática cada {DIAS_SEM[c.auto.dia].toLowerCase()} a las {c.auto.hora}:00</>:null}</>:"Elige qué rubros y qué zonas quieres prospectar. Cada actualización trae 15 negocios nuevos y calificados, nunca repetidos."}
+        </div>
+      </div>
+      <div style={{flex:"0 1 230px",minWidth:190}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--tx3)",marginBottom:5}}><span>Actualizaciones de {new Date().toLocaleDateString("es-CL",{month:"long"})}</span><b style={{color:"var(--tx)"}}>{n1(s.cupoMes-s.usadasMes)} de {s.cupoMes}</b></div>
+        <div style={{height:6,borderRadius:99,background:"rgba(var(--rgb-tinta),.08)",overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:"var(--accent)",transition:"width .4s"}}/></div>
+        <div style={{fontSize:11.5,color:"var(--tx4)",marginTop:5}}>{s.extra>0?<>+ {n1(s.extra)} de packs · </>:null}cada una = hasta {est.porActualizacion} prospectos</div>
+      </div>
+    </div>
+    {!est.configurado&&<div style={{marginTop:12,fontSize:12.5,padding:"9px 12px",borderRadius:10,background:"rgba(255,180,60,.1)",color:"var(--gold)"}}>La búsqueda todavía no está activada en el servidor. Puedes dejarla configurada; empieza a funcionar apenas se active.</div>}
+    {err&&<div style={{marginTop:12,fontSize:12.5,color:"var(--danger)"}}>{err}</div>}
+    {(est.solicitudes||[]).length>0&&<div style={{marginTop:10,fontSize:12,color:"var(--tx3)"}}>Pack pedido, pendiente de carga.</div>}
+    <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+      <Bt v="p" icon="search" disabled={busy||!est.configurado||(listo&&s.disponible<0.1)} onClick={actualizar}>{busy?"Buscando y calificando… (hasta 1 min)":listo?"Buscar 15 nuevos":"Configurar búsqueda"}</Bt>
+      {listo&&<Bt v="s" icon="settings" onClick={abrirCfg}>Zonas y rubros</Bt>}
+      <Bt v="s" icon="plus" onClick={()=>sPackOpen(true)}>Comprar más</Bt>
+      {(est.historial||[]).length>0&&<Bt v="g" onClick={()=>sHistOpen(x=>!x)}>{histOpen?"Ocultar historial":"Historial"}</Bt>}
+    </div>
+    {histOpen&&<div style={{marginTop:12,borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",flexDirection:"column",gap:6}}>
+      {est.historial.map((h,i)=>(<div key={i} style={{display:"flex",gap:10,fontSize:12.5,color:"var(--tx2)",flexWrap:"wrap"}}>
+        <span style={{color:"var(--tx4)",minWidth:118}}>{new Date(h.fecha).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span>
+        <span style={{flex:1,minWidth:160}}>{h.consumo<0?<>Se cargaron {n1(-h.consumo)} actualizaciones{h.por?" ("+h.por+")":""}</>:<>{h.entregados} prospectos · {h.origen}{h.por?" · "+h.por:""}</>}</span>
+        {h.consumo>0&&<span style={{color:"var(--tx4)"}}>−{n1(h.consumo)}</span>}
+      </div>))}
+    </div>}
+
+    <Md open={cfgOpen} onClose={()=>sCfgOpen(false)} title="Zonas y rubros" width={560}>
+      {f&&<div style={{display:"flex",flexDirection:"column",gap:18}}>
+        <div>
+          <span style={rot}>Rubros (hasta 8)</span>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            {f.rubros.map(r=>(<span key={r} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:99,background:"rgba(var(--rgb-acento),.12)",color:"var(--accent)",fontSize:12.5,fontWeight:600}}>{r}<button onClick={()=>sF(x=>({...x,rubros:x.rubros.filter(y=>y!==r)}))} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",padding:0,fontSize:14,lineHeight:1}}>×</button></span>))}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <input list="rubros-sug" value={rub} onChange={e=>sRub(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addRub(rub);}}} placeholder="Ej: clínicas estéticas" style={{...inp,flex:1}}/>
+            <Bt v="s" onClick={()=>addRub(rub)}>Agregar</Bt>
+          </div>
+          <datalist id="rubros-sug">{RUBROS_SUG.map(r=><option key={r} value={r}/>)}</datalist>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:8}}>{RUBROS_SUG.filter(r=>!f.rubros.includes(r)).slice(0,8).map(r=>(<button key={r} onClick={()=>addRub(r)} style={{padding:"4px 9px",borderRadius:99,border:"1px dashed var(--border)",background:"transparent",color:"var(--tx3)",fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>+ {r}</button>))}</div>
+        </div>
+        <div>
+          <span style={rot}>Zonas</span>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {f.zonas.map((z,i)=>(<div key={i} style={{display:"flex",gap:6}}>
+              <select value={z.tipo} onChange={e=>sF(x=>({...x,zonas:x.zonas.map((y,j)=>j===i?{tipo:e.target.value,nombre:e.target.value==="pais"?"":y.nombre}:y)}))} style={{...inp,flex:"0 0 128px"}}>
+                <option value="comuna">Comuna</option><option value="region">Región</option><option value="pais">Todo Chile</option>
+              </select>
+              {z.tipo==="pais"?<div style={{...inp,flex:1,color:"var(--tx3)",background:"transparent"}}>Las 25 ciudades principales</div>:
+                <input list={z.tipo==="region"?"regiones-cl":"comunas-cl"} value={z.nombre} onChange={e=>sF(x=>({...x,zonas:x.zonas.map((y,j)=>j===i?{...y,nombre:e.target.value}:y)}))} placeholder={z.tipo==="region"?"Ej: Ñuble":"Ej: Providencia"} style={{...inp,flex:1}}/>}
+              <button onClick={()=>sF(x=>({...x,zonas:x.zonas.filter((_,j)=>j!==i)}))} title="Quitar" style={{...inp,flex:"0 0 38px",cursor:"pointer",color:"var(--tx3)"}}>×</button>
+            </div>))}
+          </div>
+          <datalist id="regiones-cl">{REGIONES_CL.map(r=><option key={r} value={r}/>)}</datalist>
+          <datalist id="comunas-cl">{COMUNAS_CL.map(r=><option key={r} value={r}/>)}</datalist>
+          {f.zonas.length<30&&<Bt v="g" icon="plus" onClick={()=>sF(x=>({...x,zonas:[...x.zonas,{tipo:"comuna",nombre:""}]}))} style={{marginTop:6}}>Agregar zona</Bt>}
+        </div>
+        <div>
+          <span style={rot}>Exigencia: puntaje mínimo {f.minimoPuntaje} de 10</span>
+          <input type="range" min={0} max={9} value={f.minimoPuntaje} onChange={e=>sF(x=>({...x,minimoPuntaje:+e.target.value}))} style={{width:"100%"}}/>
+          <div style={{fontSize:11.5,color:"var(--tx4)",lineHeight:1.45}}>Suma puntos por reseñas, nota en Google, precio medio-alto, web, Instagram y correo. Más alto = menos prospectos pero mejores.</div>
+        </div>
+        <div>
+          <button type="button" onClick={()=>sF(x=>({...x,auto:{...x.auto,activo:!x.auto.activo}}))} style={{display:"flex",alignItems:"center",gap:10,background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",fontSize:13.5,fontWeight:600,color:"var(--tx)"}}>
+            <span style={{width:38,height:22,borderRadius:99,background:f.auto.activo?"var(--accent)":"rgba(var(--rgb-tinta),.15)",position:"relative",transition:"background .2s",flexShrink:0}}><span style={{position:"absolute",top:3,left:f.auto.activo?19:3,width:16,height:16,borderRadius:99,background:"#fff",transition:"left .2s"}}/></span>
+            Actualizar sola cada semana
+          </button>
+          {f.auto.activo&&<div style={{display:"flex",gap:6,marginTop:8}}>
+            <select value={f.auto.dia} onChange={e=>sF(x=>({...x,auto:{...x.auto,dia:+e.target.value}}))} style={{...inp,flex:1}}>{DIAS_SEM.map((d,i)=><option key={i} value={i}>{d}</option>)}</select>
+            <select value={f.auto.hora} onChange={e=>sF(x=>({...x,auto:{...x.auto,hora:+e.target.value}}))} style={{...inp,flex:1}}>{Array.from({length:24},(_,h)=><option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}</select>
+          </div>}
+          <div style={{fontSize:11.5,color:"var(--tx4)",marginTop:6}}>Cada ejecución automática usa una actualización.</div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Bt v="s" onClick={()=>sCfgOpen(false)}>Cancelar</Bt><Bt v="p" icon="check" onClick={guardarCfg}>Guardar</Bt></div>
+      </div>}
+    </Md>
+
+    <Md open={packOpen} onClose={()=>sPackOpen(false)} title="Más actualizaciones" width={440}>
+      <div style={{fontSize:13,color:"var(--tx3)",marginBottom:14,lineHeight:1.5}}>Los packs se suman a las {s.cupoMes} del mes y no vencen. Cada actualización trae hasta {est.porActualizacion} prospectos nuevos.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {(est.packs||[]).map(p=>(<div key={p.id} className="card" style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{flex:1}}><div style={{fontWeight:700}}>{p.cantidad} actualizaciones</div><div style={{fontSize:12,color:"var(--tx4)"}}>hasta {p.cantidad*est.porActualizacion} prospectos · {p.precio}</div></div>
+          <Bt v="p" onClick={()=>pedirPack(p.id)}>Pedir</Bt>
+        </div>))}
+      </div>
+    </Md>
+  </div>);
+}
+
+// Primer mensaje de contacto con IA para un prospecto.
+function MensajeIA({p,onClose,addN}){
+  const[canal,sCanal]=useState(p.instagram_handle?"instagram":p.email?"email":"whatsapp");
+  const[txt,sTxt]=useState("");
+  const[busy,sBusy]=useState(false);
+  const gen=async()=>{
+    sBusy(true);
+    try{const r=await fetch("/api/prospectos/"+encodeURIComponent(p.id)+"/mensaje",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({canal})});
+      const d=await r.json().catch(()=>({}));if(r.ok)sTxt(d.mensaje||"");else addN&&addN(d.error||"No se pudo generar");}
+    finally{sBusy(false);}
+  };
+  return(<Md open={true} onClose={onClose} title={"Primer mensaje · "+p.name} width={520}>
+    <div style={{display:"flex",gap:6,marginBottom:12}}>
+      {[["instagram","Instagram"],["whatsapp","WhatsApp"],["email","Correo"]].map(([k,l])=>(<Bt key={k} v={canal===k?"p":"s"} onClick={()=>sCanal(k)} style={{padding:"6px 12px",fontSize:12}}>{l}</Bt>))}
+    </div>
+    <textarea value={txt} onChange={e=>sTxt(e.target.value)} rows={8} placeholder="Genera un mensaje y ajústalo antes de mandarlo." style={{width:"100%",padding:12,borderRadius:12,border:"1px solid var(--border)",background:"var(--bg3)",color:"var(--tx)",fontFamily:"inherit",fontSize:13.5,lineHeight:1.5,resize:"vertical"}}/>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10,flexWrap:"wrap"}}>
+      <Bt v="s" onClick={gen} disabled={busy}>{busy?"Escribiendo…":txt?"Otra versión":"Generar"}</Bt>
+      {txt&&<Bt v="p" icon="check" onClick={()=>{navigator.clipboard?.writeText(txt);addN&&addN("Mensaje copiado");}}>Copiar</Bt>}
+    </div>
+  </Md>);
+}
+
 function ProspectosPg({pros,sPros,users,addN,currentUser,avisar,correosDe}){
-  const AREAS_L=[["las_trancas","Valle Las Trancas"],["chillan","Chillán"]];
-  const CATS_L=[["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]];
+  // Las zonas y rubros ya no son fijos: los de la búsqueda por zona llegan como "z:<comuna>" y
+  // "r:<rubro>", así que la lista se arma con lo que haya en los datos.
+  const AREAS_L=useMemo(()=>{const m=new Map([["las_trancas","Valle Las Trancas"],["chillan","Chillán"]]);(pros||[]).forEach(p=>{if(p.area&&!m.has(p.area))m.set(p.area,String(p.area).replace(/^z:/,""));});return[...m];},[pros]);
+  const CATS_L=useMemo(()=>{const m=new Map([["restaurant","Restaurantes y cafés"],["lodging","Alojamiento"]]);(pros||[]).forEach(p=>{if(p.category&&!m.has(p.category)){const t=String(p.category).replace(/^r:/,"");m.set(p.category,t.charAt(0).toUpperCase()+t.slice(1));}});return[...m];},[pros]);
+  const[msgIA,sMsgIA]=useState(null);
   const STATUS_L=[["pendiente","Pendientes"],["aprobado","Aprobados"],["rechazado","Rechazados"]];
   const ETAPAS=[
     ["contactado","Primer acercamiento"],
@@ -4031,6 +4294,8 @@ function ProspectosPg({pros,sPros,users,addN,currentUser,avisar,correosDe}){
       </div>
       <Bt v="p" icon="plus" onClick={()=>sShowAdd(true)}>Agregar prospecto</Bt>
     </div>
+    <ProsZonas sPros={sPros} addN={addN}/>
+    {msgIA&&<MensajeIA p={msgIA} onClose={()=>sMsgIA(null)} addN={addN}/>}
 
     {/* Antes esto era UNA fila con el botón de crear y tres grupos de filtros seguidos, todos
         con la misma píldora y separados por hairlines de 1px. En el teléfono la fila se parte
@@ -4076,11 +4341,12 @@ function ProspectosPg({pros,sPros,users,addN,currentUser,avisar,correosDe}){
                       <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220,flex:"1 1 220px"}}>
                           <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
-                          <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.fit_flag}</Bg>
+                          <Bg color={p.fit_flag==="INCLUIR"?"var(--success)":"var(--gold)"} style={{flexShrink:0}}>{p.puntaje!=null?p.puntaje+"/10":p.fit_flag}</Bg>
                         </div>
                         <div style={{flex:"2 1 280px"}}>{linkRow(p,false)}</div>
                         <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
                           {statusF==="pendiente"?(<>
+                            <Bt v="s" onClick={()=>sMsgIA(p)} style={{padding:"7px 12px",fontSize:11}} icon="chat">Mensaje IA</Bt>
                             <Bt v="p" onClick={()=>setStatus(p.id,"aprobado")} style={{padding:"7px 14px",fontSize:11}} icon="check">Aprobar</Bt>
                             <Bt v="d" onClick={()=>setStatus(p.id,"rechazado")} style={{padding:"7px 14px",fontSize:11}} icon="x">Rechazar</Bt>
                           </>):(
@@ -4088,6 +4354,7 @@ function ProspectosPg({pros,sPros,users,addN,currentUser,avisar,correosDe}){
                           )}
                         </div>
                       </div>
+                      {p.fit_reason&&p.origen==="zona"&&<div style={{marginTop:8,fontSize:11.5,color:"var(--tx4)"}}>{p.rubro?p.rubro+" · ":""}{p.address}{p.fit_reason?" · "+p.fit_reason:""}</div>}
                       {p.profile_notes&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:12,color:"var(--tx2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}><Ic n="search" s={11} style={{verticalAlign:"-1px",marginRight:5}}/>{p.profile_notes}</div>}
                     </div>
                   ))}
@@ -8620,7 +8887,122 @@ function GuionadoPg({cos,users,addN,tasks,sT,planners}){
 
 // ═══ DÍAS DE GRABACIÓN ══════════════════════════════════════════
 // ═══ FINANZAS (Payments + Billing + IVA) ════════════════════════
-function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,billRcpts,sBR,cM,cY,avisar,correosDe,cu}){
+// Análisis financiero: gastos fijos, rentabilidad por cliente, flujo de caja a 90 días y
+// cobranza. Los gastos fijos viven en `gastos_fijos` (compartidos por el equipo).
+const CAT_GASTO=["Software","Freelancer","Arriendo","Publicidad","Equipos","Impuestos","Otro"];
+function FinAnalisis({cuotas,cos,allPays,cM,cY,tasks,mpOn,addN,MO_}){
+  const[gastos,sGastos]=useState(null);
+  const[ng,sNg]=useState({nombre:"",monto:"",categoria:"Software"});
+  useEffect(()=>{DB.load("gastos_fijos").then(l=>sGastos(Array.isArray(l)?l:[]));},[]);
+  const guardarG=async l=>{sGastos(l);const ok=await DB.save("gastos_fijos",l);if(!ok)addN&&addN("❌ No se pudo guardar el gasto");};
+  const enMes=(d,m,y)=>{if(!d)return false;const s=String(d);return +s.slice(0,4)===y&&+s.slice(5,7)===m+1;};
+  const gFijos=(gastos||[]).reduce((s,g)=>s+(+g.monto||0),0);
+  const pagosMes=(m,y)=>allPays.filter(p=>enMes(p.date,m,y)).reduce((s,p)=>s+(+p.amount||0),0);
+  const equipoMes=pagosMes(cM,cY);
+  const ingresoMes=cuotas.reduce((s,q)=>s+q.price,0);
+  const costoMes=equipoMes+gFijos;
+  const margen=ingresoMes-costoMes;
+  // Rentabilidad: el costo del mes se reparte según las piezas que se produjeron para cada cliente.
+  const piezas=c=>(tasks||[]).filter(t=>String(t.companyId)===String(c.id)&&(enMes(t.plannedDay||t.date,cM,cY))).length;
+  const filas=cuotas.map(q=>({q,n:piezas(q.co)}));
+  const totalPiezas=filas.reduce((s,f)=>s+f.n,0);
+  const rent=filas.map(({q,n})=>{const parte=totalPiezas?n/totalPiezas:(filas.length?1/filas.length:0);const costo=Math.round(costoMes*parte);return{co:q.co,fee:q.price,n,costo,margen:q.price-costo,pct:q.price?Math.round((q.price-costo)/q.price*100):0};}).sort((a,b)=>a.pct-b.pct);
+  // Flujo a 90 días: entra el MRR (más lo pendiente de este mes) y salen gastos fijos + promedio del equipo.
+  const prom3=Math.round([0,1,2].map(i=>{const d=new Date(cY,cM-1-i,1);return pagosMes(d.getMonth(),d.getFullYear());}).reduce((a,b)=>a+b,0)/3)||equipoMes;
+  const pendienteHoy=cuotas.reduce((s,q)=>s+q.pending,0);
+  let acum=0;
+  const flujo=[0,1,2].map(i=>{const d=new Date(cY,cM+i,1);const entra=i===0?pendienteHoy:ingresoMes;const sale=gFijos+(i===0?Math.max(0,prom3-equipoMes):prom3);const neto=entra-sale;acum+=neto;return{l:(MO_?MO_[d.getMonth()]:d.toLocaleDateString("es-CL",{month:"long"}))+" "+d.getFullYear(),entra,sale,neto,acum};});
+  const maxF=Math.max(1,...flujo.map(f=>Math.max(f.entra,f.sale)));
+  // Cobranza: cuotas vencidas o que vencen en los próximos 5 días.
+  const hoy=td();const en5=new Date(Date.now()+5*864e5).toISOString().slice(0,10);
+  const cobrar=[];
+  cuotas.forEach(q=>{[["50_1",q.h1,q.cuota1,q.due1,1],["50_2",q.h2,q.cuota2,q.due2,2]].forEach(([tp,pag,monto,due,n])=>{if(!pag&&monto>0&&due<=en5)cobrar.push({q,tp,monto,due,n,vencida:due<hoy});});});
+  cobrar.sort((a,b)=>a.due.localeCompare(b.due));
+  const recordatorio=async(x,via)=>{
+    let link="";
+    if(mpOn){try{const r=await fetch("/api/mp/link",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:String(x.q.co.id),month:cM,year:cY,cuota:x.tp,monto:x.monto,titulo:x.q.co.name+" · cuota "+x.n+"/2"})});const d=await r.json().catch(()=>({}));if(r.ok&&d.url)link=d.url;}catch(_){}}
+    const emp=(typeof EMP_ACTUAL!=="undefined"&&EMP_ACTUAL&&EMP_ACTUAL.nombre)||"INMERSIA";
+    const txt="Hola "+x.q.co.name+", te escribimos de "+emp+". "+(x.vencida?"La cuota "+x.n+" de este mes venció el "+x.due.split("-").reverse().join("-"):"Te recordamos que la cuota "+x.n+" de este mes vence el "+x.due.split("-").reverse().join("-"))+" por "+fP(x.monto)+" + IVA."+(link?" Puedes pagarla aquí: "+link:"")+" ¡Gracias!";
+    if(via==="mail"&&x.q.co.email){location.href="mailto:"+x.q.co.email+"?subject="+encodeURIComponent("Recordatorio de pago · cuota "+x.n)+"&body="+encodeURIComponent(txt);return;}
+    if(via==="wa"){window.open("https://wa.me/?text="+encodeURIComponent(txt),"_blank");return;}
+    try{await navigator.clipboard.writeText(txt);addN&&addN("Recordatorio copiado"+(link?" con link de pago":""));}catch(_){prompt("Copia el recordatorio:",txt);}
+  };
+  const card={padding:18,marginBottom:16};
+  const h={fontSize:15,fontWeight:700,marginBottom:4};
+  const sub={fontSize:12,color:"var(--tx3)",marginBottom:14,lineHeight:1.45};
+  const inp={padding:"8px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg3)",color:"var(--tx)",fontFamily:"inherit",fontSize:13,minWidth:0};
+  return(<div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+      {[["Ingresos del mes",fP(ingresoMes),"var(--success)"],["Pagos al equipo (mes)",fP(equipoMes),"var(--gold)"],["Gastos fijos",fP(gFijos),"var(--gold)"],["Margen del mes",fP(margen)+(ingresoMes?" · "+Math.round(margen/ingresoMes*100)+"%":""),margen>=0?"var(--tx)":"var(--danger)"]].map(([l,v,c])=>(
+        <div key={l} className="card" style={{padding:16}}><div style={{fontSize:12,color:"var(--tx3)",marginBottom:8}}>{l}</div><div className="num" style={{fontSize:"clamp(16px,4.6vw,22px)",fontWeight:600,color:c,overflowWrap:"anywhere"}}>{v}</div></div>))}
+    </div>
+
+    <div className="card" style={card}>
+      <div style={h}>Cobranza</div>
+      <div style={sub}>Cuotas vencidas o que vencen en los próximos 5 días. {mpOn?"El recordatorio incluye el link de pago de Mercado Pago.":"Conecta Mercado Pago en Integraciones para incluir el link de pago."}</div>
+      {!cobrar.length?<div style={{fontSize:13,color:"var(--tx3)"}}>Nada por cobrar ahora. 🎉</div>:
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {cobrar.map((x,i)=>(<div key={i} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:"var(--bg3)",borderLeft:"3px solid "+(x.vencida?"var(--danger)":"var(--gold)")}}>
+          <div style={{flex:"1 1 180px",minWidth:0}}><div style={{fontWeight:600,fontSize:13.5}}>{x.q.co.name} · cuota {x.n}</div>
+            <div style={{fontSize:11.5,color:x.vencida?"var(--danger)":"var(--tx3)"}}>{x.vencida?"Vencida el ":"Vence el "}{x.due.split("-").reverse().join("-")} · {fP(x.monto)}</div></div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <Bt v="s" icon="chat" onClick={()=>recordatorio(x,"wa")} style={{padding:"6px 11px",fontSize:12}}>WhatsApp</Bt>
+            {x.q.co.email&&<Bt v="s" icon="mail" onClick={()=>recordatorio(x,"mail")} style={{padding:"6px 11px",fontSize:12}}>Correo</Bt>}
+            <Bt v="g" onClick={()=>recordatorio(x,"copiar")} style={{padding:"6px 10px",fontSize:12}}>Copiar</Bt>
+          </div>
+        </div>))}
+      </div>}
+    </div>
+
+    <div className="card" style={card}>
+      <div style={h}>Rentabilidad por cliente</div>
+      <div style={sub}>El costo del mes (pagos al equipo + gastos fijos = {fP(costoMes)}) se reparte según las piezas producidas para cada cliente ({totalPiezas} en total). Los de arriba son los que menos dejan.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {rent.map(r=>(<div key={r.co.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1.4fr) repeat(3,minmax(0,1fr))",gap:8,alignItems:"center",fontSize:12.5,padding:"8px 10px",borderRadius:9,background:"var(--bg3)"}}>
+          <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.co.name}<div style={{fontSize:11,color:"var(--tx4)",fontWeight:400}}>{r.n} piezas</div></div>
+          <div className="num"><div style={{fontSize:10.5,color:"var(--tx4)"}}>Fee</div>{fP(r.fee)}</div>
+          <div className="num"><div style={{fontSize:10.5,color:"var(--tx4)"}}>Costo</div>{fP(r.costo)}</div>
+          <div className="num" style={{color:r.margen<0?"var(--danger)":r.pct<30?"var(--gold)":"var(--success)",fontWeight:700}}><div style={{fontSize:10.5,color:"var(--tx4)",fontWeight:400}}>Margen</div>{r.pct}%</div>
+        </div>))}
+      </div>
+    </div>
+
+    <div className="card" style={card}>
+      <div style={h}>Flujo de caja proyectado (90 días)</div>
+      <div style={sub}>Entra lo pendiente de este mes y después el fee mensual de los clientes activos; sale el promedio de pagos al equipo de los últimos 3 meses ({fP(prom3)}) más los gastos fijos.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {flujo.map(f=>(<div key={f.l}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,marginBottom:5,flexWrap:"wrap",gap:6}}><b style={{textTransform:"capitalize"}}>{f.l}</b><span className="num" style={{color:f.neto>=0?"var(--success)":"var(--danger)"}}>{f.neto>=0?"+":""}{fP(f.neto)} · acumulado {fP(f.acum)}</span></div>
+          <div style={{height:7,borderRadius:99,background:"rgba(var(--rgb-tinta),.06)",marginBottom:3}}><div style={{width:(f.entra/maxF*100)+"%",height:"100%",borderRadius:99,background:"var(--success)"}}/></div>
+          <div style={{height:7,borderRadius:99,background:"rgba(var(--rgb-tinta),.06)"}}><div style={{width:(f.sale/maxF*100)+"%",height:"100%",borderRadius:99,background:"var(--gold)"}}/></div>
+          <div style={{display:"flex",gap:14,fontSize:11,color:"var(--tx4)",marginTop:3}}><span>Entra {fP(f.entra)}</span><span>Sale {fP(f.sale)}</span></div>
+        </div>))}
+      </div>
+    </div>
+
+    <div className="card" style={card}>
+      <div style={h}>Gastos fijos mensuales</div>
+      <div style={sub}>Software, freelancers, arriendo y todo lo que se paga cada mes. Entran al margen y al flujo de caja.</div>
+      {gastos===null?<div style={{fontSize:12.5,color:"var(--tx4)"}}>Cargando…</div>:<>
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+          {gastos.map(g=>(<div key={g.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",borderRadius:9,background:"var(--bg3)",fontSize:13}}>
+            <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{g.nombre}<span style={{fontSize:11,color:"var(--tx4)",marginLeft:8}}>{g.categoria}</span></span>
+            <span className="num" style={{fontWeight:600}}>{fP(+g.monto||0)}</span>
+            <button onClick={()=>guardarG(gastos.filter(x=>x.id!==g.id))} title="Quitar" style={{background:"none",border:"none",color:"var(--tx4)",cursor:"pointer",fontSize:16}}>×</button>
+          </div>))}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <input value={ng.nombre} onChange={e=>sNg(x=>({...x,nombre:e.target.value}))} placeholder="Ej: Adobe, editor freelance" style={{...inp,flex:"2 1 160px"}}/>
+          <input value={ng.monto} onChange={e=>sNg(x=>({...x,monto:e.target.value.replace(/\D/g,"")}))} placeholder="Monto mensual" inputMode="numeric" style={{...inp,flex:"1 1 110px"}}/>
+          <select value={ng.categoria} onChange={e=>sNg(x=>({...x,categoria:e.target.value}))} style={{...inp,flex:"1 1 110px"}}>{CAT_GASTO.map(c=><option key={c}>{c}</option>)}</select>
+          <Bt v="p" icon="plus" onClick={()=>{if(!ng.nombre||!+ng.monto)return;guardarG([...(gastos||[]),{id:uid(),nombre:ng.nombre.trim(),monto:+ng.monto,categoria:ng.categoria}]);sNg({nombre:"",monto:"",categoria:ng.categoria});}}>Agregar</Bt>
+        </div>
+      </>}
+    </div>
+  </div>);
+}
+
+function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,billRcpts,sBR,cM,cY,avisar,correosDe,cu,tasks}){
   const[tab,sTab]=useState("team");const[showReg,sShowReg]=useState(false);
   const[f,sF]=useState({userId:users[0]?.id,amount:"",concept:"",date:td()});const[pImg,sPImg]=useState(null);
   const[ivaRate]=useState(19);
@@ -8651,12 +9033,23 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   // Invoice config per company
   const[invoiceCfg,sInvCfg]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_invoice_cfg")||"{}")}catch{return{}}});
   const[invoiceFiles,sInvFiles]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_invoices")||"{}")}catch{return{}}});
-  const setReqFactura=(coId,v)=>{const nw={...invoiceCfg,[coId]:{...(invoiceCfg[coId]||{}),requiere:v}};sInvCfg(nw);localStorage.setItem("inm_invoice_cfg",JSON.stringify(nw));};
+  const setReqFactura=(coId,v)=>{const nw={...invoiceCfg,[coId]:{...(invoiceCfg[coId]||{}),requiere:v}};sInvCfg(nw);localStorage.setItem("inm_invoice_cfg",JSON.stringify(nw));subirFin&&subirFin({invoiceCfg:nw});};
   const uploadFactura=(coId,e)=>{const fl=e.target.files[0];if(!fl)return;const r=new FileReader();r.onload=ev=>{const nw={...invoiceFiles,[coId+"_"+cM+"_"+cY]:{name:fl.name,data:ev.target.result,date:td()}};sInvFiles(nw);localStorage.setItem("inm_invoices",JSON.stringify(nw));addN("📄 Factura subida para "+cos.find(c=>c.id===parseInt(coId))?.name);};r.readAsDataURL(fl);};
   // Billing overrides (editable prices, extras)
   const META_DEFAULT=150000;const FIDEL_DEFAULT=80000;
   const[billOvr,sBillOvr]=useState(()=>{try{return JSON.parse(localStorage.getItem("inm_bill_overrides")||"{}")}catch{return{}}});
-  const saveBillOvr=(nw)=>{sBillOvr(nw);localStorage.setItem("inm_bill_overrides",JSON.stringify(nw));};
+  // Antes los precios editados y la marca «requiere factura» vivían SOLO en el localStorage de
+  // cada navegador: lo que ajustaba uno no lo veía nadie más y al cambiar de equipo se perdía.
+  // Ahora van también a `fin_cfg` (compartido). Al abrir, manda el servidor; si el servidor no
+  // tiene nada y este navegador sí, se sube lo local una vez.
+  const finCfgRef=useRef({});
+  useEffect(()=>{DB.load("fin_cfg").then(v=>{
+    const srv=(v&&!Array.isArray(v)&&typeof v==="object")?v:null;
+    if(srv&&(srv.billOvr||srv.invoiceCfg)){finCfgRef.current=srv;if(srv.billOvr){sBillOvr(srv.billOvr);localStorage.setItem("inm_bill_overrides",JSON.stringify(srv.billOvr));}if(srv.invoiceCfg){sInvCfg(srv.invoiceCfg);localStorage.setItem("inm_invoice_cfg",JSON.stringify(srv.invoiceCfg));}}
+    else{const loc={billOvr:billOvr,invoiceCfg:invoiceCfg};if(Object.keys(billOvr).length||Object.keys(invoiceCfg).length){finCfgRef.current=loc;DB.save("fin_cfg",loc);}}
+  });},[]);
+  const subirFin=parte=>{finCfgRef.current={...finCfgRef.current,...parte};DB.save("fin_cfg",finCfgRef.current);};
+  const saveBillOvr=(nw)=>{sBillOvr(nw);localStorage.setItem("inm_bill_overrides",JSON.stringify(nw));subirFin({billOvr:nw});};
   const getOvr=(coId)=>billOvr[coId]||{};
   const setOvr=(coId,field,val)=>{saveBillOvr({...billOvr,[coId]:{...getOvr(coId),[field]:val}});};
   const getPrice=(c)=>{const ovr=getOvr(c.id);if(ovr.price!==undefined&&ovr.price!=="")return parseInt(ovr.price);return c.price||c.customPrice||plans[c.plan]?.price||0;};
@@ -8676,7 +9069,9 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
   // Calculations
   const allPays=Object.entries(teamPay).flatMap(([uid,arr])=>arr.map(p=>({...p,userId:parseInt(uid)})));
-  const egresos=allPays.reduce((s,p)=>s+p.amount,0);
+  // Egresos DEL MES seleccionado. Antes sumaba todos los pagos de la historia y el «Margen neto»
+  // comparaba un mes de ingresos contra años de pagos.
+  const egresos=allPays.filter(p=>{const d=String(p.date||"");return +d.slice(0,4)===cY&&+d.slice(5,7)===cM+1;}).reduce((s,p)=>s+p.amount,0);
   const ingresos=cos.reduce((s,c)=>{const ovr=getOvr(c.id);const base=getPrice(c);const meta=(ovr.meta?getMetaVal(c):0);const fidel=(ovr.fidel?getFidelVal(c):0);return s+base+meta+fidel;},0);
   const margen=ingresos-egresos;
   const mrr=ingresos;
@@ -8737,7 +9132,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
     {/* 4 KPIs */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:24}}>
-      {[["Ingresos (mes)",fP(ingresos),"var(--success)","trend_up"],["Egresos (equipo)",fP(egresos),"var(--gold)","logout"],["Margen neto",fP(margen),margen>=0?"var(--tx)":"var(--danger)","money"],["MRR estimado",fP(mrr),"var(--tx)","trend_up"]].map(([l,v,c,ic],i)=>(<div key={i} className="card" style={{padding:20}}>
+      {[["Ingresos (mes)",fP(ingresos),"var(--success)","trend_up"],["Egresos equipo (mes)",fP(egresos),"var(--gold)","logout"],["Margen neto",fP(margen),margen>=0?"var(--tx)":"var(--danger)","money"],["MRR estimado",fP(mrr),"var(--tx)","trend_up"]].map(([l,v,c,ic],i)=>(<div key={i} className="card" style={{padding:20}}>
         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}><Ic n={ic} s={16} c="var(--tx3)"/><span style={{fontSize:12,color:"var(--tx3)"}}>{l}</span></div>
         <div className="num" style={{fontSize:"clamp(17px,5.2vw,28px)",overflowWrap:"anywhere",fontWeight:600,letterSpacing:"-0.02em",color:c}}>{v}</div>
       </div>))}
@@ -8759,12 +9154,13 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
 
     {/* TABS */}
     <div style={{display:"flex",gap:24,marginBottom:20,borderBottom:"2px solid var(--border)"}}>
-      {[["team","Pagos al equipo","Inmersia → Colaboradores","team"],["billing","Cobros a clientes","Empresas → Inmersia","companies"]].map(([k,l,sub,ic])=>(<button key={k} onClick={()=>sTab(k)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 4px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit"}}>
+      {[["team","Pagos al equipo","Inmersia → Colaboradores","team"],["billing","Cobros a clientes","Empresas → Inmersia","companies"],["analisis","Análisis","Rentabilidad, flujo y cobranza","trend_up"]].map(([k,l,sub,ic])=>(<button key={k} onClick={()=>sTab(k)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 4px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid var(--accent)":"2px solid transparent",marginBottom:-2,cursor:"pointer",fontFamily:"inherit"}}>
         <Ic n={ic} s={18} c={tab===k?"var(--tx)":"var(--tx3)"}/>
         <div style={{textAlign:"left"}}><div style={{fontSize:14,fontWeight:tab===k?600:500,color:tab===k?"var(--tx)":"var(--tx3)"}}>{l}</div><div style={{fontSize:11,color:"var(--tx3)"}}>{sub}</div></div>
       </button>))}
     </div>
 
+    {tab==="analisis"&&<FinAnalisis cuotas={cuotas} cos={cos} allPays={allPays} cM={cM} cY={cY} tasks={tasks} mpOn={mpOn} addN={addN} MO_={typeof MO!=="undefined"?MO:null}/>}
     {/* TEAM TAB */}
     {tab==="team"&&(<div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:20}}>
