@@ -1088,3 +1088,8 @@ tamaño, llave sin permiso de escritura).
 
 **Nunca subir al repo**: `.env`, `public/__mocktest*.html`, `public/__demo_media/` (videos
 reales de clientes) ni ningún `client_secret_*.json`.
+
+## Idioma, tipografía y login cerrado (2 nov 2026)
+- **Idioma (ES/EN/PT):** `public/i18n.js` traduce en vivo lo que se ve (textos, placeholder, title, aria-label) con un diccionario ES→EN/PT y un MutationObserver. El selector está en la cabecera, junto al botón de tema; guarda `localStorage.inm_lang` y recarga. No traduce lo que escribe el usuario ni nada con `data-no-i18n`. Textos nuevos: agregarlos a `DICT.en`/`DICT.pt` (el archivo se generó con Gemini a partir de los textos del código; los scripts están en `C:\Users\PC\tmp_inm\i18n_*.js`). Fechas y montos siguen con `es-CL`.
+- **Tipografía:** variable `--font-ui` = fuente del sistema de Apple (`-apple-system`, SF Pro). En Windows y Android cae a Inter, porque la licencia de SF Pro no permite servirla como webfont.
+- **Login cerrado:** `accesoPermitido(email)` (junto a `TEAM`): solo el equipo (correo o gmail de `TEAM`) y usuarios de portal sin "@". Se aplica en `/api/auth/login`, en el callback de Google (solo equipo) y en `requireAuth` (invalida sesiones viejas de terceros). `/api/auth/password` solo cambia la clave del dueño de la sesión. Antes cualquier correo con "@" + clave 1234, o cualquier Gmail, entraba como equipo. Si se suma alguien al equipo, hay que agregarlo a `TEAM` o no podrá entrar.

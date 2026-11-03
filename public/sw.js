@@ -1,10 +1,10 @@
 // Service worker de INMERSIA.
 // Debe servirse desde la RAÍZ (/sw.js) para que su scope cubra toda la app.
-const CACHE = "inmersia-v8";
+const CACHE = "inmersia-v10";
 
 // El esqueleto: lo mínimo para pintar la app en pantalla. React, Babel y las fuentes vienen
 // de CDN, otro origen, y los cachea el navegador por su cuenta con su propio max-age largo.
-const SHELL = ['/index.html', '/manifest.json', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
+const SHELL = ['/index.html', '/i18n.js', '/manifest.json', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
 // Casi toda navegación acaba en el mismo index.html —la app es una SPA y el servidor tiene un
 // `app.get("*")` al final—, así que todas comparten una sola entrada en la caché.

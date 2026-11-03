@@ -69,7 +69,10 @@ function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
   const cookieToken = cookies._iauth || "";
   const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
-  if (!verifyToken(cookieToken || headerToken)) return res.status(401).json({ error: "No autorizado" });
+  const tok = verifyToken(cookieToken || headerToken);
+  // Una sesión de alguien que no es del equipo ni usuario de portal no vale, aunque la firma
+  // sea correcta: así caen también las que se emitieron antes de cerrar el login (ver accesoPermitido).
+  if (!tok || !accesoPermitido(tok.email)) return res.status(401).json({ error: "No autorizado" });
   next();
 }
 
@@ -368,6 +371,8 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
     const email = normUser(req.body?.email);
     const pass = String(req.body?.password || "");
     if (!email || !pass) return res.status(400).json({ error: "Faltan datos" });
+    // Antes cualquier correo con "@" entraba como equipo con la clave de fábrica.
+    if (!accesoPermitido(email)) return res.status(401).json({ error: "Credenciales incorrectas" });
 
     const creds = await loadCreds();
     const c = creds[email];
@@ -396,6 +401,9 @@ app.post("/api/auth/password", requireAuth, rateLimit(20, "password"), async (re
   try {
     const email = normUser(req.body?.email);
     const actual = String(req.body?.actual || "");
+    // Solo se cambia la clave propia: el usuario sale de la sesión, no del cuerpo de la petición.
+    const yo = verifyToken(parseCookies(req)._iauth || (req.headers.authorization || "").replace("Bearer ", "").trim());
+    if (!yo || normUser(yo.email) !== email) return res.status(403).json({ error: "Solo puedes cambiar tu propia contraseña" });
     const nueva = String(req.body?.nueva || "");
     if (!email) return res.status(400).json({ error: "Falta el usuario" });
     if (nueva.length < 6) return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
@@ -1041,6 +1049,10 @@ const TEAM = [
   { id: 6, name: "Jose", superadmin: true, email: "jose@inmersia.cl", gmail: "jose.vergara.diaz.vr@gmail.com", role: "admin", vota: true },
   { id: 7, name: "INMERSIA", email: "inmersiatours@gmail.com", gmail: "inmersiatours@gmail.com", role: "admin" },
 ];
+// Quién puede tener sesión: el equipo (correo o gmail de TEAM) y los usuarios de portal de
+// clientes, que no llevan "@" (su empresa se comprueba aparte en el login).
+const esDelEquipo = e => correosDe(TEAM).map(normUser).includes(normUser(e));
+const accesoPermitido = e => { const x = normUser(e); return !!x && (!x.includes("@") || (x in CLIENTES) || esDelEquipo(x)); };
 const correosDe = us => [...new Set((us || []).flatMap(u => [u.email, u.gmail]).filter(Boolean))];
 const porIds = ids => TEAM.filter(u => (Array.isArray(ids) ? ids : [ids]).includes(u.id));
 // Reuniones y eventos van siempre también a los admins. Se juntan en una sola lista
@@ -2357,6 +2369,11 @@ app.get("/api/auth/callback/google", async (req, res) => {
     // viene y tampoco hay uno guardado, se pide una segunda vuelta con prompt=consent —
     // una sola, marcada con el state, para no quedar en un ciclo.
     if (!userData.email) { console.error("Google no devolvió el correo:", userData); return res.send("Google no devolvió el correo de la cuenta"); }
+    // Solo el equipo entra con Google. Antes cualquier cuenta de Gmail recibía la sesión.
+    if (!accesoPermitido(userData.email) || !String(userData.email).includes("@") || !esDelEquipo(userData.email)) {
+      console.warn("Login Google rechazado:", userData.email);
+      return res.status(403).send("Esta cuenta de Google no pertenece al equipo. Entra con tu usuario y contraseña.");
+    }
 
     const guardados = (await sbGet("gcal_tokens", {})) || {};
     if (tokenData.refresh_token) {

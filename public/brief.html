@@ -24,7 +24,8 @@
 <style>
   /* Las dos paletas de la app, copiadas tal cual. */
   :root{
-    --font-mono:'Inter',system-ui,sans-serif;
+    --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Inter","Segoe UI","Helvetica Neue",system-ui,sans-serif;
+    --font-mono:var(--font-ui);
     --bg:#05060B;--bg2:#0B0E17;--bg3:#0D111B;--bg4:#07090F;
     --border:#161B2A;--border2:#262D40;--border3:#1E2536;
     --tx:#F4F2ED;--tx2:#C9CFDC;--tx3:#8E93A6;--tx4:#6B7484;--tx5:#4A5265;
@@ -50,7 +51,7 @@
   html,body{margin:0;padding:0}
   body{
     background:var(--bg);color:var(--tx2);
-    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    font-family:var(--font-ui);
     -webkit-font-smoothing:antialiased;
     padding:0 0 60px;
     transition:background .25s ease,color .25s ease;
