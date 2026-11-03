@@ -638,7 +638,9 @@ async function sbPut(key, value) {
 // Claves que NUNCA salen del servidor: son tokens y secretos que solo maneja el backend (OAuth,
 // webhooks, push). El frontend no los lee ni los escribe. Excluirlos del proxy hace que, aunque
 // alguien con sesión válida —incluido un cliente— llame a /api/data, jamás reciba un token.
-const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social"]);
+const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social", "integraciones", "mp_links"]);
+// Se leen desde la app pero solo las escribe el servidor (el webhook de Mercado Pago).
+const CLAVES_SOLO_SERVIDOR = new Set(["mp_pagos"]);
 
 // ── Aislamiento por empresa (multi-cliente) ──────────────────────────────────
 // `app_data` guarda una fila ÚNICA por clave: `tasks` es un solo array con las tareas de TODAS
@@ -790,6 +792,13 @@ app.post("/api/data/:key", requireAuth, async (req, res) => {
   if (CLAVES_PRIVADAS.has(req.params.key)) return res.status(403).json({ error: "clave no escribible" });
   // Los permisos del equipo los decide solo el superadministrador. Esconder la pantalla en la app
   // no basta: cualquiera con sesión podría escribir la clave a mano y darse acceso a todo.
+  if (CLAVES_SOLO_SERVIDOR.has(req.params.key)) return res.status(403).json({ error: "clave no escribible" });
+  // La configuración de la empresa la cambia solo un administrador.
+  if (req.params.key === "empresa_config") {
+    const email = norm((authInfo(req) || {}).email);
+    const quien = TEAM.find(u => norm(u.email) === email || norm(u.gmail) === email);
+    if (!quien || (quien.role !== "admin" && !quien.superadmin)) return res.status(403).json({ error: "Solo un administrador puede cambiar la configuración de la empresa" });
+  }
   if (req.params.key === "permisos") {
     const email = (authInfo(req) || {}).email;
     const quien = TEAM.find(u => u.email === email || u.gmail === email);
@@ -4316,6 +4325,203 @@ ${r
 <p style="color:#6B7484;font-size:14px;margin-top:32px">¿Dudas? <a href="mailto:inmersiatours@gmail.com" style="color:#6FE7F2">inmersiatours@gmail.com</a> ·
 <a href="https://inmersiaperformance.cl/privacidad.html#eliminacion" style="color:#6FE7F2">Política de privacidad</a></p>
 </div></body>`);
+});
+
+// ===============================
+// 🔌 INTEGRACIONES (Mercado Pago, SimpleFactura)
+// ===============================
+// Las credenciales viven en `integraciones`, que está en CLAVES_PRIVADAS: nunca viajan al
+// navegador. Además se guardan cifradas (AES-256-GCM con una clave derivada de JWT_SECRET), así
+// que ni quien lea la tabla de Supabase ve el token de Mercado Pago ni la clave de SimpleFactura.
+// El navegador solo recibe el estado: conectada o no, la cuenta, los últimos 4 caracteres y la
+// fecha de la última prueba.
+const INT_KEY = crypto.createHash("sha256").update("integraciones|" + JWT_SECRET).digest();
+const cifrar = txt => {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", INT_KEY, iv);
+  const enc = Buffer.concat([c.update(String(txt), "utf8"), c.final()]);
+  return [iv, c.getAuthTag(), enc].map(b => b.toString("base64")).join(".");
+};
+const descifrar = s => {
+  try {
+    const [iv, tag, enc] = String(s || "").split(".").map(x => Buffer.from(x, "base64"));
+    const d = crypto.createDecipheriv("aes-256-gcm", INT_KEY, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(enc), d.final()]).toString("utf8");
+  } catch (_) { return ""; }
+};
+const quienDelEquipo = req => { const e = norm((authInfo(req) || {}).email); return e ? (TEAM.find(u => norm(u.email) === e || norm(u.gmail) === e) || null) : null; };
+// Conectar o desconectar una integración: solo admins.
+const soloAdmin = (req, res, next) => {
+  const u = quienDelEquipo(req);
+  if (!u || (u.role !== "admin" && !u.superadmin)) return res.status(403).json({ error: "Solo un administrador puede hacer esto" });
+  req.miembro = u; next();
+};
+const INTEGRACIONES = {
+  mercadopago: { campos: ["accessToken"], secretos: ["accessToken"], obligatorios: ["accessToken"] },
+  simplefactura: { campos: ["email", "password", "rutEmisor", "sucursal"], secretos: ["password"], obligatorios: ["email", "password", "rutEmisor"] },
+};
+const ultimos4 = s => (s && s.length > 4) ? "•••• " + s.slice(-4) : "••••";
+
+async function intGet() { return (await sbGet("integraciones", {})) || {}; }
+async function intCred(id) {
+  const reg = (await intGet())[id];
+  if (!reg || !reg.cred) return null;
+  try { return JSON.parse(descifrar(reg.cred)); } catch (_) { return null; }
+}
+
+// Prueba real contra cada servicio. Devuelve {ok, cuenta} o {ok:false, error}.
+async function probarIntegracion(id, cred) {
+  if (id === "mercadopago") {
+    const r = await fetch("https://api.mercadopago.com/users/me", { headers: { Authorization: "Bearer " + cred.accessToken } });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401 || r.status === 403) return { ok: false, error: "Mercado Pago no reconoce ese Access Token. Copia el de producción, el que empieza con APP_USR-." };
+    if (!r.ok) return { ok: false, error: d.message || ("Mercado Pago respondió " + r.status) };
+    return { ok: true, cuenta: [d.nickname, d.email, d.site_id].filter(Boolean).join(" · "), sitio: d.site_id || "" };
+  }
+  if (id === "simplefactura") {
+    // Mismo inicio de sesión que usan los SDK de SimpleFactura: usuario y clave → token.
+    const r = await fetch("https://api.simplefactura.cl/token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cred.email, password: cred.password }),
+    });
+    const d = await r.json().catch(() => ({}));
+    const tok = d.accessToken || d.access_token || d.token || (d.data && d.data.accessToken);
+    if (r.status === 401 || r.status === 400 && !tok) return { ok: false, error: "SimpleFactura no aceptó ese usuario y clave." + (d.message ? " (" + d.message + ")" : "") };
+    if (!r.ok || !tok) return { ok: false, error: d.message || d.error || ("SimpleFactura respondió " + r.status) };
+    return { ok: true, cuenta: cred.email + (cred.rutEmisor ? " · RUT " + cred.rutEmisor : "") };
+  }
+  return { ok: false, error: "integración desconocida" };
+}
+
+// Estado para el navegador: nada secreto.
+app.get("/api/integraciones", requireAuth, async (req, res) => {
+  if (!quienDelEquipo(req)) return res.status(403).json({ error: "solo el equipo" });
+  try {
+    const todo = await intGet();
+    const out = {};
+    for (const id of Object.keys(INTEGRACIONES)) {
+      const r = todo[id];
+      out[id] = r ? {
+        conectada: !!r.cred, ok: r.ok !== false, cuenta: r.cuenta || "", publico: r.publico || {},
+        pista: r.pista || "", error: r.error || "", conectadaAt: r.conectadaAt, probadaAt: r.probadaAt, por: r.por || "",
+      } : { conectada: false };
+    }
+    res.json(out);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/integraciones/:id", requireAuth, soloAdmin, rateLimit(15, "int-conectar"), async (req, res) => {
+  const id = req.params.id, def = INTEGRACIONES[id];
+  if (!def) return res.status(404).json({ error: "integración desconocida" });
+  const cred = {};
+  for (const c of def.campos) cred[c] = String((req.body || {})[c] || "").trim().slice(0, 500);
+  const faltan = def.obligatorios.filter(c => !cred[c]);
+  if (faltan.length) return res.status(400).json({ error: "Faltan datos: " + faltan.join(", ") });
+  try {
+    const p = await probarIntegracion(id, cred);
+    if (!p.ok) return res.status(400).json({ error: "No se pudo conectar: " + p.error });
+    const publico = {}; def.campos.filter(c => !def.secretos.includes(c) && c !== "accessToken").forEach(c => publico[c] = cred[c]);
+    const ahora = new Date().toISOString();
+    await enCola(async () => {
+      const todo = await intGet();
+      todo[id] = { cred: cifrar(JSON.stringify(cred)), ok: true, cuenta: p.cuenta, publico, pista: ultimos4(cred[def.secretos[0]]),
+        conectadaAt: ahora, probadaAt: ahora, por: req.miembro.name, sitio: p.sitio || "" };
+      if (!(await sbPut("integraciones", todo))) throw new Error("Supabase rechazó la escritura");
+    });
+    res.json({ ok: true, cuenta: p.cuenta });
+  } catch (e) { console.error("integracion conectar:", id, e.message); res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/integraciones/:id/probar", requireAuth, soloAdmin, rateLimit(20, "int-probar"), async (req, res) => {
+  const id = req.params.id;
+  if (!INTEGRACIONES[id]) return res.status(404).json({ error: "integración desconocida" });
+  try {
+    const cred = await intCred(id);
+    if (!cred) return res.status(400).json({ error: "No está conectada" });
+    const p = await probarIntegracion(id, cred);
+    await enCola(async () => {
+      const todo = await intGet();
+      if (todo[id]) { todo[id].ok = p.ok; todo[id].error = p.ok ? "" : p.error; todo[id].probadaAt = new Date().toISOString(); if (p.cuenta) todo[id].cuenta = p.cuenta; }
+      await sbPut("integraciones", todo);
+    });
+    res.json(p);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/integraciones/:id/desconectar", requireAuth, soloAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!INTEGRACIONES[id]) return res.status(404).json({ error: "integración desconocida" });
+  try {
+    await enCola(async () => { const todo = await intGet(); delete todo[id]; await sbPut("integraciones", todo); });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// ── Mercado Pago: link de pago de una cuota ─────────────────────────────────
+// La referencia externa identifica la cuota (empresa|mes|año|cuota). Cuando el cliente paga,
+// Mercado Pago avisa a /api/mp/webhook y la cuota queda pagada sola en Pagos.
+app.post("/api/mp/link", requireAuth, rateLimit(30, "mp-link"), async (req, res) => {
+  if (!quienDelEquipo(req)) return res.status(403).json({ error: "solo el equipo" });
+  const { companyId, month, year, cuota, monto, titulo, email } = req.body || {};
+  const m = Math.round(+monto || 0);
+  if (!companyId || !(m > 0) || !["50_1", "50_2"].includes(cuota) || !(+month >= 0 && +month <= 11) || !(+year > 2000)) return res.status(400).json({ error: "datos de la cuota incompletos" });
+  try {
+    const cred = await intCred("mercadopago");
+    if (!cred) return res.status(400).json({ error: "Mercado Pago no está conectado. Conéctalo en Integraciones." });
+    const todo = await intGet();
+    const moneda = { MLC: "CLP", MLA: "ARS", MLM: "MXN", MCO: "COP", MPE: "PEN", MLU: "UYU", MLB: "BRL" }[todo.mercadopago && todo.mercadopago.sitio] || "CLP";
+    const base = process.env.APP_URL || ("https://" + req.get("host"));
+    const ref = [companyId, +month, +year, cuota].join("|");
+    const r = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST", headers: { Authorization: "Bearer " + cred.accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [{ title: String(titulo || "Servicio").slice(0, 250), quantity: 1, unit_price: m, currency_id: moneda }],
+        external_reference: ref,
+        notification_url: base + "/api/mp/webhook",
+        payer: email && String(email).includes("@") ? { email: String(email) } : undefined,
+        back_urls: { success: base, failure: base, pending: base },
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.init_point) return res.status(502).json({ error: d.message || ("Mercado Pago respondió " + r.status) });
+    await enCola(async () => {
+      const l = (await sbGet("mp_links", {})) || {};
+      l[ref] = { url: d.init_point, monto: m, creado: new Date().toISOString() };
+      await sbPut("mp_links", l);
+    });
+    res.json({ ok: true, url: d.init_point });
+  } catch (e) { console.error("mp link:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+// Mercado Pago avisa aquí. No se confía en lo que trae el aviso: con su id se le pregunta a
+// Mercado Pago, con NUESTRO token, si ese pago existe y está aprobado. Un aviso falso no marca nada.
+app.post("/api/mp/webhook", rateLimit(120, "mp-webhook"), async (req, res) => {
+  res.sendStatus(200); // Mercado Pago reintenta si no recibe 200 rápido; lo demás va después.
+  try {
+    const b = req.body || {};
+    const tipo = b.type || b.topic || req.query.type || req.query.topic;
+    const pid = (b.data && b.data.id) || req.query["data.id"] || req.query.id;
+    if (tipo !== "payment" || !pid || !/^\d+$/.test(String(pid))) return;
+    const cred = await intCred("mercadopago");
+    if (!cred) return;
+    const r = await fetch("https://api.mercadopago.com/v1/payments/" + pid, { headers: { Authorization: "Bearer " + cred.accessToken } });
+    const p = await r.json().catch(() => ({}));
+    if (!r.ok || p.status !== "approved" || !p.external_reference) return;
+    const [companyId, month, year, cuota] = String(p.external_reference).split("|");
+    if (!companyId || !["50_1", "50_2"].includes(cuota)) return;
+    let nuevo = false;
+    await enCola(async () => {
+      const l = (await sbGet("mp_pagos", [])) || [];
+      if (l.some(x => String(x.paymentId) === String(pid))) return;
+      l.push({ paymentId: String(pid), companyId, month: +month, year: +year, type: cuota, amount: p.transaction_amount,
+        date: String(p.date_approved || new Date().toISOString()).slice(0, 10), payer: (p.payer && p.payer.email) || "" });
+      nuevo = await sbPut("mp_pagos", l);
+    });
+    if (nuevo) crearNotif({ type: "pago", title: "💳 Pago recibido por Mercado Pago",
+      body: "$" + Math.round(p.transaction_amount || 0).toLocaleString("es-CL") + " · cuota " + (cuota === "50_1" ? "1" : "2") + " de " + (+month + 1) + "/" + year,
+      to: [], dedupKey: "mp_" + pid }).catch(() => {});
+  } catch (e) { console.error("mp webhook:", e.message); }
 });
 
 // ===============================

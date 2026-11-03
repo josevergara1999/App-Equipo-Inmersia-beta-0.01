@@ -1677,8 +1677,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
   // superadministrador lo ve todo: si pudiera quitarse el acceso a Equipo, no habría forma de
   // devolvérselo desde la app. El servidor solo acepta escribir `permisos` a un superadmin.
   const[permisos,sPermisos]=useState({});
+  const[empresa,sEmpresa]=useState(null);
+  useEffect(()=>{EMP_ACTUAL=empresa;if(empresa&&empresa.nombre)document.title=empresa.nombre+" · Plataforma";},[empresa]);
   const esSuper=!!cu.superadmin;
-  const porRol=k=>(k==="companies"||k==="payments")?isA:(k==="prospectos"||k==="cotizaciones")?canProspectos:true;
+  const porRol=k=>(k==="companies"||k==="payments"||k==="integraciones"||k==="configuracion")?isA:(k==="prospectos"||k==="cotizaciones")?canProspectos:true;
   const puede=k=>{
     if(esSuper)return true;
     const p=permisos[cu.id];
@@ -1719,7 +1721,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {k:"publicar",l:"Programar publicaciones",ic:"calendar",lCorta:"Programar"},
       {k:"metricas",ic:"trend_up"},
     ]],
-    ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin"},{k:"cotizaciones",l:"Cotizaciones",ic:"file"},{k:"avances",l:"Avances",ic:"trend_up"}]],
+    ["Administrativas",[{k:"team",ic:"team"},{k:"companies",ic:"companies"},{k:"payments",ic:"payments"},{k:"prospectos",l:"Prospectos",ic:"pin"},{k:"cotizaciones",l:"Cotizaciones",ic:"file"},{k:"avances",l:"Avances",ic:"trend_up"},{k:"integraciones",l:"Integraciones",ic:"link"},{k:"configuracion",l:"Configuración",ic:"settings"}]],
   ];
   const NAV=NAV_BASE.map(([t,items])=>[t,items.map(it=>({...it,ver:it.ver!==false&&puede(it.k)}))]);
   // Una página que ya no tiene permitida (le quitaron el acceso, o llegó por un enlace) lo lleva
@@ -1861,6 +1863,9 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       if(d.planner_drafts?.length)sPDrafts(d.planner_drafts);
       if(d.prospects?.length)sPros(d.prospects);
       if(d.permisos&&typeof d.permisos==="object"&&!Array.isArray(d.permisos))sPermisos(d.permisos);
+      if(d.empresa_config&&typeof d.empresa_config==="object"&&!Array.isArray(d.empresa_config)){sEmpresa(d.empresa_config);
+        // Idioma por defecto de la empresa, solo para quien nunca eligió uno.
+        const il=d.empresa_config.idioma;if(il&&il!=="es"&&!localStorage.getItem("inm_lang")){localStorage.setItem("inm_lang",il);location.reload();}}
       if(d.galerias?.length)sGal(d.galerias);
       if(d.briefs?.length)sBriefs(d.briefs);
       // `teamPay` y `billRcpts` NO se cargan aquí: entre las dos pesan 4,6 MB —comprobantes de
@@ -2152,10 +2157,10 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
       {/* SIDEBAR - desktop only */}
       {!isMob&&<nav className="sidebar" style={{width:216,flexShrink:0,display:"flex",flexDirection:"column",gap:4,padding:"18px 12px",borderRight:"1px solid "+D.line,boxSizing:"border-box",position:"sticky",top:0,height:"100vh"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"4px 10px 16px"}}>
-          <div style={{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+D.cian+","+D.peri+")",color:D.bg,fontSize:12,fontWeight:700}}>IN</div>
-          <div style={{display:"flex",flexDirection:"column",gap:1}}>
-            <span style={{fontSize:13.5,fontWeight:600,lineHeight:1,color:D.tx}}>INMERSIA</span>
-            <span style={{fontSize:10.5,color:D.tx4,lineHeight:1}}>Plataforma interna</span>
+          <MarcaLogo empresa={empresa}/>
+          <div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+            <span style={{fontSize:13.5,fontWeight:600,lineHeight:1,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{empresa?.nombre||"INMERSIA"}</span>
+            <span style={{fontSize:10.5,color:D.tx4,lineHeight:1}}>{empresa?(empresa.subtitulo||""):"Plataforma interna"}</span>
           </div>
         </div>
 
@@ -2453,6 +2458,8 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
         {pg==="prospectos"&&puede("prospectos")&&<ProspectosPg pros={pros} sPros={sPros} users={users.filter(u=>u.role!=="cliente")} addN={addN} currentUser={cu} avisar={avisar} correosDe={correosDe}/>}
 
         {pg==="cotizaciones"&&puede("cotizaciones")&&<CotizacionesPg cos={cos} pros={pros} sPros={sPros} users={users} cu={cu} addN={addN}/>}
+        {pg==="configuracion"&&puede("configuracion")&&<ConfiguracionPg empresa={empresa} sEmpresa={sEmpresa} isA={isA||esSuper} addN={addN}/>}
+        {pg==="integraciones"&&puede("integraciones")&&<IntegracionesPg isA={isA||esSuper} addN={addN}/>}
         {pg==="avances"&&puede("avances")&&<AvancesPg users={users} tasks={tasks} pros={pros} cu={cu} isA={isA}/>}
 
         {/* TASKS */}
@@ -2493,7 +2500,7 @@ function Main({user:iu,users:initU,onLogout:ol,setUsers:sGU}){
               </div>
             </div>);})}</div>
           <PermisosModal user={permUser} onClose={()=>sPermUser(null)} nav={NAV_BASE} visP={visP}
-            actual={permUser?permisos[permUser.id]:null} porRolDe={u=>k=>(k==="companies"||k==="payments")?u.role==="admin":(k==="prospectos"||k==="cotizaciones")?(u.role==="admin"||u.role==="Sales"):true}
+            actual={permUser?permisos[permUser.id]:null} porRolDe={u=>k=>(k==="companies"||k==="payments"||k==="integraciones"||k==="configuracion")?u.role==="admin":(k==="prospectos"||k==="cotizaciones")?(u.role==="admin"||u.role==="Sales"):true}
             onGuardar={guardarPermisos}/>
         </div>)}
 
@@ -3060,6 +3067,257 @@ function BriefModal({open,onClose,co,brief,onGuardar,addN}){
     </div>
   </Md>);
 }
+let EMP_ACTUAL=null; // la configuración de la empresa, para los documentos que se arman fuera de React
+// ═══ CONFIGURACIÓN DE LA EMPRESA ═════════════════════════════════
+// Los datos de la agencia que usa la plataforma: nombre y logo (barra lateral y documentos),
+// datos fiscales y de contacto (cotizaciones, facturas), datos bancarios (van al pie de la
+// cotización para que el cliente sepa dónde transferir) e idioma por defecto. Se guarda en
+// `empresa_config`; el servidor solo deja escribirla a un administrador.
+const EMPRESA_VACIA={nombre:"INMERSIA",subtitulo:"Plataforma interna",logo:"",
+  razonSocial:"",rut:"",giro:"",direccion:"",comuna:"",ciudad:"",region:"",pais:"Chile",
+  email:"",telefono:"",web:"",instagram:"",
+  banco:"",tipoCuenta:"",numeroCuenta:"",titular:"",rutTitular:"",emailPagos:"",
+  idioma:"es",pie:""};
+const iniciales=n=>String(n||"IN").replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ0-9 ]/g,"").split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase()||"IN";
+// Logo de la barra lateral: la imagen si la hay, si no las iniciales con el degradado de siempre.
+function MarcaLogo({empresa,s=30}){
+  const e=empresa||EMPRESA_VACIA;
+  if(e.logo)return<img src={e.logo} alt="" style={{width:s,height:s,borderRadius:s*.3,objectFit:"cover",flexShrink:0,background:"#fff"}}/>;
+  return<div style={{width:s,height:s,borderRadius:s*.3,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,"+D.cian+","+D.peri+")",color:D.bg,fontSize:s*.4,fontWeight:700,flexShrink:0}}>{iniciales(e.nombre)}</div>;
+}
+// El logo se achica en el navegador a 256 px y se guarda como imagen dentro de la configuración:
+// pesa unos 20-40 KB y así no depende de ningún almacenamiento aparte.
+const achicarLogo=file=>new Promise((ok,mal)=>{
+  if(!file||!/^image\//.test(file.type))return mal(new Error("Elige una imagen (PNG, JPG o SVG)"));
+  const fr=new FileReader();
+  fr.onerror=()=>mal(new Error("No se pudo leer la imagen"));
+  fr.onload=()=>{const img=new Image();img.onerror=()=>mal(new Error("La imagen no se pudo abrir"));img.onload=()=>{
+    const lado=256,cv=document.createElement("canvas");cv.width=lado;cv.height=lado;const cx=cv.getContext("2d");
+    const k=Math.min(lado/img.width,lado/img.height),w=img.width*k,h=img.height*k;
+    cx.clearRect(0,0,lado,lado);cx.drawImage(img,(lado-w)/2,(lado-h)/2,w,h);
+    ok(cv.toDataURL("image/png"));
+  };img.src=fr.result;};
+  fr.readAsDataURL(file);
+});
+
+function ConfiguracionPg({empresa,sEmpresa,isA,addN}){
+  const[f,sF]=useState(()=>({...EMPRESA_VACIA,...(empresa||{})}));
+  const[busy,sBusy]=useState(false);
+  useEffect(()=>{sF({...EMPRESA_VACIA,...(empresa||{})});},[empresa]);
+  const cambio=JSON.stringify({...EMPRESA_VACIA,...(empresa||{})})!==JSON.stringify(f);
+  const set=k=>e=>sF(x=>({...x,[k]:e.target.value}));
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3,marginBottom:14};
+  const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,marginBottom:10,display:"block"};
+  const grid={display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10};
+  const Campo=({k,l,ph,type})=>(<label style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3,minWidth:0}}>{l}
+    <input type={type||"text"} value={f[k]||""} onChange={set(k)} placeholder={ph||""} disabled={!isA} style={{width:"100%",boxSizing:"border-box"}}/></label>);
+  const subirLogo=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file)return;
+    try{const url=await achicarLogo(file);sF(x=>({...x,logo:url}));}catch(err){addN("❌ "+err.message);}};
+  const guardar=async()=>{
+    if(!f.nombre.trim()){addN("❌ El nombre comercial no puede quedar vacío");return;}
+    sBusy(true);
+    const limpio=Object.fromEntries(Object.entries(f).map(([k,v])=>[k,typeof v==="string"&&k!=="logo"?v.trim():v]));
+    const ok=await DB.save("empresa_config",limpio);
+    sBusy(false);
+    if(!ok){addN("❌ No se guardó. Solo un administrador puede cambiar la configuración.");return;}
+    sEmpresa(limpio);addN("✅ Configuración guardada");
+    if(limpio.idioma&&limpio.idioma!==(localStorage.getItem("inm_lang")||"es")&&confirm("¿Cambiar también tu idioma ahora? La página se recarga.")){localStorage.setItem("inm_lang",limpio.idioma);location.reload();}
+  };
+
+  return(<div className="d-in" style={{maxWidth:980,margin:"0 auto",paddingBottom:90}}>
+    <div style={{marginBottom:18}}>
+      <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Configuración de la empresa</h1>
+      <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>Tu marca, tus datos fiscales y bancarios. Se usan en la barra lateral, las cotizaciones y los cobros.</div>
+      {!isA&&<div style={{marginTop:10,fontSize:12.5,color:D.tx3,display:"flex",gap:6,alignItems:"center"}}><Ic n="lock" s={13}/>Solo un administrador puede cambiar estos datos.</div>}
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Identidad</span>
+      <div style={{display:"flex",gap:18,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+          <MarcaLogo empresa={f} s={72}/>
+          {isA&&<div style={{display:"flex",gap:6}}>
+            <label style={{fontSize:12,fontWeight:600,color:D.cian,cursor:"pointer"}}>{f.logo?"Cambiar":"Subir logo"}<input type="file" accept="image/*" onChange={subirLogo} style={{display:"none"}}/></label>
+            {f.logo&&<button onClick={()=>sF(x=>({...x,logo:""}))} style={{background:"none",border:"none",color:D.tx4,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Quitar</button>}
+          </div>}
+        </div>
+        <div style={{flex:"1 1 300px",display:"grid",gap:10}}>
+          {Campo({k:"nombre",l:"Nombre comercial",ph:"Ej: INMERSIA"})}
+          {Campo({k:"subtitulo",l:"Texto bajo el nombre",ph:"Ej: Plataforma interna"})}
+        </div>
+        <div style={{flex:"0 0 210px",padding:"12px 14px",borderRadius:12,border:"1px dashed "+D.line2}}>
+          <div style={{fontSize:10.5,color:D.tx4,marginBottom:8}}>Así se ve en la barra</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><MarcaLogo empresa={f}/>
+            <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:0}}><span style={{fontSize:13.5,fontWeight:600,lineHeight:1,color:D.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nombre||"Tu empresa"}</span><span style={{fontSize:10.5,color:D.tx4,lineHeight:1}}>{f.subtitulo}</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Datos fiscales</span>
+      <div style={grid}>
+        {Campo({k:"razonSocial",l:"Razón social",ph:"Ej: Inmersia SpA"})}
+        {Campo({k:"rut",l:"RUT",ph:"76.123.456-7"})}
+        {Campo({k:"giro",l:"Giro",ph:"Publicidad y marketing digital"})}
+        {Campo({k:"direccion",l:"Dirección",ph:"Calle y número"})}
+        {Campo({k:"comuna",l:"Comuna"})}
+        {Campo({k:"ciudad",l:"Ciudad"})}
+        {Campo({k:"region",l:"Región o estado"})}
+        {Campo({k:"pais",l:"País"})}
+      </div>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Contacto</span>
+      <div style={grid}>
+        {Campo({k:"email",l:"Correo",type:"email",ph:"hola@tuagencia.cl"})}
+        {Campo({k:"telefono",l:"Teléfono o WhatsApp",ph:"+56 9 1234 5678"})}
+        {Campo({k:"web",l:"Sitio web",ph:"tuagencia.cl"})}
+        {Campo({k:"instagram",l:"Instagram",ph:"@tuagencia"})}
+      </div>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Datos bancarios para transferencias</span>
+      <div style={grid}>
+        {Campo({k:"banco",l:"Banco"})}
+        <label style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>Tipo de cuenta
+          <select value={f.tipoCuenta} onChange={set("tipoCuenta")} disabled={!isA}><option value="">Elegir…</option><option>Cuenta corriente</option><option>Cuenta vista / RUT</option><option>Cuenta de ahorro</option></select></label>
+        {Campo({k:"numeroCuenta",l:"Número de cuenta"})}
+        {Campo({k:"titular",l:"Titular"})}
+        {Campo({k:"rutTitular",l:"RUT del titular"})}
+        {Campo({k:"emailPagos",l:"Correo para comprobantes",type:"email"})}
+      </div>
+      <div style={{fontSize:11.5,color:D.tx4,marginTop:10}}>Si completas el banco y el número, aparecen al final de cada cotización.</div>
+    </div>
+
+    <div style={caja}>
+      <span style={rot}>Preferencias</span>
+      <div style={grid}>
+        <label style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>Idioma por defecto del equipo
+          <select value={f.idioma} onChange={set("idioma")} disabled={!isA}><option value="es">Español</option><option value="en">English</option><option value="pt">Português</option></select></label>
+        {Campo({k:"pie",l:"Pie de los documentos",ph:"Ej: Inmersia SpA · Chillán, Chile"})}
+      </div>
+      <div style={{fontSize:11.5,color:D.tx4,marginTop:10}}>El idioma por defecto se aplica a quien todavía no eligió uno con el botón de idioma.</div>
+    </div>
+
+    {isA&&<div style={{position:"sticky",bottom:isMobGlobal()?80:14,display:"flex",justifyContent:"flex-end",gap:8,pointerEvents:"none"}}>
+      <div style={{pointerEvents:"auto",display:"flex",gap:8,padding:8,borderRadius:14,background:D.panel,border:"1px solid "+D.line2,boxShadow:"0 10px 30px rgba(0,0,0,.18)"}}>
+        {cambio&&<Bt v="s" onClick={()=>sF({...EMPRESA_VACIA,...(empresa||{})})}>Descartar</Bt>}
+        <Bt v="p" icon="save" disabled={!cambio||busy} onClick={guardar}>{busy?"Guardando…":cambio?"Guardar cambios":"Guardado"}</Bt>
+      </div>
+    </div>}
+  </div>);
+}
+const isMobGlobal=()=>typeof window!=="undefined"&&window.innerWidth<768;
+
+// ═══ INTEGRACIONES ═══════════════════════════════════════════════
+// Conectar la plataforma con los servicios que ya usa la agencia. Las credenciales se mandan una
+// vez al servidor, que las prueba contra el servicio real, las guarda cifradas y no las devuelve
+// nunca: aquí solo se ve si está conectada, con qué cuenta y los últimos 4 caracteres.
+const INT_CATALOGO=[
+  {grupo:"Cobros online",items:[
+    {id:"mercadopago",nombre:"Mercado Pago",color:"#00B1EA",sigla:"MP",
+      desc:"Crea un link de pago para cada cuota de tus clientes desde Pagos. Cuando el cliente paga, la cuota se marca pagada sola y te llega un aviso.",
+      campos:[{k:"accessToken",l:"Access Token de producción",ph:"APP_USR-…",secreto:true}],
+      ayuda:"En Mercado Pago entra a Tus integraciones → crea una aplicación → Credenciales de producción, y copia el Access Token.",
+      enlace:"https://www.mercadopago.cl/developers/panel/app"},
+    {id:"stripe",nombre:"Stripe",color:"#635BFF",sigla:"S",prox:true,desc:"Cobros con tarjeta para clientes fuera de Latinoamérica."},
+  ]},
+  {grupo:"Facturación electrónica",items:[
+    {id:"simplefactura",nombre:"SimpleFactura",color:"#F26B1D",sigla:"SF",
+      desc:"Conecta tu cuenta de SimpleFactura para emitir facturas al SII sin salir de la plataforma. Sigues usando tu propio plan de SimpleFactura.",
+      campos:[{k:"email",l:"Usuario (correo) de SimpleFactura",ph:"tu@correo.cl"},{k:"password",l:"Clave de SimpleFactura",secreto:true},{k:"rutEmisor",l:"RUT de la empresa que factura",ph:"76.123.456-7"},{k:"sucursal",l:"Sucursal (opcional)",ph:"Casa Matriz"}],
+      ayuda:"Usa el mismo usuario y clave con que entras a SimpleFactura. Por ahora la conexión valida tu cuenta; la emisión de facturas desde Pagos llega en la próxima versión.",
+      enlace:"https://www.simplefactura.cl"},
+    {id:"dtemite",nombre:"DTEmite",color:"#2E7D32",sigla:"DT",prox:true,desc:"Otra opción de facturación electrónica para Chile."},
+  ]},
+  {grupo:"Ya integradas en la plataforma",items:[
+    {id:"gcal",nombre:"Google Calendar y Meet",color:"#4285F4",sigla:"G",interna:true,desc:"Las reuniones se crean con enlace de Meet e invitan al cliente."},
+    {id:"meta",nombre:"Meta Ads",color:"#0866FF",sigla:"M",interna:true,desc:"Métricas de campañas y asesor de anuncios."},
+    {id:"ig",nombre:"Instagram",color:"#E1306C",sigla:"IG",interna:true,desc:"Publicación programada y comentario → mensaje privado. Se conecta por empresa, en Contenido → Automatización."},
+  ]},
+  {grupo:"Apps y API",items:[
+    {id:"api",nombre:"API y apps externas",color:"#7C5CFF",sigla:"API",prox:true,
+      desc:"Claves de API para conectar la plataforma con Zapier, Make o tu web. Dan acceso a tus datos (contenido, prospectos, cobros) con permisos y límites, nunca al código de la plataforma."},
+  ]},
+];
+const fechaCorta=iso=>{try{return new Date(iso).toLocaleDateString("es-CL",{day:"numeric",month:"short",year:"numeric"});}catch(_){return"";}};
+
+function IntegracionesPg({isA,addN}){
+  const[estado,sEstado]=useState(null);
+  const[internas,sInternas]=useState({});
+  const[abierta,sAbierta]=useState(null);
+  const[form,sForm]=useState({});
+  const[busy,sBusy]=useState("");
+  const cargar=async()=>{
+    try{const r=await fetch("/api/integraciones",{credentials:"same-origin"});sEstado(r.ok?await r.json():{});}catch(_){sEstado({});}
+  };
+  useEffect(()=>{
+    cargar();
+    Promise.all([
+      fetch("/api/gcal/status",{credentials:"same-origin"}).then(r=>r.ok?r.json():{}).catch(()=>({})),
+      fetch("/api/meta/status",{credentials:"same-origin"}).then(r=>r.ok?r.json():{}).catch(()=>({})),
+    ]).then(([g,m])=>sInternas({gcal:{on:!!g.conectado,txt:g.conectado?g.email:"Sin conectar"},meta:{on:!!m.connected,txt:m.connected?m.user:"Sin conectar"},ig:{on:null,txt:"Por empresa"}}));
+  },[]);
+  const post=async(url,body)=>{const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.error||("Error "+r.status));return d;};
+  const conectar=async it=>{sBusy(it.id);try{const d=await post("/api/integraciones/"+it.id,form);addN("✅ "+it.nombre+" conectada"+(d.cuenta?" · "+d.cuenta:""));sAbierta(null);sForm({});await cargar();}catch(e){addN("❌ "+e.message);}sBusy("");};
+  const probar=async it=>{sBusy(it.id);try{const d=await post("/api/integraciones/"+it.id+"/probar");addN(d.ok?"✅ "+it.nombre+" responde bien":"❌ "+it.nombre+": "+d.error);await cargar();}catch(e){addN("❌ "+e.message);}sBusy("");};
+  const desconectar=async it=>{if(!confirm("¿Desconectar "+it.nombre+"? Se borran las credenciales guardadas."))return;sBusy(it.id);try{await post("/api/integraciones/"+it.id+"/desconectar");addN("Desconectada: "+it.nombre);await cargar();}catch(e){addN("❌ "+e.message);}sBusy("");};
+
+  const caja={padding:"16px 18px",borderRadius:14,background:D.panel,border:"1px solid "+D.line3};
+  const rot={fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:D.tx4,margin:"22px 0 10px",display:"block"};
+  const Pill=({on,txt})=>(<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:11.5,fontWeight:600,padding:"4px 10px",borderRadius:999,whiteSpace:"nowrap",
+    color:on===true?PC.verde:on===false?PC.rojo:D.tx3,background:on===true?"color-mix(in oklch,"+PC.verde+" 12%,transparent)":on===false?"color-mix(in oklch,"+PC.rojo+" 10%,transparent)":"var(--bg3)"}}>
+    <span style={{width:6,height:6,borderRadius:9,background:"currentColor"}}/>{txt}</span>);
+  const conectadas=estado?Object.values(estado).filter(x=>x&&x.conectada).length:0;
+
+  return(<div className="d-in" style={{maxWidth:1100,margin:"0 auto",paddingBottom:40}}>
+    <div style={{marginBottom:6}}>
+      <h1 style={{fontSize:28,fontWeight:600,letterSpacing:"-0.025em"}}>Integraciones</h1>
+      <div style={{fontSize:13,color:"var(--tx3)",marginTop:2}}>{estado?conectadas+" conectada"+(conectadas===1?"":"s")+" · ":""}Conecta tus cobros y tu facturación. Las claves se guardan cifradas y nunca se muestran de nuevo.</div>
+      {!isA&&<div style={{marginTop:10,fontSize:12.5,color:D.tx3,display:"flex",gap:6,alignItems:"center"}}><Ic n="lock" s={13}/>Solo un administrador puede conectar o desconectar integraciones.</div>}
+    </div>
+    {INT_CATALOGO.map(g=>(<div key={g.grupo}>
+      <span style={rot}>{g.grupo}</span>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+        {g.items.map(it=>{
+          const st=estado&&estado[it.id];const on=st&&st.conectada;const abiertaEsta=abierta===it.id;
+          const pill=it.prox?{on:null,txt:"Próximamente"}:it.interna?(internas[it.id]?{on:internas[it.id].on,txt:internas[it.id].on?"Conectada":internas[it.id].txt}:{on:null,txt:"…"}):!estado?{on:null,txt:"…"}:on?(st.ok?{on:true,txt:"Conectada"}:{on:false,txt:"Con error"}):{on:null,txt:"Sin conectar"};
+          return(<div key={it.id} style={{...caja,display:"flex",flexDirection:"column",gap:10,opacity:it.prox?.72:1,borderColor:abiertaEsta?it.color:D.line3}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:40,height:40,borderRadius:11,background:it.color,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:it.sigla.length>2?11:14,flexShrink:0,letterSpacing:"-.02em"}}>{it.sigla}</div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600}}>{it.nombre}</div>
+                {(on&&st.cuenta)?<div style={{fontSize:11.5,color:D.tx3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.cuenta}</div>
+                 :it.interna&&internas[it.id]?.on?<div style={{fontSize:11.5,color:D.tx3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{internas[it.id].txt}</div>:null}</div>
+              <Pill {...pill}/>
+            </div>
+            <div style={{fontSize:12.5,color:D.tx2,lineHeight:1.5}}>{it.desc}</div>
+            {on&&<div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>
+              Clave {st.pista} · conectada el {fechaCorta(st.conectadaAt)}{st.por?" por "+st.por:""}{st.probadaAt?" · última prueba "+fechaCorta(st.probadaAt):""}
+              {!st.ok&&st.error&&<div style={{color:PC.rojo,marginTop:4}}>{st.error}</div>}
+            </div>}
+            {!it.prox&&!it.interna&&isA&&!abiertaEsta&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:"auto"}}>
+              {on?<><Bt v="s" disabled={busy===it.id} onClick={()=>probar(it)}>{busy===it.id?"Probando…":"Probar conexión"}</Bt>
+                    <Bt v="s" onClick={()=>{sAbierta(it.id);sForm({...(st.publico||{})});}}>Cambiar credenciales</Bt>
+                    <Bt v="g" onClick={()=>desconectar(it)}>Desconectar</Bt></>
+                  :<Bt v="p" icon="link" onClick={()=>{sAbierta(it.id);sForm({});}}>Conectar</Bt>}
+            </div>}
+            {abiertaEsta&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingTop:10,borderTop:"1px solid "+D.line3}}>
+              {it.campos.map(c=>(<label key={c.k} style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>{c.l}
+                <input type={c.secreto?"password":"text"} autoComplete="off" value={form[c.k]||""} onChange={e=>sForm(x=>({...x,[c.k]:e.target.value}))} placeholder={c.ph||""} style={{width:"100%",boxSizing:"border-box"}}/></label>))}
+              <div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>{it.ayuda} {it.enlace&&<a href={it.enlace} target="_blank" rel="noopener" style={{color:D.cian}}>Abrir {it.nombre} ↗</a>}</div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Bt v="g" onClick={()=>{sAbierta(null);sForm({});}}>Cancelar</Bt>
+                <Bt v="p" disabled={busy===it.id} onClick={()=>conectar(it)}>{busy===it.id?"Probando conexión…":"Conectar y probar"}</Bt>
+              </div>
+            </div>}
+          </div>);})}
+      </div>
+    </div>))}
+  </div>);
+}
+
 // ═══ COTIZACIONES ═══════════════════════════════════════════════
 // Antes una cotización era un PDF hecho fuera de la app y subido al prospecto: cada vendedor
 // partía de su propia copia, los precios se tecleaban de memoria y un pack que cambiaba de
@@ -3092,7 +3350,10 @@ const totalesCot=c=>{
 };
 // La cotización como documento: se abre en una ventana y se imprime o se guarda como PDF desde
 // el diálogo del navegador. Sin librerías de PDF: el navegador ya sabe hacerlo, y bien.
-function imprimirCotizacion(c,pl){
+function imprimirCotizacion(c,pl0){
+  const e=EMP_ACTUAL||{};
+  const pl={...pl0,rut:pl0.rut||e.rut||"",email:pl0.email||e.email||"",telefono:pl0.telefono||e.telefono||"",web:pl0.web||e.web||"",pie:pl0.pie||e.pie||""};
+  const banco=e.banco&&e.numeroCuenta?[e.titular,e.rutTitular&&"RUT "+e.rutTitular,e.banco,e.tipoCuenta,"N° "+e.numeroCuenta,e.emailPagos].filter(Boolean).join("\n"):"";
   const t=totalesCot(c);
   const $=n=>"$"+Math.round(n||0).toLocaleString("es-CL");
   const tipos=inc=>Object.entries(inc||{}).filter(([,n])=>n>0).map(([k,n])=>n+" "+(TT[k]?.l||k).toLowerCase()+(n>1&&!/s$|\s/.test(TT[k]?.l||k)?"s":"")).join(" · ");
@@ -3120,6 +3381,7 @@ ${filasServ?`<h3>Servicios</h3><table><tr><th>Servicio</th><th class="n">Cantida
 <table class="tot"><tr><td>Subtotal</td><td class="n">${$(t.bruto)}</td></tr>${t.desc?`<tr><td>Descuento ${c.descuento}%</td><td class="n">-${$(t.desc)}</td></tr>`:""}<tr><td>Neto</td><td class="n">${$(t.neto)}</td></tr>${c.conIva?`<tr><td>IVA 19%</td><td class="n">${$(t.iva)}</td></tr>`:""}<tr class="g"><td>Total</td><td class="n">${$(t.total)}</td></tr></table>
 ${c.notas?`<h3>Notas</h3><div class="box">${escHtml(c.notas)}</div>`:""}
 ${pl.condiciones?`<h3>Condiciones</h3><div class="box">${escHtml(pl.condiciones)}</div>`:""}
+${banco?`<h3>Datos para transferencia</h3><div class="box">${escHtml(banco)}</div>`:""}
 <footer>${escHtml(pl.pie)}${c.creadoPorNombre?" · Preparada por "+escHtml(c.creadoPorNombre):""}</footer></body></html>`;
   const w=window.open("","_blank");
   if(!w){alert("El navegador bloqueó la ventana. Permite ventanas emergentes para este sitio.");return;}
@@ -8292,6 +8554,27 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   const[tab,sTab]=useState("team");const[showReg,sShowReg]=useState(false);
   const[f,sF]=useState({userId:users[0]?.id,amount:"",concept:"",date:td()});const[pImg,sPImg]=useState(null);
   const[ivaRate]=useState(19);
+  // Mercado Pago: si está conectado, cada cuota pendiente tiene su link de pago. Los pagos que
+  // confirma el webhook llegan a `mp_pagos` (solo la escribe el servidor) y cuentan como cuota
+  // pagada igual que un comprobante subido a mano.
+  const[mpOn,sMpOn]=useState(false);const[mpPagos,sMpPagos]=useState([]);const[mpBusy,sMpBusy]=useState("");
+  useEffect(()=>{
+    fetch("/api/integraciones",{credentials:"same-origin"}).then(r=>r.ok?r.json():{}).then(d=>sMpOn(!!(d.mercadopago&&d.mercadopago.conectada))).catch(()=>{});
+    DB.load("mp_pagos").then(l=>sMpPagos(Array.isArray(l)?l:[]));
+  },[]);
+  const pagoMP=(coId,tp)=>mpPagos.find(x=>String(x.companyId)===String(coId)&&+x.month===cM&&+x.year===cY&&x.type===tp);
+  const linkMP=async(c,tp,n,monto)=>{
+    const k=c.id+tp;sMpBusy(k);
+    try{
+      const r=await fetch("/api/mp/link",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({companyId:String(c.id),month:cM,year:cY,cuota:tp,monto,titulo:c.name+" · cuota "+n+"/2 · "+month+" "+year})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.url)throw new Error(d.error||"Mercado Pago no respondió");
+      try{await navigator.clipboard.writeText(d.url);addN("✅ Link de pago copiado. Pégalo en el WhatsApp o correo del cliente.");}
+      catch(_){prompt("Copia el link de pago:",d.url);}
+    }catch(e){addN("❌ "+e.message);}
+    sMpBusy("");
+  };
   // IVA reminder
   const[showIvaReminder,sShowIvaReminder]=useState(()=>{const today=new Date();const key="iva_dismissed_"+today.getFullYear()+"_"+today.getMonth();return today.getDate()>=20&&!localStorage.getItem(key);});
   const dismissIva=()=>{const today=new Date();localStorage.setItem("iva_dismissed_"+today.getFullYear()+"_"+today.getMonth(),"1");sShowIvaReminder(false);};
@@ -8342,7 +8625,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
     const cuota1=ovr.cuota1!==undefined&&ovr.cuota1!==""?parseInt(ovr.cuota1):Math.round(price/2);
     const cuota2=price-cuota1;
     const rc=(billRcpts[c.id]||[]).filter(r=>r.month===cM&&r.year===cY);
-    const h1=rc.some(r=>r.type==="50_1");const h2=rc.some(r=>r.type==="50_2");
+    const mp1=!!pagoMP(c.id,"50_1"),mp2=!!pagoMP(c.id,"50_2");const h1=mp1||rc.some(r=>r.type==="50_1");const h2=mp2||rc.some(r=>r.type==="50_2");
     const paid=(h1?cuota1:0)+(h2?cuota2:0);const pct=price?Math.round(paid/price*100):0;
     const coIva=Math.round(price*ivaRate/100);
     const invKey=c.id+"_"+cM+"_"+cY;const hasInvoice=!!invoiceFiles[invKey];
@@ -8353,7 +8636,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
       inv2:"F-"+year+"-"+String(cM+1).padStart(2,"0")+"-"+c.id+"B",
       due1:year+"-"+String(cM+1).padStart(2,"0")+"-05",
       due2:year+"-"+String(cM+1).padStart(2,"0")+"-25",
-      fullyPaid:h1&&h2,hasInvoice,reqFactura,invKey};
+      fullyPaid:h1&&h2,hasInvoice,reqFactura,invKey,mp1,mp2};
   });
   const cobrado=cuotas.reduce((s,q)=>s+q.paid,0);
   const porCobrar=cuotas.reduce((s,q)=>s+q.pending,0);
@@ -8499,7 +8782,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
                 <div style={{minWidth:140}}><div style={{fontSize:12,fontWeight:500}}>{desc} · {month} {year}</div><div className="num" style={{fontSize:11,color:"var(--tx3)"}}>{inv}</div></div>
                 <div style={{minWidth:80}}><div style={{fontSize:10,color:"var(--tx3)"}}>Vence</div><div className="num" style={{fontSize:12,color:"var(--tx2)"}}>{due}</div></div>
                 <div style={{minWidth:100}}>{n===1?(<div style={{display:"flex",alignItems:"center",gap:2}}><span style={{fontSize:10,color:"var(--tx3)"}}>$</span><input type="number" value={getOvr(c.id).cuota1!==undefined?getOvr(c.id).cuota1:q.cuota1} onChange={e=>setOvr(c.id,"cuota1",e.target.value)} style={{width:80,fontSize:13,fontWeight:600,padding:"3px 5px",textAlign:"right"}}/></div>):(<div className="num" style={{fontSize:13,fontWeight:600,color:q.cuota2<0?"var(--danger)":"var(--tx)"}}>{fP(amt)}</div>)}</div>
-                <div style={{flex:1}}>{paid?(<span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"color-mix(in oklch,var(--success) 12%,var(--bg2))",border:"1px solid color-mix(in oklch,var(--success) 30%,transparent)",borderRadius:6,color:"var(--success)",fontSize:11}}><Ic n="paperclip" s={12}/>comprobante</span>):(<label style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"var(--bg2)",border:"1px dashed var(--border2)",borderRadius:6,color:"var(--tx3)",fontSize:11,cursor:"pointer"}}><Ic n="paperclip" s={12}/>Subir<input type="file" accept="image/*" onChange={e=>hUp(c.id,tp,e)} style={{display:"none"}}/></label>)}</div>
+                <div style={{flex:1,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{paid?((n===1?q.mp1:q.mp2)?(<span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"color-mix(in oklch,var(--success) 12%,var(--bg2))",border:"1px solid color-mix(in oklch,var(--success) 30%,transparent)",borderRadius:6,color:"var(--success)",fontSize:11}}><Ic n="check" s={12}/>Mercado Pago</span>):(<span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"color-mix(in oklch,var(--success) 12%,var(--bg2))",border:"1px solid color-mix(in oklch,var(--success) 30%,transparent)",borderRadius:6,color:"var(--success)",fontSize:11}}><Ic n="paperclip" s={12}/>comprobante</span>)):<>{mpOn&&amt>0&&<button onClick={()=>linkMP(c,tp,n,amt)} disabled={mpBusy===c.id+tp} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 9px",background:"#00B1EA",border:"none",borderRadius:6,color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",opacity:mpBusy===c.id+tp?.6:1}}><Ic n="link" s={12}/>{mpBusy===c.id+tp?"Creando…":"Link de pago"}</button>}<label style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 8px",background:"var(--bg2)",border:"1px dashed var(--border2)",borderRadius:6,color:"var(--tx3)",fontSize:11,cursor:"pointer"}}><Ic n="paperclip" s={12}/>Subir<input type="file" accept="image/*" onChange={e=>hUp(c.id,tp,e)} style={{display:"none"}}/></label></>}</div>
                 <Bg color={paid?"var(--success)":"var(--gold)"} style={{fontSize:11}}>{paid?"pagado":"pendiente"}</Bg>
               </div>))}
             </div>
