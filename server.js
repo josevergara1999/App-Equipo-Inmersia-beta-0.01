@@ -640,7 +640,7 @@ async function sbPut(key, value) {
 // Claves que NUNCA salen del servidor: son tokens y secretos que solo maneja el backend (OAuth,
 // webhooks, push). El frontend no los lee ni los escribe. Excluirlos del proxy hace que, aunque
 // alguien con sesión válida —incluido un cliente— llame a /api/data, jamás reciba un token.
-const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social", "integraciones", "mp_links", "prospectos_saldo", "prospectos_vistos", "prospectos_cfg", "ultimos_ingresos", "api_keys", "api_uso"]);
+const CLAVES_PRIVADAS = new Set(["gcal_tokens", "meta_token", "user_creds", "ig", "push_subs", "social", "integraciones", "mp_links", "prospectos_saldo", "prospectos_vistos", "prospectos_cfg", "ultimos_ingresos", "api_keys", "api_uso", "sf_facturas", "sf_receptores"]);
 // Se leen desde la app pero solo las escribe el servidor (el webhook de Mercado Pago).
 const CLAVES_SOLO_SERVIDOR = new Set(["mp_pagos"]);
 
@@ -4365,7 +4365,7 @@ const soloAdmin = (req, res, next) => {
 };
 const INTEGRACIONES = {
   mercadopago: { campos: ["accessToken"], secretos: ["accessToken"], obligatorios: ["accessToken"] },
-  simplefactura: { campos: ["email", "password", "rutEmisor", "sucursal"], secretos: ["password"], obligatorios: ["email", "password", "rutEmisor"] },
+  simplefactura: { campos: ["email", "password", "rutEmisor", "sucursal", "acteco", "ambiente"], secretos: ["password"], obligatorios: ["email", "password", "rutEmisor"] },
 };
 const ultimos4 = s => (s && s.length > 4) ? "•••• " + s.slice(-4) : "••••";
 
@@ -4387,7 +4387,7 @@ async function probarIntegracion(id, cred) {
   }
   if (id === "simplefactura") {
     // Mismo inicio de sesión que usan los SDK de SimpleFactura: usuario y clave → token.
-    const r = await fetch("https://api.simplefactura.cl/token", {
+    const r = await fetch(SF_URL + "/token", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: cred.email, password: cred.password }),
     });
@@ -4395,7 +4395,8 @@ async function probarIntegracion(id, cred) {
     const tok = d.accessToken || d.access_token || d.token || (d.data && d.data.accessToken);
     if (r.status === 401 || r.status === 400 && !tok) return { ok: false, error: "SimpleFactura no aceptó ese usuario y clave." + (d.message ? " (" + d.message + ")" : "") };
     if (!r.ok || !tok) return { ok: false, error: d.message || d.error || ("SimpleFactura respondió " + r.status) };
-    return { ok: true, cuenta: cred.email + (cred.rutEmisor ? " · RUT " + cred.rutEmisor : "") };
+    if (cred.rutEmisor && !rutValido(cred.rutEmisor)) return { ok: false, error: "El RUT de la empresa que factura no es válido." };
+    return { ok: true, cuenta: cred.email + (cred.rutEmisor ? " · RUT " + cred.rutEmisor : "") + (cred.ambiente === "certificacion" ? " · certificación" : "") };
   }
   return { ok: false, error: "integración desconocida" };
 }
@@ -4529,6 +4530,189 @@ app.post("/api/mp/webhook", rateLimit(120, "mp-webhook"), async (req, res) => {
       body: "$" + Math.round(p.transaction_amount || 0).toLocaleString("es-CL") + " · cuota " + (cuota === "50_1" ? "1" : "2") + " de " + (+month + 1) + "/" + year,
       to: [], dedupKey: "mp_" + pid }).catch(() => {});
   } catch (e) { console.error("mp webhook:", e.message); }
+});
+
+// ── SimpleFactura: emitir la factura del mes de un cliente ─────────────────
+// Rutas y campos tomados del SDK oficial de ChileSystems (SimpleFacturaSDK 1.2.1, PyPI):
+//   POST /token                 {email,password}            → {accessToken, expiresAt}
+//   POST /invoiceV2/{sucursal}  {Documento:{Encabezado,Detalle},Observaciones}
+//                               → {status,message,data:{tipoDTE,rutEmisor,rutReceptor,folio,fechaEmision,total}}
+//   POST /dte/pdf               {credenciales:{rutEmisor,nombreSucursal},dteReferenciadoExterno:{folio,codigoTipoDte,ambiente}} → PDF
+// Una factura ante el SII no se deshace (solo se anula con nota de crédito), así que:
+//  · una sola factura por empresa y mes (`sf_facturas[empresa|mes|año]`);
+//  · se marca «emitiendo» ANTES de llamar, así un doble clic no emite dos;
+//  · si la llamada se corta sin respuesta, queda «incierta» y NO se reintenta sola:
+//    alguien revisa en SimpleFactura y la libera a mano.
+const SF_URL = process.env.SIMPLEFACTURA_API_URL || "https://api.simplefactura.cl"; // configurable solo para pruebas locales
+const rutLimpio = s => String(s || "").replace(/[^0-9kK]/g, "").toUpperCase();
+function rutValido(s) {
+  const r = rutLimpio(s); if (r.length < 2) return false;
+  const cuerpo = r.slice(0, -1), dv = r.slice(-1);
+  if (!/^\d{6,8}$/.test(cuerpo)) return false;
+  let suma = 0, mul = 2;
+  for (let i = cuerpo.length - 1; i >= 0; i--) { suma += +cuerpo[i] * mul; mul = mul === 7 ? 2 : mul + 1; }
+  const esp = 11 - (suma % 11);
+  return dv === (esp === 11 ? "0" : esp === 10 ? "K" : String(esp));
+}
+const rutSII = s => { const r = rutLimpio(s); return r.slice(0, -1) + "-" + r.slice(-1); }; // 76123456-7
+const sfTxt = (v, n) => String(v || "").replace(/\s+/g, " ").trim().slice(0, n);
+
+async function sfFetch(ruta, opts, ms = 45000) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(SF_URL + ruta, { ...opts, signal: ctl.signal }); } finally { clearTimeout(t); }
+}
+async function sfToken(cred) {
+  const r = await sfFetch("/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: cred.email, password: cred.password }) }, 20000);
+  const d = await r.json().catch(() => ({}));
+  const tok = d.accessToken || (d.data && d.data.accessToken);
+  if (!r.ok || !tok) throw new Error("SimpleFactura no aceptó el usuario y clave guardados. Vuelve a conectarla en Integraciones.");
+  return tok;
+}
+const sfError = (d, status) => {
+  const m = d && (d.message || d.error || (Array.isArray(d.errors) && d.errors.join(" · ")) || (d.errors && JSON.stringify(d.errors)));
+  return String(m || ("SimpleFactura respondió " + status)).slice(0, 400);
+};
+
+// Estado para Pagos: facturas emitidas y los datos de facturación guardados de cada cliente.
+app.get("/api/sf/estado", requireAuth, async (req, res) => {
+  if (!quienDelEquipo(req)) return res.status(403).json({ error: "solo el equipo" });
+  try {
+    const [f, rc, todo] = await Promise.all([sbGet("sf_facturas", {}), sbGet("sf_receptores", {}), intGet()]);
+    res.json({ conectada: !!(todo.simplefactura && todo.simplefactura.cred), facturas: f || {}, receptores: rc || {} });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post("/api/sf/emitir", requireAuth, soloAdmin, rateLimit(10, "sf-emitir"), async (req, res) => {
+  const b = req.body || {};
+  const companyId = String(b.companyId || ""), month = +b.month, year = +b.year;
+  const neto = Math.round(+b.neto || 0);
+  const tipo = +b.tipo === 34 ? 34 : 33;
+  const rc = b.receptor || {};
+  const receptor = {
+    rut: rutSII(rc.rut), razon: sfTxt(rc.razon, 100), giro: sfTxt(rc.giro, 40), direccion: sfTxt(rc.direccion, 70),
+    comuna: sfTxt(rc.comuna, 20), ciudad: sfTxt(rc.ciudad, 20), correo: sfTxt(rc.correo, 80),
+  };
+  const glosa = sfTxt(b.glosa, 80) || "Servicios de marketing digital";
+  const formaPago = +b.formaPago === 1 ? 1 : 2;
+  const venc = /^\d{4}-\d{2}-\d{2}$/.test(String(b.vencimiento || "")) ? b.vencimiento : hoyCL();
+  if (!companyId || !(month >= 0 && month <= 11) || !(year > 2000)) return res.status(400).json({ error: "Falta la empresa o el mes" });
+  if (!(neto > 0)) return res.status(400).json({ error: "El monto neto tiene que ser mayor que cero" });
+  if (!rutValido(receptor.rut)) return res.status(400).json({ error: "El RUT del cliente no es válido. Revisa el número y el dígito verificador." });
+  const faltan = [["razon", "razón social"], ["giro", "giro"], ["direccion", "dirección"], ["comuna", "comuna"]].filter(([k]) => !receptor[k]).map(([, l]) => l);
+  if (faltan.length) return res.status(400).json({ error: "Faltan datos del cliente: " + faltan.join(", ") });
+
+  const ref = [companyId, month, year].join("|");
+  try {
+    const cred = await intCred("simplefactura");
+    if (!cred) return res.status(400).json({ error: "SimpleFactura no está conectada. Conéctala en Integraciones." });
+    const emp = (await sbGet("empresa_config", null)) || {};
+    const faltaEmp = [["razonSocial", "razón social"], ["giro", "giro"], ["direccion", "dirección"], ["comuna", "comuna"]].filter(([k]) => !String(emp[k] || "").trim()).map(([, l]) => l);
+    if (faltaEmp.length) return res.status(400).json({ error: "Completa en Configuración los datos de tu empresa: " + faltaEmp.join(", ") });
+    const acteco = String(cred.acteco || "").replace(/\D/g, "");
+    if (!/^\d{6}$/.test(acteco)) return res.status(400).json({ error: "Falta el código de actividad económica (6 dígitos) en Integraciones → SimpleFactura." });
+
+    // Reservar la emisión: si ya hay una emitida, en curso o incierta, no se llama a SimpleFactura.
+    let previa = null;
+    await enCola(async () => {
+      const f = (await sbGet("sf_facturas", {})) || {};
+      if (f[ref] && f[ref].estado !== "error") { previa = f[ref]; return; }
+      f[ref] = { estado: "emitiendo", por: req.miembro.name, at: new Date().toISOString(), tipo, neto };
+      if (!(await sbPut("sf_facturas", f))) throw new Error("No se pudo reservar la emisión");
+      const rcs = (await sbGet("sf_receptores", {})) || {};
+      rcs[companyId] = receptor; await sbPut("sf_receptores", rcs);
+    });
+    if (previa) return res.status(409).json({ error: previa.estado === "emitida" ? "Este mes ya tiene la factura N° " + previa.folio + "." : previa.estado === "incierta" ? "La emisión anterior quedó sin respuesta. Revisa en SimpleFactura si salió antes de volver a intentar." : "Ya se está emitiendo esta factura." });
+
+    const marcar = async (datos) => enCola(async () => { const f = (await sbGet("sf_facturas", {})) || {}; f[ref] = { ...(f[ref] || {}), ...datos }; await sbPut("sf_facturas", f); });
+    const iva = tipo === 33 ? Math.round(neto * 0.19) : 0;
+    const total = neto + iva;
+    const totales = tipo === 33 ? { MntNeto: neto, TasaIVA: 19, IVA: iva, MntTotal: total } : { MntExe: neto, MntTotal: neto };
+    const linea = { NroLinDet: 1, NmbItem: glosa, QtyItem: 1, UnmdItem: "un", PrcItem: neto, MontoItem: neto };
+    if (tipo === 34) linea.IndExe = 1;
+    const idDoc = { TipoDTE: tipo, FchEmis: hoyCL(), FmaPago: formaPago };
+    if (formaPago === 2) idDoc.FchVenc = venc;
+    const cuerpo = {
+      Documento: {
+        Encabezado: {
+          IdDoc: idDoc,
+          Emisor: {
+            RUTEmisor: rutSII(cred.rutEmisor), RznSoc: sfTxt(emp.razonSocial, 100), GiroEmis: sfTxt(emp.giro, 80), Acteco: [+acteco],
+            DirOrigen: sfTxt(emp.direccion, 70), CmnaOrigen: sfTxt(emp.comuna, 20), CiudadOrigen: sfTxt(emp.ciudad || emp.comuna, 20),
+            ...(emp.email ? { CorreoEmisor: sfTxt(emp.email, 80) } : {}), ...(emp.telefono ? { Telefono: [sfTxt(emp.telefono, 20)] } : {}),
+          },
+          Receptor: {
+            RUTRecep: receptor.rut, RznSocRecep: receptor.razon, GiroRecep: receptor.giro, DirRecep: receptor.direccion,
+            CmnaRecep: receptor.comuna, CiudadRecep: receptor.ciudad || receptor.comuna, ...(receptor.correo ? { CorreoRecep: receptor.correo } : {}),
+          },
+          Totales: totales,
+        },
+        Detalle: [linea],
+      },
+      ...(b.observaciones ? { Observaciones: sfTxt(b.observaciones, 200) } : {}),
+    };
+
+    let r, d;
+    try {
+      const tok = await sfToken(cred);
+      r = await sfFetch("/invoiceV2/" + encodeURIComponent(cred.sucursal || "Casa Matriz"), {
+        method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(cuerpo),
+      });
+      d = await r.json().catch(() => ({}));
+    } catch (e) {
+      // Sin respuesta: puede que SimpleFactura sí la haya emitido. No se reintenta solo.
+      if (/usuario y clave/.test(e.message)) { await marcar({ estado: "error", error: e.message }); return res.status(400).json({ error: e.message }); }
+      await marcar({ estado: "incierta", error: "Sin respuesta de SimpleFactura: " + e.message });
+      return res.status(504).json({ error: "SimpleFactura no respondió. Revisa en tu cuenta de SimpleFactura si la factura salió antes de volver a intentar." });
+    }
+    const data = d && d.data;
+    if (!r.ok || !data || !data.folio) {
+      const msg = sfError(d, r.status);
+      await marcar({ estado: "error", error: msg });
+      return res.status(400).json({ error: "SimpleFactura rechazó la factura: " + msg });
+    }
+    const fin = { estado: "emitida", folio: +data.folio, tipo: +data.tipoDTE || tipo, fecha: data.fechaEmision || hoyCL(), total: data.total || total, neto, iva,
+      rutReceptor: receptor.rut, razon: receptor.razon, ambiente: cred.ambiente === "certificacion" ? 0 : 1, error: "" };
+    await marcar(fin);
+    crearNotif({ type: "pago", title: "🧾 Factura N° " + fin.folio + " emitida", body: receptor.razon + " · $" + Math.round(fin.total).toLocaleString("es-CL"), to: [], dedupKey: "sf_" + ref }).catch(() => {});
+    res.json({ ok: true, ...fin });
+  } catch (e) { console.error("sf emitir:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+// Liberar una emisión «incierta» o con error, después de revisar en SimpleFactura que no salió.
+app.post("/api/sf/liberar", requireAuth, soloAdmin, async (req, res) => {
+  const { companyId, month, year } = req.body || {};
+  const ref = [String(companyId || ""), +month, +year].join("|");
+  try {
+    let ok = false;
+    await enCola(async () => {
+      const f = (await sbGet("sf_facturas", {})) || {};
+      if (!f[ref] || f[ref].estado === "emitida") return;
+      delete f[ref]; ok = await sbPut("sf_facturas", f);
+    });
+    if (!ok) return res.status(409).json({ error: "No hay nada que liberar (o la factura ya está emitida)." });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.get("/api/sf/pdf", requireAuth, rateLimit(30, "sf-pdf"), async (req, res) => {
+  if (!quienDelEquipo(req)) return res.status(403).json({ error: "solo el equipo" });
+  const ref = [String(req.query.companyId || ""), +req.query.month, +req.query.year].join("|");
+  try {
+    const f = ((await sbGet("sf_facturas", {})) || {})[ref];
+    if (!f || f.estado !== "emitida") return res.status(404).json({ error: "Esa factura no existe" });
+    const cred = await intCred("simplefactura");
+    if (!cred) return res.status(400).json({ error: "SimpleFactura no está conectada" });
+    const tok = await sfToken(cred);
+    const r = await sfFetch("/dte/pdf", {
+      method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+      body: JSON.stringify({ credenciales: { rutEmisor: rutSII(cred.rutEmisor), nombreSucursal: cred.sucursal || "Casa Matriz" },
+        dteReferenciadoExterno: { folio: f.folio, codigoTipoDte: f.tipo, ambiente: f.ambiente ?? 1 } }),
+    });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!r.ok || buf.slice(0, 4).toString() !== "%PDF") return res.status(502).json({ error: "SimpleFactura no entregó el PDF (" + r.status + ")" });
+    res.set({ "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="factura-' + f.folio + '.pdf"', "Cache-Control": "private, no-store" });
+    res.send(buf);
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 // ===============================

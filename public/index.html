@@ -3227,8 +3227,8 @@ const INT_CATALOGO=[
   {grupo:"Facturación electrónica",items:[
     {id:"simplefactura",nombre:"SimpleFactura",color:"#F26B1D",sigla:"SF",
       desc:"Conecta tu cuenta de SimpleFactura para emitir facturas al SII sin salir de la plataforma. Sigues usando tu propio plan de SimpleFactura.",
-      campos:[{k:"email",l:"Usuario (correo) de SimpleFactura",ph:"tu@correo.cl"},{k:"password",l:"Clave de SimpleFactura",secreto:true},{k:"rutEmisor",l:"RUT de la empresa que factura",ph:"76.123.456-7"},{k:"sucursal",l:"Sucursal (opcional)",ph:"Casa Matriz"}],
-      ayuda:"Usa el mismo usuario y clave con que entras a SimpleFactura. Por ahora la conexión valida tu cuenta; la emisión de facturas desde Pagos llega en la próxima versión.",
+      campos:[{k:"email",l:"Usuario (correo) de SimpleFactura",ph:"tu@correo.cl"},{k:"password",l:"Clave de SimpleFactura",secreto:true},{k:"rutEmisor",l:"RUT de la empresa que factura",ph:"76.123.456-7"},{k:"sucursal",l:"Sucursal (opcional)",ph:"Casa Matriz"},{k:"acteco",l:"Código de actividad económica (SII, 6 dígitos)",ph:"731001"},{k:"ambiente",l:"Ambiente",opciones:[["produccion","Producción (facturas reales)"],["certificacion","Certificación (pruebas)"]]}],
+      ayuda:"Usa el mismo usuario y clave con que entras a SimpleFactura. El código de actividad económica es el que tienes inscrito en el SII (lo ves en SimpleFactura o en sii.cl). Con la cuenta conectada, en Pagos cada cliente con «Factura» activada tiene el botón «Emitir factura».",
       enlace:"https://www.simplefactura.cl"},
     {id:"dtemite",nombre:"DTEmite",color:"#2E7D32",sigla:"DT",prox:true,desc:"Otra opción de facturación electrónica para Chile."},
   ]},
@@ -3301,7 +3301,7 @@ function IntegracionesPg({isA,addN}){
             </div>}
             {abiertaEsta&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingTop:10,borderTop:"1px solid "+D.line3}}>
               {it.campos.map(c=>(<label key={c.k} style={{display:"flex",flexDirection:"column",gap:4,fontSize:11.5,color:D.tx3}}>{c.l}
-                <input type={c.secreto?"password":"text"} autoComplete="off" value={form[c.k]||""} onChange={e=>sForm(x=>({...x,[c.k]:e.target.value}))} placeholder={c.ph||""} style={{width:"100%",boxSizing:"border-box"}}/></label>))}
+                {c.opciones?(<select value={form[c.k]||c.opciones[0][0]} onChange={e=>sForm(x=>({...x,[c.k]:e.target.value}))} style={{width:"100%",boxSizing:"border-box"}}>{c.opciones.map(([v,l])=>(<option key={v} value={v}>{l}</option>))}</select>):(<input type={c.secreto?"password":"text"} autoComplete="off" value={form[c.k]||""} onChange={e=>sForm(x=>({...x,[c.k]:e.target.value}))} placeholder={c.ph||""} style={{width:"100%",boxSizing:"border-box"}}/>)}</label>))}
               <div style={{fontSize:11.5,color:D.tx4,lineHeight:1.5}}>{it.ayuda} {it.enlace&&<a href={it.enlace} target="_blank" rel="noopener" style={{color:D.cian}}>Abrir {it.nombre} ↗</a>}</div>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <Bt v="g" onClick={()=>{sAbierta(null);sForm({});}}>Cancelar</Bt>
@@ -9002,6 +9002,76 @@ function FinAnalisis({cuotas,cos,allPays,cM,cY,tasks,mpOn,addN,MO_}){
   </div>);
 }
 
+// Emitir la factura del mes de un cliente con SimpleFactura. Los datos del cliente se guardan
+// en el servidor (`sf_receptores`) al emitir, así el mes siguiente vienen rellenos. Antes de
+// mandar se muestra el resumen y se pide confirmar: una factura ante el SII no se borra.
+function EmitirFacturaMd({m,receptor,month,year,cM,cY,addN,onClose,onOk}){
+  const rc=receptor||{};
+  const[f,sF]=useState(()=>({rut:rc.rut||"",razon:rc.razon||m.c.razonSocial||m.c.name||"",giro:rc.giro||"",direccion:rc.direccion||"",
+    comuna:rc.comuna||"",ciudad:rc.ciudad||"",correo:rc.correo||m.c.email||"",tipo:"33",neto:String(Math.round(m.neto||0)),
+    glosa:"Servicios de marketing digital · "+month+" "+year,formaPago:m.pagada?"1":"2",
+    vencimiento:new Date(Date.now()+30*864e5).toISOString().slice(0,10),observaciones:""}));
+  const[paso,sPaso]=useState(1);const[busy,sBusy]=useState(false);const[err,sErr]=useState("");
+  const set=k=>e=>sF(x=>({...x,[k]:e.target.value}));
+  const neto=Math.round(+f.neto||0),iva=f.tipo==="33"?Math.round(neto*0.19):0,total=neto+iva;
+  const faltan=[["rut","RUT"],["razon","razón social"],["giro","giro"],["direccion","dirección"],["comuna","comuna"]].filter(([k])=>!String(f[k]).trim()).map(([,l])=>l);
+  const inp={width:"100%",boxSizing:"border-box"};
+  const emitir=async()=>{
+    sBusy(true);sErr("");
+    try{
+      const r=await fetch("/api/sf/emitir",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({companyId:String(m.c.id),month:cM,year:cY,neto,tipo:+f.tipo,glosa:f.glosa,formaPago:+f.formaPago,vencimiento:f.vencimiento,observaciones:f.observaciones,
+          receptor:{rut:f.rut,razon:f.razon,giro:f.giro,direccion:f.direccion,comuna:f.comuna,ciudad:f.ciudad,correo:f.correo}})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.folio)throw new Error(d.error||"SimpleFactura no respondió");
+      addN("🧾 Factura N° "+d.folio+" emitida para "+m.c.name);onOk();
+    }catch(e){sErr(e.message);sPaso(1);}
+    sBusy(false);
+  };
+  return(<Md open={true} onClose={()=>!busy&&onClose()} title={"Emitir factura · "+m.c.name} width={560}>
+    {paso===1?(<>
+      <div style={{fontSize:12,color:"var(--tx3)",marginBottom:12}}>Datos del cliente para el SII. Quedan guardados para el próximo mes.</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 12px"}}>
+        <Fd label="RUT del cliente"><input value={f.rut} onChange={set("rut")} placeholder="76.123.456-7" style={inp}/></Fd>
+        <Fd label="Razón social"><input value={f.razon} onChange={set("razon")} style={inp}/></Fd>
+        <Fd label="Giro"><input value={f.giro} onChange={set("giro")} placeholder="Restaurante" style={inp}/></Fd>
+        <Fd label="Correo (opcional)"><input value={f.correo} onChange={set("correo")} placeholder="contabilidad@cliente.cl" style={inp}/></Fd>
+        <Fd label="Dirección"><input value={f.direccion} onChange={set("direccion")} style={inp}/></Fd>
+        <Fd label="Comuna"><input value={f.comuna} onChange={set("comuna")} style={inp}/></Fd>
+        <Fd label="Ciudad (opcional)"><input value={f.ciudad} onChange={set("ciudad")} style={inp}/></Fd>
+        <Fd label="Tipo de documento"><select value={f.tipo} onChange={set("tipo")} style={inp}><option value="33">Factura electrónica (con IVA)</option><option value="34">Factura exenta</option></select></Fd>
+      </div>
+      <Fd label="Detalle"><input value={f.glosa} onChange={set("glosa")} maxLength={80} style={inp}/></Fd>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:"0 12px"}}>
+        <Fd label={f.tipo==="33"?"Monto neto":"Monto exento"}><input type="number" value={f.neto} onChange={set("neto")} style={inp}/></Fd>
+        <Fd label="Forma de pago"><select value={f.formaPago} onChange={set("formaPago")} style={inp}><option value="1">Contado</option><option value="2">Crédito</option></select></Fd>
+        {f.formaPago==="2"&&<Fd label="Vence"><input type="date" value={f.vencimiento} onChange={set("vencimiento")} style={inp}/></Fd>}
+      </div>
+      <Fd label="Nota al pie (opcional)"><input value={f.observaciones} onChange={set("observaciones")} maxLength={200} style={inp}/></Fd>
+      <div className="num" style={{display:"flex",gap:16,fontSize:13,margin:"4px 0 14px",flexWrap:"wrap"}}>
+        <span>Neto {fP(neto)}</span>{f.tipo==="33"&&<span style={{color:"var(--gold)"}}>IVA {fP(iva)}</span>}<b style={{color:"var(--success)"}}>Total {fP(total)}</b>
+      </div>
+      {err&&<div style={{fontSize:12,color:"var(--danger)",marginBottom:12}}>{err}</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Bt v="s" onClick={onClose}>Cancelar</Bt>
+        <Bt onClick={()=>{if(faltan.length){sErr("Faltan: "+faltan.join(", "));return;}if(!(neto>0)){sErr("El monto tiene que ser mayor que cero");return;}sErr("");sPaso(2);}}>Revisar y emitir</Bt>
+      </div>
+    </>):(<>
+      <div style={{padding:14,borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:13,lineHeight:1.7,marginBottom:14}}>
+        <div><b>{f.tipo==="33"?"Factura electrónica":"Factura exenta"}</b> para <b>{f.razon}</b> · RUT {f.rut}</div>
+        <div>{f.glosa}</div>
+        <div className="num">Neto {fP(neto)}{f.tipo==="33"&&<> · IVA {fP(iva)}</>} · <b>Total {fP(total)}</b></div>
+        <div>{f.formaPago==="1"?"Contado":"Crédito, vence "+f.vencimiento}</div>
+      </div>
+      <div style={{fontSize:12.5,color:"var(--danger)",marginBottom:14}}>Esto emite una factura real ante el SII. Una vez emitida no se borra: solo se anula con una nota de crédito.</div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Bt v="s" onClick={()=>sPaso(1)} disabled={busy}>Volver</Bt>
+        <button onClick={emitir} disabled={busy} style={{padding:"9px 16px",borderRadius:10,background:"#F26B1D",border:"none",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",opacity:busy?.6:1}}>{busy?"Emitiendo…":"Emitir factura"}</button>
+      </div>
+    </>)}
+  </Md>);
+}
+
 function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,billRcpts,sBR,cM,cY,avisar,correosDe,cu,tasks}){
   const[tab,sTab]=useState("team");const[showReg,sShowReg]=useState(false);
   const[f,sF]=useState({userId:users[0]?.id,amount:"",concept:"",date:td()});const[pImg,sPImg]=useState(null);
@@ -9013,7 +9083,18 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
   useEffect(()=>{
     fetch("/api/integraciones",{credentials:"same-origin"}).then(r=>r.ok?r.json():{}).then(d=>sMpOn(!!(d.mercadopago&&d.mercadopago.conectada))).catch(()=>{});
     DB.load("mp_pagos").then(l=>sMpPagos(Array.isArray(l)?l:[]));
+    cargarSF();
   },[]);
+  // SimpleFactura: una factura por cliente y mes, emitida desde aquí. El servidor guarda el folio
+  // y bloquea la segunda emisión; el PDF se baja de SimpleFactura cada vez que se abre.
+  const[sf,sSf]=useState({conectada:false,facturas:{},receptores:{}});const[sfModal,sSfModal]=useState(null);
+  const cargarSF=()=>fetch("/api/sf/estado",{credentials:"same-origin"}).then(r=>r.ok?r.json():null).then(d=>d&&sSf(d)).catch(()=>{});
+  const facturaSF=coId=>sf.facturas[[String(coId),cM,cY].join("|")];
+  const liberarSF=async c=>{
+    if(!confirm("Libera esta emisión SOLO si revisaste en SimpleFactura que la factura no salió. Si salió y emites otra, quedan dos facturas ante el SII."))return;
+    const r=await fetch("/api/sf/liberar",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:String(c.id),month:cM,year:cY})});
+    const d=await r.json().catch(()=>({}));addN(r.ok?"Listo, ya puedes volver a emitirla.":"❌ "+(d.error||"No se pudo liberar"));cargarSF();
+  };
   const pagoMP=(coId,tp)=>mpPagos.find(x=>String(x.companyId)===String(coId)&&+x.month===cM&&+x.year===cY&&x.type===tp);
   const linkMP=async(c,tp,n,monto)=>{
     const k=c.id+tp;sMpBusy(k);
@@ -9253,7 +9334,22 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
               </div>))}
             </div>
             {/* Invoice upload - only when fully paid */}
-            {q.reqFactura&&(<div style={{padding:"10px 20px",background:"var(--bg3)",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            {q.reqFactura&&sf.conectada&&(()=>{const fx=facturaSF(c.id);return(<div style={{padding:"10px 20px",background:"var(--bg3)",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <Ic n="file" s={14} c={fx&&fx.estado==="emitida"?"var(--success)":"#F26B1D"}/>
+              {fx&&fx.estado==="emitida"?(<>
+                <Bg color="var(--success)" style={{fontSize:11}}>{fx.tipo===34?"Factura exenta":"Factura"} N° {fx.folio}</Bg>
+                <span className="num" style={{fontSize:11,color:"var(--tx3)"}}>{fx.fecha} · {fP(fx.total)}</span>
+                <a href={"/api/sf/pdf?companyId="+encodeURIComponent(c.id)+"&month="+cM+"&year="+cY} target="_blank" rel="noopener" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:6,color:"var(--tx2)",fontSize:11,textDecoration:"none"}}><Ic n="file" s={12}/>Ver PDF</a>
+              </>):fx&&(fx.estado==="incierta"||fx.estado==="emitiendo")?(<>
+                <span style={{fontSize:11.5,color:"var(--danger)",flex:1,minWidth:200}}>{fx.estado==="incierta"?"SimpleFactura no respondió al emitir. Revisa en tu cuenta si la factura salió.":"Emitiendo…"}</span>
+                {fx.estado==="incierta"&&<button onClick={()=>liberarSF(c)} style={{padding:"4px 10px",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:6,color:"var(--tx2)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>No salió, liberar</button>}
+              </>):(<>
+                {fx&&fx.estado==="error"&&<span style={{fontSize:11,color:"var(--danger)",flex:"1 1 100%"}}>Último intento rechazado: {fx.error}</span>}
+                <button onClick={()=>sSfModal({c,neto:q.price,pagada:q.fullyPaid})} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",background:"#F26B1D",border:"none",borderRadius:8,color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}><Ic n="file" s={13}/>Emitir factura con SimpleFactura</button>
+                <span style={{fontSize:11,color:"var(--tx3)"}}>Neto {fP(q.price)}</span>
+              </>)}
+            </div>);})()}
+            {q.reqFactura&&!(sf.conectada&&facturaSF(c.id)&&facturaSF(c.id).estado==="emitida")&&(<div style={{padding:"10px 20px",background:"var(--bg3)",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <Ic n="paperclip" s={14} c={q.hasInvoice?"var(--success)":q.fullyPaid?"var(--info)":"var(--tx3)"}/>
               {q.fullyPaid?(q.hasInvoice?(<div style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
                 <Bg color="var(--success)" style={{fontSize:11}}><Ic n="file" s={11}/>Factura subida</Bg>
@@ -9267,6 +9363,7 @@ function PayBillPg({users,teamPay,sTP,addN,cos,plans,billing,month,year,remEx,bi
         })}
       </div>
 
+      {sfModal&&<EmitirFacturaMd m={sfModal} receptor={sf.receptores[String(sfModal.c.id)]} month={month} year={year} cM={cM} cY={cY} addN={addN} onClose={()=>sSfModal(null)} onOk={()=>{sSfModal(null);cargarSF();}}/>}
       {/* IVA Summary */}
       <div className="card" style={{padding:20,marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
