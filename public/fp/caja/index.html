@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0f1a">
+<title>Caja</title>
+<link rel="manifest" id="mf">
+<link rel="icon" href="/icon-192.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#0b0f1a;color:#fff;font-family:-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:460px;margin:0 auto;padding:18px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#9aa3b8;font-size:14px;margin-bottom:18px}
+.card{background:#151b2c;border-radius:18px;padding:18px;margin-bottom:14px}
+button{font:inherit;border:0;border-radius:14px;padding:16px;font-weight:700;font-size:17px;width:100%;cursor:pointer;color:#fff;background:#2a3350}
+button.pri{background:#3b6cff}
+button.ok{background:#1fa971}
+button.gold{background:#d99a1f}
+button:disabled{opacity:.4}
+input{font:inherit;width:100%;padding:16px;border-radius:14px;border:2px solid #2a3350;background:#0b0f1a;color:#fff;font-size:26px;text-align:center;letter-spacing:.35em}
+.pin{display:flex;gap:10px;justify-content:center;margin:6px 0 16px}
+.pin i{width:16px;height:16px;border-radius:50%;background:#2a3350}.pin i.on{background:#3b6cff}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad button{font-size:24px;padding:18px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.big{font-size:30px;font-weight:800}
+.dots{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.dots b{width:26px;height:26px;border-radius:50%;background:#2a3350}.dots b.on{background:#3b6cff}
+.msg{padding:14px;border-radius:14px;margin-bottom:12px;font-weight:600}
+.msg.e{background:#4a1c24;color:#ffb3bd}.msg.g{background:#12402f;color:#9df0c8}
+video{width:100%;border-radius:14px;background:#000;aspect-ratio:1}
+.tag{display:inline-block;padding:4px 10px;border-radius:99px;font-size:13px;font-weight:700}
+.tag.a{background:#12402f;color:#9df0c8}.tag.u{background:#2a3350;color:#9aa3b8}
+.link{background:none;color:#9aa3b8;font-size:14px;padding:8px;font-weight:500}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const slug = location.pathname.split("/").filter(Boolean)[1] || "";
+document.getElementById("mf").href = "/caja/" + slug + "/manifest.webmanifest";
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let S = { vista: "cargando", pin: "", yo: null, socio: null, ident: null, msg: null, cam: false };
+let stream = null, scanTimer = null, busy = false;
+
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || "Error " + r.status); e.status = r.status; throw e; }
+  return d;
+}
+function set(p) { Object.assign(S, p); pintar(); }
+function aviso(t, tipo) { set({ msg: { t, tipo } }); }
+
+async function iniciar() {
+  try { const yo = await api("/api/fp/caja/yo"); set({ yo, vista: "buscar" }); }
+  catch { set({ vista: "pin" }); }
+}
+
+function pintar() {
+  const m = S.msg ? `<div class="msg ${S.msg.tipo === "ok" ? "g" : "e"}">${esc(S.msg.t)}</div>` : "";
+  let h = "";
+  if (S.vista === "cargando") h = `<div class="sub">Cargando…</div>`;
+  else if (S.vista === "pin") {
+    h = `<h1>Caja</h1><div class="sub">Escribe tu PIN de 6 dígitos</div>${m}
+      <div class="pin">${[0,1,2,3,4,5].map(i => `<i class="${i < S.pin.length ? "on" : ""}"></i>`).join("")}</div>
+      <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n => `<button data-k="${n}">${n}</button>`).join("")}
+      <button data-k="b">⌫</button><button data-k="0">0</button><button data-k="ok" class="pri">Entrar</button></div>`;
+  } else if (S.vista === "buscar") {
+    h = `<h1>${esc(S.yo.programa)}</h1><div class="sub">Atiende: ${esc(S.yo.cajero)}</div>${m}
+      <div class="card ${S.cam ? "" : "hide"}"><video id="v" playsinline muted></video>
+        <button class="link" data-a="cerrarcam">Cerrar cámara</button></div>
+      <button class="pri" data-a="cam" ${S.cam ? "style='display:none'" : ""}>📷 Escanear QR del cliente</button>
+      <div class="card" style="margin-top:14px"><div class="sub" style="margin-bottom:8px">O escribe su código de 6 dígitos</div>
+        <input id="c6" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off">
+        <div style="height:10px"></div><button data-a="buscar6">Buscar</button></div>
+      <button class="link" data-a="salir">Cerrar sesión</button>`;
+  } else if (S.vista === "socio") {
+    const e = S.socio, meta = e.meta;
+    const pts = Array.from({ length: meta }, (_, i) => `<b class="${i < e.socio.saldo ? "on" : ""}"></b>`).join("");
+    const cu = e.cupon;
+    h = `<h1>${esc(e.socio.nombre || "Cliente")}</h1><div class="sub">Código ${esc(e.socio.codigo6)}</div>${m}
+      <div class="card"><div class="big">${e.socio.saldo} / ${meta} sellos</div><div class="dots">${pts}</div>
+        <div class="sub" style="margin:0">Premio: ${esc(e.premio)}</div></div>
+      ${cu ? `<div class="card"><span class="tag ${cu.estado === "activo" ? "a" : "u"}">${cu.estado === "activo" ? "DESCUENTO DISPONIBLE" : "Descuento " + esc(cu.estado)}</span>
+        <div style="margin:8px 0 12px">${esc(cu.descripcion || "Descuento de bienvenida")}</div>
+        ${cu.estado === "activo" ? `<button class="gold" data-a="cupon">Aplicar descuento de bienvenida</button>` : ""}</div>` : ""}
+      <button class="ok" data-a="sellar" ${e.puedeSellar ? "" : "disabled"}>${e.puedeSellar ? "➕ Sumar sello" : "Ya sumó hace poco: faltan " + falta(e.faltanMin)}</button>
+      <div style="height:10px"></div>
+      ${e.puedeCanjear ? `<button class="gold" data-a="canjear">🎁 Canjear premio</button><div style="height:10px"></div>` : ""}
+      <button data-a="volver">Atender a otro cliente</button>`;
+  }
+  $("#app").innerHTML = h;
+  if (S.vista === "buscar" && S.cam) arrancarCam();
+}
+const falta = min => min >= 60 ? Math.floor(min / 60) + " h " + (min % 60) + " min" : min + " min";
+
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  const k = b.dataset.k, a = b.dataset.a;
+  if (k !== undefined) {
+    if (k === "b") S.pin = S.pin.slice(0, -1);
+    else if (k === "ok") return entrar();
+    else if (S.pin.length < 6) S.pin += k;
+    S.msg = null; pintar(); if (S.pin.length === 6 && k !== "b") entrar();
+  } else if (a === "cam") { S.msg = null; set({ cam: true }); }
+  else if (a === "cerrarcam") { pararCam(); set({ cam: false }); }
+  else if (a === "buscar6") { const v = ($("#c6").value || "").replace(/\D/g, ""); identificar({ codigo6: v }); }
+  else if (a === "salir") { await api("/api/fp/caja/salir", {}); pararCam(); set({ vista: "pin", pin: "", socio: null, yo: null, msg: null }); }
+  else if (a === "volver") { set({ vista: "buscar", socio: null, ident: null, msg: null }); }
+  else if (a === "sellar" || a === "canjear" || a === "cupon") accion(a);
+});
+
+async function entrar() {
+  if (S.pin.length !== 6 || busy) return; busy = true;
+  try { await api(`/api/fp/${slug}/caja/login`, { pin: S.pin }); S.pin = ""; S.msg = null; await iniciar(); }
+  catch (e) { S.pin = ""; aviso(e.message, "e"); }
+  busy = false;
+}
+
+async function identificar(ident) {
+  if (busy) return; busy = true;
+  try {
+    const est = await api("/api/fp/caja/buscar", ident);
+    pararCam(); set({ vista: "socio", socio: est, ident, cam: false, msg: null, clave: crypto.randomUUID() });
+  } catch (e) { if (e.status === 401) set({ vista: "pin", msg: { t: "Tu sesión terminó. Entra de nuevo", tipo: "e" } }); else aviso(e.message, "e"); }
+  busy = false;
+}
+
+// Una clave de idempotencia por cada atención: si el dedo toca dos veces o la red reintenta,
+// el servidor no suma dos veces.
+async function accion(a) {
+  if (busy) return; busy = true;
+  const ruta = { sellar: "sellar", canjear: "canjear", cupon: "cupon" }[a];
+  try {
+    const r = await api("/api/fp/caja/" + ruta, { ...S.ident, idem: S.clave + ":" + a });
+    const m = r.ok === false ? motivo(r) : null;
+    S.socio = r.estado || S.socio;
+    if (m) aviso(m, "e");
+    else aviso(a === "sellar" ? (r.repetido ? "Ese sello ya estaba registrado" : "Sello sumado ✓") : a === "canjear" ? "Premio canjeado: " + (r.premio || "") : "Descuento aplicado ✓", "ok");
+  } catch (e) { aviso(e.message, "e"); }
+  busy = false;
+}
+function motivo(r) {
+  return ({ muy_pronto: "Este cliente ya sumó un sello. Faltan " + falta(r.faltan_min || 0), faltan: "Todavía le faltan " + r.faltan + " sellos", pausado: "El programa está pausado", ya_usado: "Este descuento ya se usó", ya_anulado: "Este descuento fue anulado" })[r.motivo] || "No se pudo completar";
+}
+
+// ── Cámara ──
+async function arrancarCam() {
+  const v = $("#v"); if (!v || stream) return;
+  if (!("BarcodeDetector" in window)) { set({ cam: false }); return aviso("Este navegador no lee QR. Escribe el código de 6 dígitos", "e"); }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    v.srcObject = stream; await v.play();
+    const det = new BarcodeDetector({ formats: ["qr_code"] });
+    scanTimer = setInterval(async () => {
+      if (busy || !$("#v")) return;
+      try { const r = await det.detect($("#v")); if (r[0] && /^FP1\./.test(r[0].rawValue)) identificar({ qr: r[0].rawValue }); } catch {}
+    }, 350);
+  } catch { set({ cam: false }); aviso("No pude abrir la cámara. Revisa el permiso o escribe el código", "e"); }
+}
+function pararCam() { clearInterval(scanTimer); scanTimer = null; if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
+
+iniciar();
+</script>
+</body>
+</html>
