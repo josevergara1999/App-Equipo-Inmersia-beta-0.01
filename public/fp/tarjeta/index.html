@@ -150,8 +150,8 @@ input[type="date"]{color-scheme:light}
   </div>
   <div style="margin-top:auto;text-align:center;animation:hm-fadeUp .7s .9s both;width:100%">
     <div style="width:44px;height:1px;background:rgba(0,0,139,.35);margin:0 auto"></div>
-    <div style="font-family:'Baloo 2',sans-serif;font-weight:700;font-size:21px;letter-spacing:.01em;color:#14145e;margin-top:14px">Snack de regalo para tu mascota</div>
-    <div style="font-size:12.5px;font-weight:300;color:#565b8c;margin-top:5px;line-height:1.5">Por tu primer escaneo · preséntala en tu próxima visita</div>
+    <div style="font-family:'Baloo 2',sans-serif;font-weight:700;font-size:21px;letter-spacing:.01em;color:#14145e;margin-top:14px">{{ welcomeMain }}</div>
+    <div style="font-size:12.5px;font-weight:300;color:#565b8c;margin-top:5px;line-height:1.5">{{ welcomeSub }}</div>
     <button onClick="{{ toHome }}" style="margin-top:20px;width:100%;padding:16px;border-radius:999px;border:none;background:#00008b;color:#f4f4ff;font-family:Outfit,sans-serif;font-size:13px;letter-spacing:2.2px;text-transform:uppercase;cursor:pointer;box-shadow:0 14px 30px -8px rgba(0,0,90,.5)">Ver mi tarjeta</button>
   </div>
 </div>
@@ -224,7 +224,7 @@ input[type="date"]{color-scheme:light}
       <button onClick="{{ simulateScan }}" style="padding:12px 30px;border-radius:999px;border:1px solid rgba(36,112,208,.8);background:transparent;color:#00008b;font-family:Outfit,sans-serif;font-size:11.5px;letter-spacing:2.2px;text-transform:uppercase;cursor:pointer;animation:hm-fadeUp .4s both">Simular escáner</button>
     </sc-if>
     <sc-if value="{{ qr }}" hint-placeholder-val="{{ false }}"><span onClick="{{ qrClose }}" style="font-size:11.5px;color:#00008b;text-decoration:underline;cursor:pointer">Cancelar código</span></sc-if>
-    <span onClick="{{ reset }}" style="font-size:10.5px;color:rgba(0,0,139,.5);text-decoration:underline;cursor:pointer">Reiniciar demo</span>
+    <sc-if value="{{ demoOn }}" hint-placeholder-val="{{ false }}"><span onClick="{{ reset }}" style="font-size:10.5px;color:rgba(0,0,139,.5);text-decoration:underline;cursor:pointer">Reiniciar demo</span></sc-if>
   </div>
   <div style="position:absolute;left:0;right:0;bottom:0;height:112px;background:linear-gradient(180deg,#000070,#00004f);display:flex;flex-direction:column;align-items:center;padding-top:30px;box-sizing:border-box;z-index:140">
     <div style="position:absolute;left:0;bottom:0;top:-30px;width:calc(50% - 96px);background:linear-gradient(180deg,#000070,#000070 40px,transparent 80px);border-radius:30px 0 0 0;clip-path:polygon(0 0,calc(100% - 16px) 0,100% 30px,100% 100%,0 100%)"></div>
@@ -263,7 +263,7 @@ input[type="date"]{color-scheme:light}
 
 <sc-if value="{{ qrZoom }}" hint-placeholder-val="{{ false }}">
 <div onClick="{{ qrZoomOff }}" style="position:absolute;inset:0;z-index:260;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(0,0,60,.74);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:hm-fadeIn .3s both;cursor:zoom-out">
-  <div style="background:#fff;border-radius:22px;padding:18px;box-shadow:0 30px 70px -20px rgba(0,0,40,.7);animation:hm-rise .45s cubic-bezier(.22,1,.36,1) both"><img src="{{ qrDataUrl }}" alt="Código QR" style="width:230px;height:230px;display:block;image-rendering:pixelated"></div>
+  <div style="background:#fff;border-radius:22px;padding:18px;box-shadow:0 30px 70px -20px rgba(0,0,40,.7);animation:hm-rise .45s cubic-bezier(.22,1,.36,1) both"><img data-fpqr="1" alt="Código QR" style="width:230px;height:230px;display:block;image-rendering:pixelated"></div>
   <div style="font:800 34px/1 'Baloo 2',sans-serif;letter-spacing:.08em;color:#fff;font-variant-numeric:tabular-nums">{{ code }}</div>
   <div style="font:400 12px/1 Outfit,sans-serif;color:rgba(244,244,255,.8)">{{ qrLine }} · toca para cerrar</div>
 </div>
@@ -289,7 +289,7 @@ class Component extends DCLogic {
     { id: 'beagle', name: 'Beagle', img: window.fpCardImg('4'), light: true, emblem: false },
     { id: 'pug', name: 'Pug', img: window.fpCardImg('3'), light: false, emblem: false },
   ];
-  state = Object.assign({ phase: 'intro', name: '', email: '', dob: '', sel: 1, dx: 0, dy: 0, dragging: false, mode: null, docking: false, pressed: false, dockCopy: null, dockAnim: false, flipped: false, stamps: 0, justStamped: -1, reward: false, tc: { x: 0, y: 0, on: false }, th: { x: 0, y: 0, on: false }, vdy: 0, vDragging: false, vPhase: null, vCopy: null, vAnim: null, qr: false, meta: 0, perk: '', code: '' }, this.saved());
+  state = Object.assign({ phase: 'intro', name: '', email: '', dob: '', sel: 1, dx: 0, dy: 0, dragging: false, mode: null, docking: false, pressed: false, dockCopy: null, dockAnim: false, flipped: false, stamps: 0, justStamped: -1, reward: false, tc: { x: 0, y: 0, on: false }, th: { x: 0, y: 0, on: false }, vdy: 0, vDragging: false, vPhase: null, vCopy: null, vAnim: null, qr: false, meta: 0, perk: '', code: '', welcome: '', sorteoTxt: '' }, this.saved());
   saved() {
     try {
       const s = JSON.parse(localStorage.getItem(this.KEY) || 'null');
@@ -318,6 +318,8 @@ class Component extends DCLogic {
   }
 
   componentDidUpdate(pp, ps) {
+    // El QR ampliado se rellena por código: con `src="{{ ... }}"` el navegador pedía la plantilla literal (404).
+    if (this._qrData) document.querySelectorAll('img[data-fpqr]').forEach(im => { if (im.getAttribute('src') !== this._qrData) im.setAttribute('src', this._qrData); });
     const was = ps && ps.qr;
     if (!was && this.state.qr && !this._qrShown) { this._qrShown = true; this._qrAt = Date.now(); clearInterval(this._qrTick); this._qrTick = setInterval(() => {
       if (Date.now() - this._qrAt >= 300000) { this.closeQR(); return; }
@@ -432,7 +434,7 @@ class Component extends DCLogic {
     window.FP.estado().then(e => {
       this._refreshing = false;
       const s = this.state, meta = Math.min(8, Math.max(3, e.meta || 8)), n = Math.min(e.socio.saldo, meta);
-      const up = { meta, code: this.fmtCode(e.socio.codigo6) };
+      const up = { meta, code: this.fmtCode(e.socio.codigo6), welcome: (e.cupon && e.cupon.estado === 'activo') ? (e.cupon.descripcion || '') : '', sorteoTxt: e.sorteoTexto || '' };
       up.perk = e.cupon && e.cupon.estado === 'activo' ? '🎁 ' + (e.cupon.descripcion || 'Descuento de bienvenida') + ': pídelo en caja en esta compra'
         : (e.sorteo ? '🎟️ Participas en el sorteo mensual de una giftcard' : '');
       const subio = n > s.stamps;
@@ -532,7 +534,7 @@ class Component extends DCLogic {
         this.persist({ stamps: 0 });
         this.go('celebrate', { docking: false, dockCopy: null, dockAnim: null, dy: 0, dx: 0, mode: null, meta: c ? c.meta : 8, code: c ? this.fmtCode(c.codigo6) : '' });
         setTimeout(() => this.startConfetti(4200), 600);
-        setTimeout(() => this.refresh(), 1500);
+        setTimeout(() => this.refresh(), 500);
       }).catch(err => {
         alert(err && err.message ? err.message : 'No se pudo crear tu tarjeta. Revisa tu conexión e intenta de nuevo.');
         this.setState({ docking: false, dockAnim: null, dockCopy: null, dy: 0, dx: 0, mode: null });
@@ -832,6 +834,8 @@ class Component extends DCLogic {
       demoScanOn: false,
       simulateScan: () => {},
       qrDataUrl: this._qrData || '',
+      welcomeMain: s.welcome || 'Descuento de bienvenida',
+      welcomeSub: 'Pídelo en caja, en la compra que estás haciendo ahora.' + (s.sorteoTxt ? ' Además participas en el sorteo mensual: ' + s.sorteoTxt + '.' : '') + ' Cada visita suma un sello.',
       perkLine: s.perk || '',
       qrLine: 'Se renueva solo · muéstralo en caja',
       vDockLabel: s.vPhase === 'in' ? 'Lector listo' : s.vPhase === 'scan' ? 'Grabando tu código…' : s.vPhase === 'out' ? 'Código listo' : s.qr ? 'Código listo · muéstralo en caja' : vglow >= 1 ? 'Suelta para registrar tu visita' : 'Arrastra tu tarjeta al lector',
@@ -855,7 +859,7 @@ class Component extends DCLogic {
       progressLine: s.stamps >= req ? 'Colección completa — premio de regalo' : s.stamps + ' de ' + req + ' visitas',
       holderCaps: (holder || 'Miembro').toUpperCase(),
       flipHint: s.qr ? 'Muestra el código o toca la tarjeta para ampliar el QR' : s.flipped ? 'Toca para ver el frente' : 'Toca la tarjeta para ver tus estampillas',
-      demoOn: this.props.showDemo ?? true,
+      demoOn: false,   // el botón "Reiniciar demo" ya no existe: la tarjeta es real y borrarla dejaría al cliente sin sus sellos
       addStamp: () => this.addStamp(),
       stampBtnStyle: {
         padding: '13px 30px', borderRadius: 999, border: '1px solid #00008b',

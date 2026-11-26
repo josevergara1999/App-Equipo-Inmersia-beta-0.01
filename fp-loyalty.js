@@ -75,7 +75,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
     }
     return {
       socio: { nombre: m.nombre, saldo: m.saldo, canjes: m.canjes, codigo6: m.codigo6 },
-      meta: prog.meta, premio: prog.premio, qrSeg: prog.qr_segundos,
+      meta: prog.meta, premio: prog.premio, qrSeg: prog.qr_segundos, sorteoTexto: prog.sorteo_activo ? (prog.sorteo_texto || "") : "",
       puedeSellar: faltanMin === 0, faltanMin,
       puedeCanjear: m.saldo >= prog.meta,
       cupon: cupon ? { id: cupon.id, estado: cupon.estado, descripcion: cupon.descripcion } : null,
@@ -85,7 +85,11 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
   // ===========================================================================
   // CLIENTE (público)
   // ===========================================================================
-  app.get("/api/fp/:slug/programa", rateLimit(60, "fp-prog"), async (req, res) => {
+  // `admin` y `caja` son rutas propias (/api/fp/admin/programa, /api/fp/caja/...): ningún programa
+  // puede llamarse así, y esta ruta les cede el paso en vez de interpretarlas como un slug.
+  const RESERVADOS = new Set(["admin", "caja"]);
+  app.get("/api/fp/:slug/programa", rateLimit(60, "fp-prog"), async (req, res, next) => {
+    if (RESERVADOS.has(req.params.slug)) return next();
     try {
       const p = await progPorSlug(req.params.slug);
       if (!p || !p.activo) return res.status(404).json({ error: "Programa no disponible" });
@@ -297,7 +301,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       }
       if (!esEquipo(req)) return res.status(403).json({ error: "Tu empresa todavía no tiene el programa activado" });
       const slug = String(b.slug || "").trim().toLowerCase();
-      if (!SLUG.test(slug)) return res.status(400).json({ error: "El nombre de la dirección solo lleva letras minúsculas, números y guiones" });
+      if (!SLUG.test(slug) || RESERVADOS.has(slug)) return res.status(400).json({ error: "El nombre de la dirección solo lleva letras minúsculas, números y guiones" });
       if (!campos.nombre || !campos.premio) return res.status(400).json({ error: "Faltan nombre y premio" });
       const d = await lyRest("loyalty_programs", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...campos, slug, company_id: r.cid }) });
       res.json({ programa: lyUno(d) });
