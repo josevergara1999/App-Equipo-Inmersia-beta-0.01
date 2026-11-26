@@ -18,6 +18,23 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
   const SLUG = /^[a-z0-9][a-z0-9-]{1,40}$/;
   const enc = encodeURIComponent;
   const idem = (s) => (typeof s === "string" && /^[\w.:-]{8,80}$/.test(s)) ? s : null;
+  // Los errores internos (texto de Supabase, rutas, nombres de tabla) se quedan en el log.
+  const fallo = (res, e, tag) => { console.error("fp " + (tag || "") + ":", e && e.message); res.status(500).json({ error: "Error interno, intenta de nuevo" }); };
+  // Lista blanca para campos que acaban dentro de estilos o de atributos src.
+  const COLOR = /^#[0-9a-fA-F]{3,8}$/;
+  const urlOk = (u) => /^(https:\/\/[\w.-]+\/[^\s"'<>()\\]*|\/[\w./-]+)$/.test(String(u || "")) && String(u).length <= 400;
+
+  // Tope de PINs fallidos POR PROGRAMA, sin importar la IP: con 6 dígitos (1.000.000 de
+  // combinaciones) el único freno real es limitar los intentos en total. En memoria: es una sola
+  // instancia en Render, y al reiniciar el contador vuelve a cero (se acepta).
+  const FALLOS_MAX = 10, FALLOS_VENTANA = 10 * 60 * 1000;
+  const fallosPin = new Map();   // program_id -> [timestamps]
+  const pinBloqueado = (pid) => {
+    const a = (fallosPin.get(pid) || []).filter(t => Date.now() - t < FALLOS_VENTANA);
+    fallosPin.set(pid, a);
+    return a.length >= FALLOS_MAX;
+  };
+  setInterval(() => { for (const k of [...fallosPin.keys()]) pinBloqueado(k); }, 5 * 60 * 1000).unref();
 
   // Campos del programa que ve cualquiera (nada de company_id ni conteos).
   const PUB = "id,slug,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text," +
@@ -94,17 +111,18 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const p = await progPorSlug(req.params.slug);
       if (!p || !p.activo) return res.status(404).json({ error: "Programa no disponible" });
       res.json(p);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   // Alta. Devuelve `clave` UNA vez: es lo que firma el QR y vive solo en el cel del cliente.
   // Si el teléfono o el correo ya existen NO se devuelve la clave (cualquiera que conociera un
   // correo se quedaría con la tarjeta de otro): se responde 409.
-  app.post("/api/fp/:slug/alta", rateLimit(15, "fp-alta"), async (req, res) => {
+  app.post("/api/fp/:slug/alta", rateLimit(15, "fp-alta", { estricto: true }), async (req, res) => {
     try {
       const p = await progPorSlug(req.params.slug);
       if (!p || !p.activo) return res.status(404).json({ error: "Programa no disponible" });
       const b = req.body || {};
+      if (b.acepta !== true) return res.status(400).json({ error: "Debes aceptar la política de privacidad" });
       const nombre = String(b.nombre || "").trim().slice(0, 80);
       const telefono = String(b.telefono || "").replace(/[^\d+]/g, "").slice(0, 16);
       // Solo caracteres normales de un correo: el valor entra en un filtro de PostgREST.
@@ -132,6 +150,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
               codigo6: String(crypto.randomInt(0, 1000000)).padStart(6, "0"),
               qr_clave: crypto.randomBytes(24).toString("hex"),
               nombre, telefono: telefono || null, email: email || null, tarjeta,
+              sorteo_ok: b.sorteo === true, consent_at: new Date().toISOString(),
             }),
           }));
         } catch (e) { if (!/duplicate|23505/i.test(e.message)) throw e; }   // choque de código: reintenta
@@ -156,7 +175,26 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       if (!m || !iguales(m.qr_clave, clave)) return res.status(401).json({ error: "Tarjeta no válida en este teléfono" });
       const est = await estadoSocio(p, m);
       res.json({ ...est, tarjeta: m.tarjeta, sorteo: !!p.sorteo_activo && m.sorteo_ok });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e, "tarjeta"); }
+  });
+
+  // Borrar mis datos: anonimiza al socio (la fila queda porque sorteos y sellos la referencian).
+  async function anonimizar(socioId) {
+    await lyRest(`loyalty_members?id=eq.${socioId}`, { method: "PATCH", body: JSON.stringify({
+      nombre: "Socio eliminado", telefono: null, email: null, sorteo_ok: false,
+      qr_clave: crypto.randomBytes(24).toString("hex"), eliminado_at: new Date().toISOString(),
+    }) });
+  }
+  app.post("/api/fp/:slug/borrar", rateLimit(10, "fp-borrar", { estricto: true }), async (req, res) => {
+    try {
+      const p = await progPorSlug(req.params.slug);
+      if (!p) return res.status(404).json({ error: "Programa no disponible" });
+      const { codigo, clave } = req.body || {};
+      const m = lyUno(await lyRest(`loyalty_members?program_id=eq.${p.id}&codigo=eq.${enc(String(codigo || ""))}&select=id,qr_clave&limit=1`));
+      if (!m || !iguales(m.qr_clave, clave)) return res.status(401).json({ error: "Tarjeta no válida en este teléfono" });
+      await anonimizar(m.id);
+      res.json({ ok: true });
+    } catch (e) { fallo(res, e, "borrar"); }
   });
 
   app.post("/api/fp/:slug/elegir", rateLimit(30, "fp-elegir"), async (req, res) => {
@@ -169,7 +207,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       if (!(p.tarjetas || []).some(t => t.id === tarjeta)) return res.status(400).json({ error: "Diseño desconocido" });
       await lyRest(`loyalty_members?id=eq.${m.id}`, { method: "PATCH", body: JSON.stringify({ tarjeta }) });
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   // ===========================================================================
@@ -177,10 +215,15 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
   // ===========================================================================
   const CAJA_COOKIE = "_fpcaja";
   const firmaCaja = (payload) => crypto.createHmac("sha256", JWT_SECRET + "|fp-caja").update(payload).digest("base64url");
-  const hashPin = (pin, salt) => crypto.scryptSync(String(pin), salt, 32).toString("hex");
+  // Asíncrono: scryptSync bloqueaba el hilo único de Node, y con él TODA la app de Inmersia.
+  const scryptA = require("util").promisify(crypto.scrypt);
+  const hashPin = async (pin, salt) => (await scryptA(String(pin), salt, 32)).toString("hex");
+  const hashPinSync = (pin, salt) => crypto.scryptSync(String(pin), salt, 32).toString("hex");
+  // La sesión queda ligada a una huella del PIN: cambiar el PIN corta las sesiones anteriores.
+  const versionPin = (c) => String(c.pin_hash || "").slice(0, 12);
 
   function emitirCaja(req, res, cajero) {
-    const payload = Buffer.from(JSON.stringify({ c: cajero.id, p: cajero.program_id, exp: Date.now() + 14 * 24 * 3600000 })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ c: cajero.id, p: cajero.program_id, v: versionPin(cajero), exp: Date.now() + 14 * 24 * 3600000 })).toString("base64url");
     const https = req.headers["x-forwarded-proto"] === "https" || req.secure;
     res.cookie(CAJA_COOKIE, payload + "." + firmaCaja(payload), { httpOnly: true, secure: https, sameSite: "lax", maxAge: 14 * 24 * 3600000 });
   }
@@ -195,8 +238,8 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       if (i < 1 || !iguales(sig, firmaCaja(payload))) return res.status(401).json({ error: "Entra con tu PIN" });
       const d = JSON.parse(Buffer.from(payload, "base64url").toString());
       if (!d.exp || d.exp < Date.now() || !UUID.test(d.c || "")) return res.status(401).json({ error: "Entra con tu PIN" });
-      const c = lyUno(await lyRest(`loyalty_cashiers?id=eq.${d.c}&activo=eq.true&select=id,nombre,program_id&limit=1`));
-      if (!c || c.program_id !== d.p) return res.status(401).json({ error: "Entra con tu PIN" });
+      const c = lyUno(await lyRest(`loyalty_cashiers?id=eq.${d.c}&activo=eq.true&select=id,nombre,program_id,pin_hash&limit=1`));
+      if (!c || c.program_id !== d.p || !d.v || versionPin(c) !== d.v) return res.status(401).json({ error: "Entra con tu PIN" });
       const prog = lyUno(await lyRest(`loyalty_programs?id=eq.${c.program_id}&select=${PUB}&limit=1`));
       if (!prog || !prog.activo) return res.status(403).json({ error: "El programa está pausado" });
       req.cajero = c; req.prog = prog;
@@ -204,18 +247,28 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
     } catch (e) { res.status(401).json({ error: "Entra con tu PIN" }); }
   }
 
-  app.post("/api/fp/:slug/caja/login", rateLimit(10, "fp-pin"), async (req, res) => {
+  app.post("/api/fp/:slug/caja/login", rateLimit(10, "fp-pin", { estricto: true }), async (req, res) => {
     try {
       const p = await progPorSlug(req.params.slug);
       const pin = String(req.body?.pin || "").replace(/\D/g, "");
       if (!p || !p.activo || pin.length !== 6) return res.status(401).json({ error: "PIN incorrecto" });
+      if (pinBloqueado(p.id)) {
+        console.warn("fp PIN bloqueado (demasiados fallos) programa=" + p.slug);
+        return res.status(429).json({ error: "Demasiados intentos fallidos. Espera unos minutos" });
+      }
       const lista = await lyRest(`loyalty_cashiers?program_id=eq.${p.id}&activo=eq.true&select=id,nombre,program_id,pin_salt,pin_hash`);
-      const c = lista.find(x => iguales(x.pin_hash, hashPin(pin, x.pin_salt)));
-      if (!c) return res.status(401).json({ error: "PIN incorrecto" });
+      let c = null;
+      for (const x of lista) { if (iguales(x.pin_hash, await hashPin(pin, x.pin_salt))) { c = x; break; } }
+      if (!c) {
+        fallosPin.get(p.id).push(Date.now());
+        console.warn("fp PIN fallido programa=" + p.slug + " intentos=" + fallosPin.get(p.id).length);
+        return res.status(401).json({ error: "PIN incorrecto" });
+      }
+      fallosPin.delete(p.id);
       emitirCaja(req, res, c);
       lyRest(`loyalty_cashiers?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ ultimo_login: new Date().toISOString() }) }).catch(() => {});
       res.json({ ok: true, cajero: c.nombre, programa: p.nombre });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e, "login"); }
   });
 
   app.post("/api/fp/caja/salir", (req, res) => { res.clearCookie(CAJA_COOKIE); res.json({ ok: true }); });
@@ -227,7 +280,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const r = await resolverSocio(req.prog, req.body || {});
       if (r.error) return res.status(r.status).json({ error: r.error });
       res.json(await estadoSocio(req.prog, r.m));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   const rpcSocio = (fn, armar) => async (req, res) => {
@@ -273,7 +326,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
     try {
       const r = await progAdmin(req, res); if (!r) return;
       res.json({ programa: r.p, companyId: r.cid, puedeCrear: esEquipo(req) });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   // Crear (solo equipo) o editar (equipo o la empresa dueña). Lista blanca de campos.
@@ -290,9 +343,13 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
         bienvenida_activa: typeof b.bienvenida_activa === "boolean" ? b.bienvenida_activa : undefined,
         bienvenida_texto: b.bienvenida_texto, sorteo_activo: typeof b.sorteo_activo === "boolean" ? b.sorteo_activo : undefined,
         sorteo_texto: b.sorteo_texto, activo: typeof b.activo === "boolean" ? b.activo : undefined,
-        color_fondo: b.color_fondo, color_texto: b.color_texto, logo_url: b.logo_url, logo_text: b.logo_text,
-        tarjetas: Array.isArray(b.tarjetas) ? b.tarjetas.slice(0, 12).map(t => ({ id: String(t.id || "").slice(0, 30), nombre: String(t.nombre || "").slice(0, 40), img: String(t.img || "").slice(0, 400), claro: !!t.claro })).filter(t => t.id && t.img) : undefined,
+        color_fondo: COLOR.test(String(b.color_fondo || "")) ? b.color_fondo : undefined,
+        color_texto: COLOR.test(String(b.color_texto || "")) ? b.color_texto : undefined,
+        logo_url: urlOk(b.logo_url) ? b.logo_url : undefined,
+        logo_text: b.logo_text !== undefined ? String(b.logo_text).slice(0, 60) : undefined,
+        tarjetas: Array.isArray(b.tarjetas) ? b.tarjetas.slice(0, 12).map(t => ({ id: String(t.id || "").replace(/[^a-z0-9-]/gi, "").slice(0, 30), nombre: String(t.nombre || "").slice(0, 40), img: urlOk(t.img) ? String(t.img) : "", claro: !!t.claro })).filter(t => t.id && t.img) : undefined,
       };
+      for (const k of ["nombre", "premio", "bienvenida_texto", "sorteo_texto"]) if (campos[k] !== undefined) campos[k] = String(campos[k]).slice(0, 200);
       Object.keys(campos).forEach(k => campos[k] === undefined && delete campos[k]);
       campos.updated_at = new Date().toISOString();
       if (r.p) {
@@ -336,7 +393,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
         cajeros,
         sorteos: sorteos.map(s => ({ ...s, ganador: nom[s.member_id] || "-", telefono: socios.find(x => x.id === s.member_id)?.telefono || null })),
       });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   app.post("/api/fp/admin/cajeros", requireAuth, async (req, res) => {
@@ -350,9 +407,9 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
         if (pn.length !== 6) return res.status(400).json({ error: "El PIN lleva 6 dígitos" });
         // El PIN identifica al cajero, así que no puede repetirse dentro del programa.
         const otros = await lyRest(`loyalty_cashiers?program_id=eq.${r.p.id}&activo=eq.true&select=id,pin_salt,pin_hash`);
-        if (otros.some(o => o.id !== id && iguales(o.pin_hash, hashPin(pn, o.pin_salt)))) return res.status(409).json({ error: "Ese PIN ya lo usa otro cajero" });
+        for (const o of otros) { if (o.id !== id && iguales(o.pin_hash, await hashPin(pn, o.pin_salt))) return res.status(409).json({ error: "Ese PIN ya lo usa otro cajero" }); }
         patch.pin_salt = crypto.randomBytes(16).toString("hex");
-        patch.pin_hash = hashPin(pn, patch.pin_salt);
+        patch.pin_hash = await hashPin(pn, patch.pin_salt);
       }
       if (id) {
         if (!UUID.test(id)) return res.status(400).json({ error: "Id no válido" });
@@ -363,7 +420,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       if (!nombre || !patch.pin_hash) return res.status(400).json({ error: "Faltan nombre y PIN" });
       await lyRest("loyalty_cashiers", { method: "POST", body: JSON.stringify({ program_id: r.p.id, nombre: String(nombre).slice(0, 60), pin_salt: patch.pin_salt, pin_hash: patch.pin_hash }) });
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   // Sorteo del mes: entre los socios inscritos hasta ese mes que aceptan participar. Un sorteo por
@@ -382,7 +439,19 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const g = lista[crypto.randomInt(0, lista.length)];
       await lyRest("loyalty_draws", { method: "POST", body: JSON.stringify({ program_id: r.p.id, mes, member_id: g.id, premio: r.p.sorteo_texto || null, participantes: lista.length }) });
       res.json({ ganador: g.nombre, telefono: g.telefono, participantes: lista.length });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
+  });
+
+  // Borrar los datos personales de un socio (a su pedido). Anonimiza; ver `anonimizar`.
+  app.post("/api/fp/admin/socio/borrar", requireAuth, async (req, res) => {
+    try {
+      const r = await progAdmin(req, res); if (!r || !r.p) return r && res.status(404).json({ error: "Sin programa" });
+      const id = String(req.body?.id || ""); if (!UUID.test(id)) return res.status(400).json({ error: "Id no válido" });
+      const m = lyUno(await lyRest(`loyalty_members?id=eq.${id}&program_id=eq.${r.p.id}&select=id&limit=1`));
+      if (!m) return res.status(404).json({ error: "Socio no encontrado" });
+      await anonimizar(m.id);
+      res.json({ ok: true });
+    } catch (e) { fallo(res, e, "admin borrar"); }
   });
 
   app.post("/api/fp/admin/sorteo/entregado", requireAuth, async (req, res) => {
@@ -391,9 +460,9 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const id = String(req.body?.id || ""); if (!UUID.test(id)) return res.status(400).json({ error: "Id no válido" });
       await lyRest(`loyalty_draws?id=eq.${id}&program_id=eq.${r.p.id}`, { method: "PATCH", body: JSON.stringify({ entregado: !!req.body?.entregado }) });
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { fallo(res, e); }
   });
 
   // Exportado para pruebas.
-  return { firmaQR, leerQR, hashPin };
+  return { firmaQR, leerQR, hashPin, hashPinSync };
 };

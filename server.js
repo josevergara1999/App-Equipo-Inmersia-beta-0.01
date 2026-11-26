@@ -112,10 +112,15 @@ setInterval(() => _hits.clear(), 60000);
 // wifi del local, el MISMO que usa el tablet con la app abierta; el tablet pasaba de 20 llamadas
 // en un minuto sin despeinarse y a la persona del mesón le salía "demasiadas solicitudes" al
 // tocar Inscribirme, sin haber pedido nada dos veces.
-function rateLimit(max, tag) {
+//
+// `{ estricto: true }` (rutas de PIN y alta): la IP es la ÚLTIMA de X-Forwarded-For, la que añade el
+// proxy de delante, no la primera. La primera la escribe el cliente a su gusto, y cambiándola en cada
+// petición se saltaba el tope por completo.
+function rateLimit(max, tag, opts) {
   const balde = tag || "r" + max;
   return (req, res, next) => {
-    const ip = (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+    const xff = String(req.headers["x-forwarded-for"] || "").split(",").map(s => s.trim()).filter(Boolean);
+    const ip = ((opts && opts.estricto) ? xff[xff.length - 1] : xff[0]) || req.ip || "";
     const clave = balde + "|" + ip;
     const n = (_hits.get(clave) || 0) + 1;
     _hits.set(clave, n);
@@ -5646,6 +5651,7 @@ app.get("/caja/:slug/manifest.webmanifest", (req, res) => {
   });
 });
 app.get("/caja/:slug",  (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "caja", "index.html")); });
+app.get("/fp/privacidad", (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "privacidad.html")); });
 app.get("/fidelizacion-admin", (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "admin", "index.html")); });
 
 app.get("*", (req, res) => { res.sendFile(path.join(__dirname, "public", "index.html")); });
