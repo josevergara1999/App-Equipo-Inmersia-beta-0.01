@@ -2005,6 +2005,9 @@ app.post("/api/loyalty/redeem", requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Fidelización v2 (tarjeta del cliente, escáner del mesón, administración). Ver fp-loyalty.js.
+require("./fp-loyalty.js")({ app, lyRest, lyUno, rateLimit, requireAuth, authInfo, clienteDe, empresaDeLaSesion, parseCookies, JWT_SECRET });
+
 // ===============================
 // 📣 META ADS ADVISOR
 // ===============================
@@ -5618,6 +5621,32 @@ app.get("/guion", (req, res) => { res.sendFile(path.join(__dirname, "public", "i
 app.get("/unirse/:id",     (req, res) => { res.sendFile(path.join(__dirname, "public", "unirse.html")); });
 app.get("/tarjeta/:codigo", (req, res) => { res.sendFile(path.join(__dirname, "public", "tarjeta.html")); });
 app.get("/brief/:token",   (req, res) => { res.sendFile(path.join(__dirname, "public", "brief.html")); });
+// Fidelización v2: la misma página sirve a todas las empresas, el slug de la dirección elige el programa.
+// La tarjeta vive en /fp/tarjeta/ (su service worker necesita ese alcance); /t/<empresa> es la dirección corta.
+app.get("/t/:slug", (req, res) => {
+  const slug = String(req.params.slug || "").replace(/[^a-z0-9-]/g, "").slice(0, 40);
+  res.redirect(302, `/fp/tarjeta/?p=${slug}`);
+});
+// Manifest por empresa: al instalarla, abre directo la tarjeta de esa empresa.
+app.get("/fp/tarjeta/manifest.webmanifest", (req, res) => {
+  const slug = String(req.query.p || "family-pets").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "family-pets";
+  res.type("application/manifest+json").json({
+    name: "Tarjeta Family Pet's", short_name: "Family Pet's", start_url: `/fp/tarjeta/?p=${slug}`, scope: "/fp/tarjeta/",
+    display: "standalone", orientation: "portrait", background_color: "#cfd6f2", theme_color: "#00008b",
+    icons: [{ src: "/fp/tarjeta/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" }, { src: "/fp/tarjeta/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }],
+  });
+});
+// Manifest por empresa: al instalar la caja, abre directo la de esa empresa.
+app.get("/caja/:slug/manifest.webmanifest", (req, res) => {
+  const slug = String(req.params.slug || "").replace(/[^a-z0-9-]/g, "").slice(0, 40);
+  res.type("application/manifest+json").json({
+    name: "Caja", short_name: "Caja", start_url: `/caja/${slug}`, scope: `/caja/${slug}`, display: "standalone",
+    background_color: "#0b0f1a", theme_color: "#0b0f1a",
+    icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png" }],
+  });
+});
+app.get("/caja/:slug",  (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "caja", "index.html")); });
+app.get("/fidelizacion-admin", (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "admin", "index.html")); });
 
 app.get("*", (req, res) => { res.sendFile(path.join(__dirname, "public", "index.html")); });
 

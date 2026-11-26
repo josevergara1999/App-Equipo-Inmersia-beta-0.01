@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fidelización · Administración</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#05060B;color:#f2f4fa;font-family:-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:18px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}
+.sub{color:#8e93a6;font-size:14px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0}
+.tabs button{background:#12162a;border:0;color:#c8cde0;padding:10px 16px;border-radius:99px;cursor:pointer;font:inherit}
+.tabs button.on{background:#6FE7F2;color:#05060B;font-weight:700}
+.card{background:#0e1220;border-radius:16px;padding:16px;margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi b{display:block;font-size:28px}.kpi span{color:#8e93a6;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #1b2038}th{color:#8e93a6;font-weight:600}
+input,select,textarea{font:inherit;background:#05060B;color:#fff;border:1px solid #2a3350;border-radius:10px;padding:10px;width:100%}
+label{display:block;font-size:13px;color:#8e93a6;margin:10px 0 4px}
+button.b{background:#6FE7F2;color:#05060B;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
+button.g{background:#1b2038;color:#fff;border:0;border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.msg{padding:10px 14px;border-radius:10px;margin-bottom:12px}.msg.e{background:#4a1c24;color:#ffb3bd}.msg.g{background:#12402f;color:#9df0c8}
+.url{font-family:monospace;background:#05060B;padding:6px 10px;border-radius:8px;word-break:break-all;display:inline-block}
+.tbl{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">Cargando…</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fecha = d => d ? new Date(d).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" }) : "-";
+let S = { v: "carga", tab: "resumen", msg: null, d: null, prog: null, puedeCrear: false, cid: "" };
+
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || "Error " + r.status); e.status = r.status; e.debeCambiar = d.debeCambiarClave; throw e; }
+  return d;
+}
+const q = () => S.cid ? "?companyId=" + encodeURIComponent(S.cid) : "";
+const set = p => { Object.assign(S, p); pintar(); };
+const ok = t => set({ msg: { t, g: 1 } }), mal = t => set({ msg: { t } });
+
+async function cargar() {
+  try {
+    const p = await api("/api/fp/admin/programa" + q());
+    S.puedeCrear = p.puedeCrear; S.cid = p.companyId || S.cid; S.prog = p.programa;
+    if (!p.programa) return set({ v: "sinprograma" });
+    S.d = await api("/api/fp/admin/resumen" + q());
+    set({ v: "main", prog: S.d.programa });
+  } catch (e) {
+    if (e.debeCambiar) return set({ v: "clave" });
+    if (e.status === 401) return set({ v: "login" });
+    if (e.status === 400) return set({ v: "empresa" });
+    set({ v: "error", msg: { t: e.message } });
+  }
+}
+
+function pintar() {
+  const m = S.msg ? `<div class="msg ${S.msg.g ? "g" : "e"}">${esc(S.msg.t)}</div>` : "";
+  let h = "";
+  if (S.v === "login") h = `<h1>Administración</h1><div class="sub">Entra con tu usuario de Inmersia</div>${m}
+    <div class="card" style="max-width:360px"><label>Usuario</label><input id="u" autocapitalize="none"><label>Contraseña</label><input id="p" type="password">
+    <p><button class="b" onclick="login()">Entrar</button></p></div>`;
+  else if (S.v === "clave") h = `<h1>Cambia tu contraseña</h1><div class="sub">Por seguridad, antes de seguir hay que cambiar la de fábrica (mínimo 8 caracteres).</div>${m}
+    <div class="card" style="max-width:360px"><label>Usuario</label><input id="u" autocapitalize="none"><label>Contraseña actual</label><input id="p" type="password">
+    <label>Contraseña nueva</label><input id="n" type="password"><p><button class="b" onclick="cambiarClave()">Cambiar</button></p></div>`;
+  else if (S.v === "empresa") h = `<h1>Elige la empresa</h1>${m}<div class="card" style="max-width:360px"><label>Id de la empresa</label><input id="cid"><p><button class="b" onclick="set({cid:$('#cid').value});cargar()">Abrir</button></p></div>`;
+  else if (S.v === "sinprograma") h = vistaCrear(m);
+  else if (S.v === "error") h = `<h1>No se pudo cargar</h1>${m}<button class="b" onclick="cargar()">Reintentar</button>`;
+  else if (S.v === "main") h = vistaMain(m);
+  $("#app").innerHTML = h;
+}
+
+function vistaCrear(m) {
+  if (!S.puedeCrear) return `<h1>Fidelización</h1>${m}<div class="card">Tu empresa todavía no tiene el programa activado. Pídele al equipo de Inmersia que lo active.</div>`;
+  return `<h1>Activar fidelización</h1><div class="sub">Empresa ${esc(S.cid)}</div>${m}<div class="card">
+    <div class="row"><div><label>Nombre del programa</label><input id="n" placeholder="Club Family Pet's"></div>
+    <div><label>Dirección (solo minúsculas y guiones)</label><input id="s" placeholder="family-pets"></div>
+    <div><label>Premio por completar sellos</label><input id="pr" placeholder="Un regalo de Family Pet's"></div>
+    <div><label>Sellos para el premio</label><input id="mt" type="number" value="8"></div></div>
+    <p><button class="b" onclick="crear()">Crear programa</button></p></div>`;
+}
+
+function vistaMain(m) {
+  const d = S.d, p = d.programa, t = d.totales;
+  const tabs = [["resumen", "Resumen"], ["clientes", "Clientes"], ["cajeros", "Cajeros"], ["sorteo", "Sorteo"], ["ajustes", "Ajustes"]];
+  const base = location.origin;
+  let cuerpo = "";
+  if (S.tab === "resumen") cuerpo = `<div class="kpis">
+      ${[["Clientes", t.socios], ["Sellos (últimos mov.)", t.sellos], ["Premios canjeados", t.canjes], ["Descuentos usados", t.cuponesUsados], ["Descuentos sin usar", t.cuponesActivos]].map(k => `<div class="card kpi"><b>${k[1]}</b><span>${k[0]}</span></div>`).join("")}</div>
+    <div class="card"><h2>Direcciones</h2>
+      <div class="sub">Tarjeta del cliente</div><span class="url">${esc(base)}/t/${esc(p.slug)}</span>
+      <div class="sub" style="margin-top:10px">Escáner del mesón (instalar en el otro celular)</div><span class="url">${esc(base)}/caja/${esc(p.slug)}</span></div>
+    <div class="card"><h2>Últimos movimientos</h2><div class="tbl"><table><tr><th>Fecha</th><th>Cliente</th><th>Qué</th><th>Cajero</th></tr>
+      ${d.eventos.slice(0, 40).map(e => `<tr><td>${fecha(e.created_at)}</td><td>${esc(e.socio)}</td><td>${esc({ alta: "Se inscribió", sello: "Sello", canje: "Premio canjeado", cupon: "Descuento usado", ajuste: "Ajuste" }[e.tipo] || e.tipo)}</td><td>${esc(e.cajero || "-")}</td></tr>`).join("")}</table></div></div>`;
+  if (S.tab === "clientes") cuerpo = `<div class="card tbl"><table><tr><th>Cliente</th><th>Código</th><th>Teléfono</th><th>Sellos</th><th>Canjes</th><th>Inscrito</th><th>Última visita</th></tr>
+      ${d.socios.map(s => `<tr><td>${esc(s.nombre)}</td><td>${esc(s.codigo6)}</td><td>${esc(s.telefono || s.email || "-")}</td><td>${s.saldo}/${p.meta}</td><td>${s.canjes}</td><td>${fecha(s.created_at)}</td><td>${fecha(s.ultima_visita)}</td></tr>`).join("")}</table></div>`;
+  if (S.tab === "cajeros") cuerpo = `<div class="card"><h2>Cajeros</h2><div class="tbl"><table><tr><th>Nombre</th><th>Estado</th><th>Último ingreso</th><th></th></tr>
+      ${d.cajeros.map(c => `<tr><td>${esc(c.nombre)}</td><td>${c.activo ? "Activo" : "Dado de baja"}</td><td>${fecha(c.ultimo_login)}</td>
+      <td><button class="g" onclick="cajeroActivo('${c.id}',${!c.activo})">${c.activo ? "Dar de baja" : "Reactivar"}</button> <button class="g" onclick="cajeroPin('${c.id}')">Cambiar PIN</button></td></tr>`).join("")}</table></div></div>
+    <div class="card"><h2>Nuevo cajero</h2><div class="row"><div><label>Nombre</label><input id="cn"></div><div><label>PIN de 6 dígitos</label><input id="cp" inputmode="numeric" maxlength="6"></div></div>
+      <p><button class="b" onclick="cajeroNuevo()">Crear</button></p></div>`;
+  if (S.tab === "sorteo") {
+    const hoy = new Date(), mes = hoy.getFullYear() + "-" + String(hoy.getMonth() + 1).padStart(2, "0");
+    cuerpo = `<div class="card"><h2>Sorteo mensual</h2><div class="sub">${esc(p.sorteo_texto || "Sin texto de premio definido en Ajustes")}</div>
+      <p>Participan los clientes inscritos hasta el fin del mes elegido.</p>
+      <div class="row"><div><label>Mes</label><input id="mes" type="month" value="${mes}"></div></div>
+      <p><button class="b" onclick="sortear()">Sortear</button></p></div>
+      <div class="card"><h2>Ganadores</h2><div class="tbl"><table><tr><th>Mes</th><th>Ganador</th><th>Teléfono</th><th>Participantes</th><th>Entregado</th></tr>
+      ${d.sorteos.map(x => `<tr><td>${esc(x.mes)}</td><td>${esc(x.ganador)}</td><td>${esc(x.telefono || "-")}</td><td>${x.participantes}</td><td><input type="checkbox" ${x.entregado ? "checked" : ""} style="width:auto" onchange="entregado('${x.id}',this.checked)"></td></tr>`).join("")}</table></div></div>`;
+  }
+  if (S.tab === "ajustes") cuerpo = `<div class="card"><h2>Reglas</h2><div class="row">
+      <div><label>Nombre del programa</label><input id="a_nombre" value="${esc(p.nombre)}"></div>
+      <div><label>Premio por sellos</label><input id="a_premio" value="${esc(p.premio)}"></div>
+      <div><label>Sellos para el premio</label><input id="a_meta" type="number" value="${p.meta}"></div>
+      <div><label>Horas mínimas entre sellos</label><input id="a_horas" type="number" value="${p.min_horas}"></div>
+      <div><label>Segundos que dura el QR</label><input id="a_qr" type="number" value="${p.qr_segundos}"></div>
+      <div><label>Texto del descuento de bienvenida</label><input id="a_bt" value="${esc(p.bienvenida_texto || "")}"></div>
+      <div><label>Descuento de bienvenida</label><select id="a_ba"><option value="1" ${p.bienvenida_activa ? "selected" : ""}>Activado</option><option value="0" ${p.bienvenida_activa ? "" : "selected"}>Desactivado</option></select></div>
+      <div><label>Sorteo mensual</label><select id="a_sa"><option value="1" ${p.sorteo_activo ? "selected" : ""}>Activado</option><option value="0" ${p.sorteo_activo ? "" : "selected"}>Desactivado</option></select></div>
+      <div><label>Premio del sorteo</label><input id="a_st" value="${esc(p.sorteo_texto || "")}"></div>
+      <div><label>Programa</label><select id="a_act"><option value="1" ${p.activo ? "selected" : ""}>Activo</option><option value="0" ${p.activo ? "" : "selected"}>Pausado</option></select></div></div>
+      <p><button class="b" onclick="guardarAjustes()">Guardar</button></p></div>
+      <div class="card"><h2>Diseños de tarjeta que puede elegir el cliente</h2><div class="sub">Una línea por diseño: <code>id | nombre | url de la imagen | claro o oscuro</code></div>
+      <textarea id="a_tj" rows="6">${esc((p.tarjetas || []).map(t => [t.id, t.nombre, t.img, t.claro ? "claro" : "oscuro"].join(" | ")).join("\n"))}</textarea>
+      <p><button class="b" onclick="guardarTarjetas()">Guardar diseños</button></p></div>`;
+
+  return `<h1>${esc(p.nombre)}</h1><div class="sub">Administración de fidelización</div>${m}
+    <div class="tabs">${tabs.map(t => `<button class="${S.tab === t[0] ? "on" : ""}" onclick="set({tab:'${t[0]}',msg:null})">${t[1]}</button>`).join("")}<button onclick="cargar()">↻ Actualizar</button></div>${cuerpo}`;
+}
+
+async function login() {
+  try { await api("/api/auth/login", { email: $("#u").value, password: $("#p").value }); set({ v: "carga", msg: null }); cargar(); }
+  catch (e) { mal(e.message); }
+}
+async function cambiarClave() {
+  try { await api("/api/auth/password", { email: $("#u").value.trim().toLowerCase(), actual: $("#p").value, nueva: $("#n").value }); set({ msg: null }); cargar(); }
+  catch (e) { mal(e.message); }
+}
+async function crear() {
+  try { await api("/api/fp/admin/programa", { companyId: S.cid, nombre: $("#n").value, slug: $("#s").value, premio: $("#pr").value, meta: $("#mt").value }); await cargar(); }
+  catch (e) { mal(e.message); }
+}
+async function guardarAjustes() {
+  try {
+    await api("/api/fp/admin/programa", { companyId: S.cid, nombre: $("#a_nombre").value, premio: $("#a_premio").value, meta: $("#a_meta").value, min_horas: $("#a_horas").value, qr_segundos: $("#a_qr").value,
+      bienvenida_texto: $("#a_bt").value, bienvenida_activa: $("#a_ba").value === "1", sorteo_activo: $("#a_sa").value === "1", sorteo_texto: $("#a_st").value, activo: $("#a_act").value === "1" });
+    await cargar(); ok("Guardado");
+  } catch (e) { mal(e.message); }
+}
+async function guardarTarjetas() {
+  const tarjetas = $("#a_tj").value.split("\n").map(l => l.split("|").map(x => x.trim())).filter(x => x[0] && x[2]).map(x => ({ id: x[0], nombre: x[1] || x[0], img: x[2], claro: (x[3] || "").toLowerCase() === "claro" }));
+  try { await api("/api/fp/admin/programa", { companyId: S.cid, tarjetas }); await cargar(); ok("Diseños guardados"); } catch (e) { mal(e.message); }
+}
+async function cajeroNuevo() {
+  try { await api("/api/fp/admin/cajeros", { companyId: S.cid, nombre: $("#cn").value, pin: $("#cp").value }); await cargar(); set({ tab: "cajeros" }); ok("Cajero creado"); } catch (e) { mal(e.message); }
+}
+async function cajeroActivo(id, activo) { try { await api("/api/fp/admin/cajeros", { companyId: S.cid, id, activo }); await cargar(); set({ tab: "cajeros" }); } catch (e) { mal(e.message); } }
+async function cajeroPin(id) {
+  const pin = prompt("Nuevo PIN de 6 dígitos"); if (!pin) return;
+  try { await api("/api/fp/admin/cajeros", { companyId: S.cid, id, pin }); ok("PIN cambiado"); } catch (e) { mal(e.message); }
+}
+async function sortear() {
+  if (!confirm("¿Sortear este mes? No se puede repetir.")) return;
+  try { const r = await api("/api/fp/admin/sorteo", { companyId: S.cid, mes: $("#mes").value }); await cargar(); set({ tab: "sorteo" }); ok("Ganador: " + r.ganador + " (de " + r.participantes + " participantes)"); } catch (e) { mal(e.message); }
+}
+async function entregado(id, v) { try { await api("/api/fp/admin/sorteo/entregado", { companyId: S.cid, id, entregado: v }); } catch (e) { mal(e.message); } }
+
+const pre = new URLSearchParams(location.search).get("companyId"); if (pre) S.cid = pre;
+cargar();
+</script>
+</body>
+</html>

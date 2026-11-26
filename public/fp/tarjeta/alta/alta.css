@@ -1,0 +1,298 @@
+/* ============================================================================
+   LA PUERTA DE ENTRADA — pantallas previas a la tarjeta
+   ============================================================================
+   Todo lo que pasa ANTES de que la persona vea el diseño: sacarla del navegador
+   de Instagram, enseñarle a instalar, y pedirle los avisos.
+
+   Vive aparte del diseño a propósito. `project/` es lo que sale de Claude Design
+   y se puede volver a exportar en cualquier momento; si estas pantallas
+   estuvieran ahí dentro, la próxima exportación se las llevaría por delante.
+
+   Los colores y las tipografías son los MISMOS del diseño, copiados a mano, para
+   que la costura entre esta capa y la tarjeta no se note.
+   ========================================================================== */
+
+.fp-alta {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: radial-gradient(140% 90% at 50% 6%, #e4e8fa 0%, #cfd6f2 55%, #bcc5ea 100%);
+  font-family: Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #565b8c;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow-y: auto;
+}
+.fp-alta[hidden] { display: none; }
+
+/* En computador no ocupa toda la ventana: se queda en una columna del ancho de
+   un teléfono, que es el único sitio donde esto tiene sentido. */
+.fp-lienzo {
+  width: 100%;
+  max-width: 402px;
+  min-height: 100%;
+  padding: calc(64px + env(safe-area-inset-top)) 34px calc(38px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 821px) {
+  .fp-alta { align-items: center; padding: 28px 0; }
+  .fp-lienzo {
+    min-height: 0;
+    height: 874px;
+    max-height: 100%;
+    border-radius: 34px;
+    background: radial-gradient(140% 90% at 50% 6%, #e4e8fa 0%, #cfd6f2 55%, #bcc5ea 100%);
+    box-shadow: 0 40px 80px rgba(0, 0, 0, .18), 0 0 0 1px rgba(0, 0, 0, .1);
+    padding-top: 64px;
+  }
+}
+
+/* ── Piezas ─────────────────────────────────────────────────────────────── */
+
+.fp-logo {
+  font-family: "Baloo 2", Outfit, sans-serif;
+  width: 72px;
+  height: 72px;
+  flex: none;
+  background: #00008b;
+  color: #f4f4ff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.05;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 80, .28);
+}
+.fp-logo span { padding-left: 2.5px; }
+
+.fp-titulo {
+  font-weight: 300;
+  font-size: 25px;
+  line-height: 1.22;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #14145e;
+  margin: 26px 0 0;
+  text-wrap: balance;
+}
+.fp-bajada {
+  font-size: 14.5px;
+  font-weight: 300;
+  line-height: 1.6;
+  color: #565b8c;
+  margin: 14px 0 0;
+  max-width: 30ch;
+  text-wrap: pretty;
+}
+.fp-eyebrow {
+  font-size: 11px;
+  letter-spacing: .32em;
+  text-transform: uppercase;
+  color: #6a6fa8;
+  margin: 8px 0 0;
+}
+
+.fp-abajo { margin-top: auto; padding-top: 32px; }
+
+.fp-boton {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 54px;
+  border: none;
+  border-radius: 999px;
+  background: #00008b;
+  color: #f4f4ff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 80, .7);
+  transition: transform .18s cubic-bezier(.2, .9, .3, 1), background-color .18s;
+}
+.fp-boton:hover { background: #000070; }
+.fp-boton:active { transform: scale(.985); }
+
+.fp-boton-2 {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  border: none;
+  background: transparent;
+  color: #565b8c;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.fp-boton-2:hover { color: #14145e; }
+
+.fp-menor {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 300;
+  color: rgba(86, 91, 140, .7);
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.fp-menor:hover { color: #14145e; }
+
+:where(.fp-alta) :focus-visible {
+  outline: 2px solid #00008b;
+  outline-offset: 3px;
+}
+
+/* ── Los pasos del tutorial ─────────────────────────────────────────────── */
+
+.fp-pasos {
+  list-style: none;
+  margin: 30px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.fp-paso {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.fp-paso-icono {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: rgba(0, 0, 139, .07);
+  border: 1px solid rgba(0, 0, 139, .13);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00008b;
+}
+.fp-paso-icono svg { display: block; }
+.fp-paso-texto { font-size: 14.5px; font-weight: 300; line-height: 1.45; color: #14145e; }
+.fp-paso-texto b { font-weight: 500; color: #14145e; }
+.fp-paso-orden {
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: #6a6fa8;
+  display: block;
+  margin-bottom: 3px;
+}
+
+/* El paso que la gente se salta: si se queda en Safari, cree que ya está y se
+   pierde los avisos, que solo existen en la app instalada. Se marca en granate
+   lleno para que se lea distinto a los tres anteriores. */
+.fp-paso-clave .fp-paso-icono {
+  background: #00008b;
+  border-color: #00008b;
+  color: #f4f4ff;
+  box-shadow: 0 10px 22px -10px rgba(0, 0, 80, .8);
+}
+.fp-paso-clave .fp-paso-texto { color: #14145e; }
+.fp-paso-clave .fp-paso-orden { color: #00008b; }
+
+/* ── La campana ─────────────────────────────────────────────────────────── */
+
+.fp-campana {
+  width: 108px;
+  height: 108px;
+  margin: 34px auto 0;
+  border-radius: 50%;
+  background: #00008b;
+  color: #f4f4ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 22px 44px -14px rgba(0, 0, 80, .62);
+  position: relative;
+}
+.fp-campana::after {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 139, .22), rgba(0, 0, 139, 0));
+  animation: fp-latido 2.8s ease-in-out infinite;
+}
+.fp-centrado { text-align: center; }
+.fp-centrado .fp-bajada { margin-left: auto; margin-right: auto; }
+
+.fp-lista {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  text-align: left;
+}
+.fp-lista li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: #565b8c;
+}
+.fp-lista svg { margin-top: 4px; color: #5aa9f5; }
+
+.fp-nota {
+  font-size: 11.5px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: rgba(86, 91, 140, .72);
+  margin: 14px 0 0;
+  text-align: center;
+}
+
+/* ── Animaciones ────────────────────────────────────────────────────────── */
+
+.fp-entra { animation: fp-sube .55s cubic-bezier(.22, 1, .36, 1) both; }
+.fp-entra-2 { animation: fp-sube .55s .07s cubic-bezier(.22, 1, .36, 1) both; }
+.fp-entra-3 { animation: fp-sube .55s .14s cubic-bezier(.22, 1, .36, 1) both; }
+
+@keyframes fp-sube {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fp-latido {
+  0%, 100% { opacity: .5; transform: scale(1); }
+  50%      { opacity: 1;  transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-entra, .fp-entra-2, .fp-entra-3 { animation: none; }
+  .fp-campana::after { animation: none; }
+  .fp-boton { transition: none; }
+}
