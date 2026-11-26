@@ -75,7 +75,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
     }
     return {
       socio: { nombre: m.nombre, saldo: m.saldo, canjes: m.canjes, codigo6: m.codigo6 },
-      meta: prog.meta, premio: prog.premio,
+      meta: prog.meta, premio: prog.premio, qrSeg: prog.qr_segundos,
       puedeSellar: faltanMin === 0, faltanMin,
       puedeCanjear: m.saldo >= prog.meta,
       cupon: cupon ? { id: cupon.id, estado: cupon.estado, descripcion: cupon.descripcion } : null,
@@ -115,7 +115,9 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const ya = lyUno(await lyRest(`loyalty_members?program_id=eq.${p.id}&or=(${filtros.join(",")})&select=id&limit=1`));
       if (ya) return res.status(409).json({ error: "Ya tienes una tarjeta con ese dato. Ábrela desde el teléfono donde la instalaste" });
 
-      const tarjeta = (p.tarjetas || []).some(t => t.id === b.tarjeta) ? b.tarjeta : null;
+      // Si el programa ya declaró sus diseños, solo vale uno de ellos; si no, un id simple.
+      const tarjeta = (p.tarjetas || []).length ? ((p.tarjetas.some(t => t.id === b.tarjeta)) ? b.tarjeta : null)
+                    : (/^[a-z0-9-]{1,20}$/.test(String(b.tarjeta || "")) ? b.tarjeta : null);
       let socio = null;
       for (let i = 0; i < 6 && !socio; i++) {
         try {
@@ -136,7 +138,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       if (p.bienvenida_activa) {
         await lyRest("loyalty_coupons", { method: "POST", body: JSON.stringify({ member_id: socio.id, tipo: "bienvenida", descripcion: p.bienvenida_texto || "Descuento de bienvenida" }) });
       }
-      res.json({ codigo: socio.codigo, clave: socio.qr_clave, codigo6: socio.codigo6 });
+      res.json({ codigo: socio.codigo, clave: socio.qr_clave, codigo6: socio.codigo6, qrSeg: p.qr_segundos, meta: p.meta });
     } catch (e) { console.error("fp alta:", e.message); res.status(500).json({ error: "No se pudo crear la tarjeta" }); }
   });
 
@@ -278,7 +280,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
       const num = (v, min, max, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
       const campos = {
         nombre: b.nombre, premio: b.premio,
-        meta: b.meta !== undefined ? num(b.meta, 1, 50, 8) : undefined,
+        meta: b.meta !== undefined ? num(b.meta, 3, 8, 8) : undefined,
         min_horas: b.min_horas !== undefined ? num(b.min_horas, 0, 168, 12) : undefined,
         qr_segundos: b.qr_segundos !== undefined ? num(b.qr_segundos, 30, 900, 120) : undefined,
         bienvenida_activa: typeof b.bienvenida_activa === "boolean" ? b.bienvenida_activa : undefined,

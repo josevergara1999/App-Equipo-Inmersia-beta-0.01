@@ -5622,7 +5622,20 @@ app.get("/unirse/:id",     (req, res) => { res.sendFile(path.join(__dirname, "pu
 app.get("/tarjeta/:codigo", (req, res) => { res.sendFile(path.join(__dirname, "public", "tarjeta.html")); });
 app.get("/brief/:token",   (req, res) => { res.sendFile(path.join(__dirname, "public", "brief.html")); });
 // Fidelización v2: la misma página sirve a todas las empresas, el slug de la dirección elige el programa.
-app.get("/t/:slug",     (req, res) => { res.sendFile(path.join(__dirname, "public", "fp", "tarjeta", "index.html")); });
+// La tarjeta vive en /fp/tarjeta/ (su service worker necesita ese alcance); /t/<empresa> es la dirección corta.
+app.get("/t/:slug", (req, res) => {
+  const slug = String(req.params.slug || "").replace(/[^a-z0-9-]/g, "").slice(0, 40);
+  res.redirect(302, `/fp/tarjeta/?p=${slug}`);
+});
+// Manifest por empresa: al instalarla, abre directo la tarjeta de esa empresa.
+app.get("/fp/tarjeta/manifest.webmanifest", (req, res) => {
+  const slug = String(req.query.p || "family-pets").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "family-pets";
+  res.type("application/manifest+json").json({
+    name: "Tarjeta Family Pet's", short_name: "Family Pet's", start_url: `/fp/tarjeta/?p=${slug}`, scope: "/fp/tarjeta/",
+    display: "standalone", orientation: "portrait", background_color: "#cfd6f2", theme_color: "#00008b",
+    icons: [{ src: "/fp/tarjeta/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" }, { src: "/fp/tarjeta/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }],
+  });
+});
 // Manifest por empresa: al instalar la caja, abre directo la de esa empresa.
 app.get("/caja/:slug/manifest.webmanifest", (req, res) => {
   const slug = String(req.params.slug || "").replace(/[^a-z0-9-]/g, "").slice(0, 40);
