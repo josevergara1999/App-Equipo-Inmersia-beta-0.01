@@ -74,6 +74,16 @@ input[type="date"]{color-scheme:light}
       <span style="font-size:10.5px;letter-spacing:2.2px;text-transform:uppercase;color:#6a6fa8">Fecha de nacimiento</span>
       <input type="date" value="{{ dob }}" onChange="{{ onDob }}" style="background:transparent;border:none;border-bottom:1px solid rgba(0,0,139,.3);padding:9px 2px;font-size:16px;font-family:Outfit,sans-serif;font-weight:400;color:#14145e;border-radius:0" style-focus="border-bottom-color:#00008b">
     </label>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:-6px">
+      <label style="display:flex;gap:10px;align-items:flex-start;font-size:12px;font-weight:300;line-height:1.45;color:#565b8c">
+        <input type="checkbox" checked="{{ consent }}" onChange="{{ onConsent }}" style="margin-top:2px;width:18px;height:18px;flex:none;accent-color:#00008b">
+        <span>Acepto la <a href="/fp/privacidad" target="_blank" rel="noopener" style="color:#00008b">política de privacidad</a> y el uso de mis datos para mi tarjeta de socio.</span>
+      </label>
+      <label style="display:flex;gap:10px;align-items:flex-start;font-size:12px;font-weight:300;line-height:1.45;color:#565b8c">
+        <input type="checkbox" checked="{{ sorteo }}" onChange="{{ onSorteo }}" style="margin-top:2px;width:18px;height:18px;flex:none;accent-color:#00008b">
+        <span>Quiero participar en el sorteo mensual (opcional).</span>
+      </label>
+    </div>
     <button onClick="{{ submit }}" style="{{ submitStyle }}">Crear mi tarjeta</button>
     <div style="font-size:11px;font-weight:300;color:rgba(86,91,140,.65);text-align:center;margin-top:-8px">Tus datos solo se usan para personalizar tu tarjeta.</div>
   </div>
@@ -289,7 +299,7 @@ class Component extends DCLogic {
     { id: 'beagle', name: 'Beagle', img: window.fpCardImg('4'), light: true, emblem: false },
     { id: 'pug', name: 'Pug', img: window.fpCardImg('3'), light: false, emblem: false },
   ];
-  state = Object.assign({ phase: 'intro', name: '', email: '', dob: '', sel: 1, dx: 0, dy: 0, dragging: false, mode: null, docking: false, pressed: false, dockCopy: null, dockAnim: false, flipped: false, stamps: 0, justStamped: -1, reward: false, tc: { x: 0, y: 0, on: false }, th: { x: 0, y: 0, on: false }, vdy: 0, vDragging: false, vPhase: null, vCopy: null, vAnim: null, qr: false, meta: 0, perk: '', code: '', welcome: '', sorteoTxt: '' }, this.saved());
+  state = Object.assign({ phase: 'intro', name: '', email: '', dob: '', consent: false, sorteo: false, sel: 1, dx: 0, dy: 0, dragging: false, mode: null, docking: false, pressed: false, dockCopy: null, dockAnim: false, flipped: false, stamps: 0, justStamped: -1, reward: false, tc: { x: 0, y: 0, on: false }, th: { x: 0, y: 0, on: false }, vdy: 0, vDragging: false, vPhase: null, vCopy: null, vAnim: null, qr: false, meta: 0, perk: '', code: '', welcome: '', sorteoTxt: '' }, this.saved());
   saved() {
     try {
       const s = JSON.parse(localStorage.getItem(this.KEY) || 'null');
@@ -527,7 +537,7 @@ class Component extends DCLogic {
     requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ dockAnim: 'in' })));
     // Mientras corre la animación se crea la tarjeta de verdad en el servidor.
     const s0 = this.state;
-    const reg = window.FP.cred() ? Promise.resolve() : window.FP.registrar({ nombre: s0.name, email: s0.email, tarjeta: this.cards[s0.sel].id });
+    const reg = window.FP.cred() ? Promise.resolve() : window.FP.registrar({ nombre: s0.name, email: s0.email, tarjeta: this.cards[s0.sel].id, acepta: !!s0.consent, sorteo: !!s0.sorteo });
     setTimeout(() => {
       reg.then(() => {
         const c = window.FP.cred();
@@ -690,6 +700,9 @@ class Component extends DCLogic {
       onName: e => this.setState({ name: e.target.value }),
       onEmail: e => this.setState({ email: e.target.value }),
       onDob: e => this.setState({ dob: e.target.value }),
+      consent: !!s.consent, sorteo: !!s.sorteo,
+      onConsent: e => this.setState({ consent: !!e.target.checked }),
+      onSorteo: e => this.setState({ sorteo: !!e.target.checked }),
       submit: () => { if (this.canSubmit()) this.go('select'); },
       submitStyle: {
         width: '100%', padding: 16, borderRadius: 999, border: 'none',
@@ -880,7 +893,7 @@ class Component extends DCLogic {
 
   canSubmit() {
     const s = this.state;
-    return s.name.trim().length >= 2 && /.+@.+\..+/.test(s.email) && !!s.dob;
+    return s.name.trim().length >= 2 && /.+@.+\..+/.test(s.email) && !!s.dob && !!s.consent;
   }
   addStamp() {
     const req = this.req(), s = this.state;
