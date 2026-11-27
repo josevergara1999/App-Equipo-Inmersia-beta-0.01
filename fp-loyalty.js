@@ -46,6 +46,8 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
   };
 
   const iguales = (a, b) => {
+    // Dos valores vacíos NO son "iguales": un socio sin clave (creado por la ruta antigua) entraba solo con su código.
+    if (!a || !b) return false;
     const x = Buffer.from(String(a || "")), y = Buffer.from(String(b || ""));
     return x.length === y.length && crypto.timingSafeEqual(x, y);
   };
@@ -58,7 +60,7 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
 
   function leerQR(texto, prog, socio) {
     const p = String(texto || "").trim().split(".");
-    if (p.length !== 4 || p[0] !== "FP1") return false;
+    if (p.length !== 4 || p[0] !== "FP1" || !socio.qr_clave) return false;
     const ahora = Math.floor(Date.now() / 1000 / (prog.qr_segundos || 120));
     const t = parseInt(p[2], 10);
     if (!Number.isFinite(t) || t > ahora + 1 || t < ahora - 1) return "vencido";
@@ -256,15 +258,18 @@ module.exports = function montarFidelizacionFP({ app, lyRest, lyUno, rateLimit, 
         console.warn("fp PIN bloqueado (demasiados fallos) programa=" + p.slug);
         return res.status(429).json({ error: "Demasiados intentos fallidos. Espera unos minutos" });
       }
+      // El intento se anota ANTES de verificar: si se anotara después, 300 peticiones en paralelo
+      // pasarían todas el control de arriba. Si el PIN es bueno, se retira (abajo).
+      const marca = Date.now();
+      const lf = fallosPin.get(p.id) || []; lf.push(marca); fallosPin.set(p.id, lf);
       const lista = await lyRest(`loyalty_cashiers?program_id=eq.${p.id}&activo=eq.true&select=id,nombre,program_id,pin_salt,pin_hash`);
       let c = null;
       for (const x of lista) { if (iguales(x.pin_hash, await hashPin(pin, x.pin_salt))) { c = x; break; } }
       if (!c) {
-        fallosPin.get(p.id).push(Date.now());
-        console.warn("fp PIN fallido programa=" + p.slug + " intentos=" + fallosPin.get(p.id).length);
+        console.warn("fp PIN fallido programa=" + p.slug + " intentos=" + (fallosPin.get(p.id) || []).length);
         return res.status(401).json({ error: "PIN incorrecto" });
       }
-      fallosPin.delete(p.id);
+      const resto = (fallosPin.get(p.id) || []); const i = resto.indexOf(marca); if (i >= 0) resto.splice(i, 1);
       emitirCaja(req, res, c);
       lyRest(`loyalty_cashiers?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ ultimo_login: new Date().toISOString() }) }).catch(() => {});
       res.json({ ok: true, cajero: c.nombre, programa: p.nombre });

@@ -404,7 +404,8 @@ function setAuthCookie(req, res, email, extra) {
   });
 }
 
-app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
+const hashPassA = async (pass, salt) => (await require("util").promisify(crypto.scrypt)(String(pass), salt, 64)).toString("hex");
+app.post("/api/auth/login", rateLimit(30, "login", { estricto: true }), async (req, res) => {
   try {
     const email = normUser(req.body?.email);
     const pass = String(req.body?.password || "");
@@ -415,7 +416,7 @@ app.post("/api/auth/login", rateLimit(30, "login"), async (req, res) => {
     const creds = await loadCreds();
     const c = creds[email];
     // Sin contraseña guardada todavía → vale la de fábrica, para no dejar a nadie fuera
-    const ok = c ? hashPass(pass, c.salt) === c.hash : pass === DEFAULT_PASS;
+    const ok = c ? (await hashPassA(pass, c.salt)) === c.hash : pass === DEFAULT_PASS;
     if (!ok) return res.status(401).json({ error: "Credenciales incorrectas" });
 
     // Un cliente al que le quitaron el acceso no entra, aunque la contraseña sea correcta.
@@ -1766,19 +1767,37 @@ function lyCodigo(n = 8) {
 }
 const lyUno = (d) => (Array.isArray(d) ? d[0] : d) || null;
 
+// ── Rutas ANTIGUAS de fidelización (v1) ─────────────────────────────────────
+// Las usa la página Fidelización de Inmersia. NO sirven para los programas de la v2 (los que
+// tienen `slug`, ver fp-loyalty.js): esos tienen cajero con PIN, 12 h entre sellos, consentimiento y
+// clave por socio, y estas rutas se saltan todo eso. Por eso:
+//  · las de gestión son SOLO del equipo (un usuario de portal de otra empresa no entra: aquí no se
+//    separa por empresa);
+//  · ninguna toca un programa con `slug`: responden como si no existiera.
+const soloEquipo = (req, res, next) => requireAuth(req, res, () => {
+  if (clienteDe(authInfo(req))) return res.status(403).json({ error: "Solo el equipo" });
+  next();
+});
+const lyEsFP = async (programId) => {
+  const p = lyUno(await lyRest(`loyalty_programs?id=eq.${encodeURIComponent(programId)}&select=slug&limit=1`));
+  return !!(p && p.slug);
+};
+const LY_NO_DISPONIBLE = { error: "Este programa no está disponible" };
+
 // ── Programas (equipo) ──────────────────────────────────────────────────────
-app.get("/api/loyalty/programs", requireAuth, async (req, res) => {
+app.get("/api/loyalty/programs", soloEquipo, async (req, res) => {
   try {
     const co = (req.query.companyId || "").trim();
     const filtro = co ? `company_id=eq.${encodeURIComponent(co)}&` : "";
-    res.json(await lyRest(`loyalty_programs?${filtro}order=created_at.desc`));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    res.json(await lyRest(`loyalty_programs?${filtro}slug=is.null&order=created_at.desc`));
+  } catch (e) { console.error("ly programs:", e.message); res.status(500).json({ error: "Error interno" }); }
 });
 
-app.post("/api/loyalty/programs", requireAuth, async (req, res) => {
+app.post("/api/loyalty/programs", soloEquipo, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.company_id || !b.nombre || !b.premio) return res.status(400).json({ error: "Faltan empresa, nombre o premio" });
+    if (b.id && await lyEsFP(b.id)) return res.status(403).json({ error: "Ese programa se administra desde Family Pet's (v2)" });
     const fila = {
       company_id: String(b.company_id),
       nombre: b.nombre,
@@ -1810,8 +1829,9 @@ app.post("/api/loyalty/programs", requireAuth, async (req, res) => {
 });
 
 // Socios de un programa, los que volvieron hace menos primero.
-app.get("/api/loyalty/programs/:id/socios", requireAuth, async (req, res) => {
+app.get("/api/loyalty/programs/:id/socios", soloEquipo, async (req, res) => {
   try {
+    if (await lyEsFP(req.params.id)) return res.status(404).json(LY_NO_DISPONIBLE);
     res.json(await lyRest(
       `loyalty_members?program_id=eq.${encodeURIComponent(req.params.id)}` +
       `&select=id,codigo,nombre,email,telefono,saldo,canjes,created_at,ultima_visita` +
@@ -1820,8 +1840,9 @@ app.get("/api/loyalty/programs/:id/socios", requireAuth, async (req, res) => {
 });
 
 // Últimos movimientos del programa — es lo que responde un "me faltó un sello".
-app.get("/api/loyalty/programs/:id/eventos", requireAuth, async (req, res) => {
+app.get("/api/loyalty/programs/:id/eventos", soloEquipo, async (req, res) => {
   try {
+    if (await lyEsFP(req.params.id)) return res.status(404).json(LY_NO_DISPONIBLE);
     const socios = await lyRest(`loyalty_members?program_id=eq.${encodeURIComponent(req.params.id)}&select=id,nombre,codigo`);
     if (!socios.length) return res.json([]);
     const evs = await lyRest(`loyalty_events?member_id=in.(${socios.map(s => s.id).join(",")})&order=created_at.desc&limit=200`);
@@ -1838,9 +1859,10 @@ app.get("/api/loyalty/program/:id", rateLimit(60, "ly-programa"), async (req, re
   try {
     const p = lyUno(await lyRest(
       `loyalty_programs?id=eq.${encodeURIComponent(req.params.id)}` +
-      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo` +
+      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo,slug` +
       `&limit=1`));
-    if (!p || !p.activo) return res.status(404).json({ error: "Este programa no está disponible" });
+    if (!p || !p.activo || p.slug) return res.status(404).json(LY_NO_DISPONIBLE);
+    delete p.slug;
     res.json(p);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1850,8 +1872,8 @@ app.post("/api/loyalty/join", rateLimit(20, "ly-alta"), async (req, res) => {
   try {
     const { programId, nombre, email, telefono } = req.body || {};
     if (!programId) return res.status(400).json({ error: "Falta el programa" });
-    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${encodeURIComponent(programId)}&select=id,activo&limit=1`));
-    if (!p || !p.activo) return res.status(404).json({ error: "Este programa no está disponible" });
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${encodeURIComponent(programId)}&select=id,activo,slug&limit=1`));
+    if (!p || !p.activo || p.slug) return res.status(404).json(LY_NO_DISPONIBLE);
 
     // Si ya se inscribió con el mismo correo, devolverle SU tarjeta en vez de crear otra: si no,
     // el que se inscribe dos veces pierde los sellos que ya tenía.
@@ -1879,8 +1901,10 @@ app.get("/api/loyalty/card/:codigo", rateLimit(60, "ly-tarjeta"), async (req, re
     if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
     const p = lyUno(await lyRest(
       `loyalty_programs?id=eq.${m.program_id}` +
-      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo` +
+      `&select=id,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text,strip_url,strip_estilo,slug` +
       `&limit=1`));
+    if (!p || p.slug) return res.status(404).json({ error: "Tarjeta no encontrada" });
+    delete p.slug;
     res.json({
       socio: { codigo: m.codigo, nombre: m.nombre, saldo: m.saldo, canjes: m.canjes, ultima_visita: m.ultima_visita },
       programa: p,
@@ -1891,7 +1915,7 @@ app.get("/api/loyalty/card/:codigo", rateLimit(60, "ly-tarjeta"), async (req, re
 // ── Sumar un sello (equipo) ─────────────────────────────────────────────────
 // `idemKey` es una clave única por lectura que manda el escáner. Sin ella, un doble toque o un
 // reintento de red le regala dos sellos al cliente. Con cola en el mesón esto pasa, no es teórico.
-app.post("/api/loyalty/scan", requireAuth, async (req, res) => {
+app.post("/api/loyalty/scan", soloEquipo, async (req, res) => {
   try {
     const { codigo, idemKey, localId, operador, cantidad } = req.body || {};
     if (!codigo) return res.status(400).json({ error: "Falta el código" });
@@ -1903,7 +1927,8 @@ app.post("/api/loyalty/scan", requireAuth, async (req, res) => {
 
     const m = lyUno(await lyRest(`loyalty_members?codigo=eq.${encodeURIComponent(codigo)}&select=*&limit=1`));
     if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
-    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio,nombre,activo&limit=1`));
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio,nombre,activo,slug&limit=1`));
+    if (p && p.slug) return res.status(404).json({ error: "Tarjeta no encontrada" });
     if (!p || !p.activo) return res.status(400).json({ error: "El programa está pausado" });
 
     const suma = Math.max(1, parseInt(cantidad, 10) || 1);
@@ -1935,7 +1960,7 @@ app.post("/api/loyalty/scan", requireAuth, async (req, res) => {
 // Gemini. Se prueban en orden por si el primero cambia de nombre otra vez.
 const LY_MODELOS_IMG = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
 
-app.post("/api/loyalty/strip-ia", requireAuth, async (req, res) => {
+app.post("/api/loyalty/strip-ia", soloEquipo, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(400).json({ error: "Falta GEMINI_API_KEY en el servidor" });
@@ -1982,7 +2007,7 @@ app.post("/api/loyalty/strip-ia", requireAuth, async (req, res) => {
 });
 
 // ── Canjear el premio (equipo) ──────────────────────────────────────────────
-app.post("/api/loyalty/redeem", requireAuth, async (req, res) => {
+app.post("/api/loyalty/redeem", soloEquipo, async (req, res) => {
   try {
     const { codigo, idemKey, localId, operador } = req.body || {};
     if (!codigo) return res.status(400).json({ error: "Falta el código" });
@@ -1994,7 +2019,8 @@ app.post("/api/loyalty/redeem", requireAuth, async (req, res) => {
 
     const m = lyUno(await lyRest(`loyalty_members?codigo=eq.${encodeURIComponent(codigo)}&select=*&limit=1`));
     if (!m) return res.status(404).json({ error: "Tarjeta no encontrada" });
-    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio&limit=1`));
+    const p = lyUno(await lyRest(`loyalty_programs?id=eq.${m.program_id}&select=meta,premio,slug&limit=1`));
+    if (!p || p.slug) return res.status(404).json({ error: "Tarjeta no encontrada" });
     if ((m.saldo || 0) < p.meta) return res.status(400).json({ error: `Le faltan ${p.meta - (m.saldo || 0)} para el premio` });
 
     const saldo = m.saldo - p.meta;
