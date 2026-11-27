@@ -539,6 +539,10 @@ const API={
     const r=await fetch("/api/loyalty/programs/"+programId+"/socios",{credentials:"same-origin"});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudieron cargar los socios");return d;
   },
+  async lyBorrarSocios(programId,body){
+    const r=await fetch("/api/loyalty/programs/"+programId+"/socios",{method:"DELETE",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudo borrar");return d;
+  },
   async lyEventos(programId){
     const r=await fetch("/api/loyalty/programs/"+programId+"/eventos",{credentials:"same-origin"});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"No se pudieron cargar los movimientos");return d;
@@ -7328,6 +7332,26 @@ function LyStrip({estilo,url}){
 // Reproduce el layout REAL de un storeCard de Apple, que es fijo: logo y nombre arriba, strip,
 // campos, código. No se puede mover nada de sitio — por eso el preview vale: lo que se ve acá
 // es lo que Wallet va a dibujar, sin sorpresas al firmar el .pkpass.
+// La tarjeta REAL de la app Family Pet's (no un pase de Wallet). Son las 4 que elige el cliente;
+// aquí se ven en miniatura y se cambia de una a otra con los puntos de abajo.
+function LyTarjetaReal({inicial=0,ancho=292}){
+  const[i,sI]=useState(inicial);
+  return(
+    <div style={{width:ancho,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+      <img src={"/fp-cards/card-"+(i+1)+".jpg"} alt={"Tarjeta "+(i+1)}
+        style={{width:ancho,aspectRatio:"250/408",objectFit:"cover",borderRadius:16,display:"block",
+          boxShadow:"0 22px 48px rgba(var(--rgb-sombra),.62)",border:"1px solid rgba(var(--rgb-luz),.09)"}}/>
+      <div style={{display:"flex",gap:8}}>
+        {[0,1,2,3].map(k=>(
+          <button key={k} onClick={e=>{e.stopPropagation();sI(k);}} aria-label={"Ver tarjeta "+(k+1)}
+            style={{width:9,height:9,borderRadius:"50%",padding:0,cursor:"pointer",border:"1px solid "+PC.tx4,
+              background:k===i?PC.tx:"transparent"}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LyPasePreview({p,saldo=3,codigo="BUVXN73C"}){
   const meta=Math.max(1,parseInt(p.meta,10)||10);
   const bg=lyColor(p.color_fondo,PC.bg), fg=lyColor(p.color_texto,"#FFFFFF"), lb=lyColor(p.color_etiqueta,PC.tx3);
@@ -7578,11 +7602,10 @@ function LyDisenador({edit,sEdit,onGuardar,onCerrar,addN}){
       </div>
 
       <div style={{position:"sticky",top:0}}>
-        <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:12,textAlign:"center"}}>Así se verá en Wallet</div>
-        <div style={{display:"flex",justifyContent:"center"}}><LyPasePreview p={edit} saldo={3}/></div>
+        <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:12,textAlign:"center"}}>Así la ven tus clientes</div>
+        <div style={{display:"flex",justifyContent:"center"}}><LyTarjetaReal/></div>
         <div style={{fontSize:11,color:PC.tx4,marginTop:14,lineHeight:1.55}}>
-          El layout es el de un <b>storeCard</b> de Apple y no se puede reordenar: logo y marca arriba,
-          banda, campos, código. Lo que se diseña son los colores, el logo y la banda.
+          Es la tarjeta real de la app. Cada cliente elige una de las cuatro.
         </div>
       </div>
     </div>
@@ -7741,6 +7764,24 @@ function LyEscaner({modo:modoInicial,cu,programa,onCerrar,onHecho}){
 const LY_NUEVA={nombre:"",tipo:"sellos",meta:10,premio:"",color_fondo:PC.bg,color_texto:"#FFFFFF",
   color_etiqueta:PC.tx3,strip_estilo:{preset:"degradado",c1:PC.line,c2:PC.cian}};
 
+function LyAccesosFP(){
+  const base="https://josevergara1999.github.io/tarjeta-family-pets/";
+  return(<div style={{...D_CARD,padding:"14px 16px",marginBottom:14}}>
+    <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:10}}>Accesos de Family Pets</div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {[["Admin","Socios, cajeros y programa",base+"admin/"],
+        ["Caja","Escanear y sellar en el mesón",base+"caja/"],
+        ["Tarjeta (demo)","Ver la app como cliente",base+"?demo=1"]].map(([t,d,u])=>(
+        <a key={t} href={u} target="_blank" rel="noopener noreferrer"
+          style={{flex:"1 1 150px",textDecoration:"none",color:PC.tx,border:"1px solid "+PC.line2,borderRadius:12,padding:"11px 14px",display:"block"}}>
+          <div style={{fontSize:13.5,fontWeight:600}}>{t} ↗</div>
+          <div style={{fontSize:11.5,color:PC.tx3,marginTop:3}}>{d}</div>
+        </a>
+      ))}
+    </div>
+  </div>);
+}
+
 function FidelizacionPg({cos,cu,addN}){
   const[coId,sCoId]=useState("");
   const[progs,sProgs]=useState([]);
@@ -7776,6 +7817,10 @@ function FidelizacionPg({cos,cu,addN}){
     }catch(e){sErr(e.message);}
   };
   const refrescar=async()=>{ if(sel)await abrir(sel); };
+  const borrarSocios=async(body,msg)=>{
+    if(!confirm(msg))return;
+    try{await API.lyBorrarSocios(sel.id,body);await abrir(sel);}catch(e){sErr(e.message);}
+  };
 
   const guardar=async(p)=>{
     try{
@@ -7849,6 +7894,7 @@ function FidelizacionPg({cos,cu,addN}){
       <div style={{fontSize:14,color:PC.tx3,marginTop:10}}>Elige una empresa para ver o crear su tarjeta.</div>
     </div>}
 
+    {coId&&!sel&&/fam(ily)?\s*pet/i.test(empresa?.name||"")&&<LyAccesosFP/>}
     {coId&&!sel&&<div style={{display:"grid",gap:14,gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))"}}>
       {cargando&&<div style={{fontSize:13,color:PC.tx3}}>Cargando…</div>}
       {!cargando&&!progs.length&&<div style={{...D_CARD,gridColumn:"1/-1",textAlign:"center",padding:"36px 22px"}}>
@@ -7858,7 +7904,7 @@ function FidelizacionPg({cos,cu,addN}){
       {progs.map(p=>(
         <div key={p.id} style={{...D_CARD,padding:16}}>
           <div style={{display:"flex",justifyContent:"center",marginBottom:14,transform:"scale(.86)",transformOrigin:"top center"}}>
-            <LyPasePreview p={p} saldo={Math.round((p.meta||10)*0.3)}/>
+            <LyTarjetaReal/>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:-24}}>
             <div style={{minWidth:0}}>
@@ -7916,7 +7962,7 @@ function FidelizacionPg({cos,cu,addN}){
           onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";}}
           onMouseLeave={e=>{e.currentTarget.style.transform="none";}}
           style={{cursor:"pointer",borderRadius:16,transition:"transform .18s ease"}}>
-          <LyPasePreview p={sel} saldo={Math.round((sel.meta||10)*0.3)}/>
+          <LyTarjetaReal/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:12,color:PC.tx4}}>
           <Ic n="edit" s={13}/><span>Toca la tarjeta para cambiar su diseño</span>
@@ -7962,6 +8008,7 @@ function FidelizacionPg({cos,cu,addN}){
 
       <div>
         <div>
+          {/fam(ily)?\s*pet/i.test(sel.nombre||"")&&<LyAccesosFP/>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             {[["Socios",stats?.socios],["Activos 30 d",stats?.activos],["Sellos dados",stats?.sellos],["Premios",stats?.canjes]].map(([l,v])=>(
               <div key={l} style={{...D_CARD,padding:"14px 16px",flex:"1 1 120px"}}>
@@ -7987,8 +8034,12 @@ function FidelizacionPg({cos,cu,addN}){
                 </div>
                 <Bg color={s.saldo>=sel.meta?PC.cian:PC.tx3}>{s.saldo}/{sel.meta}</Bg>
                 <button onClick={()=>sQrDe(s)} style={{background:"transparent",color:PC.tx3,padding:6,borderRadius:8,display:"flex"}} title="Ver su tarjeta"><Ic n="loyalty" s={17}/></button>
+                <button onClick={()=>borrarSocios({ids:[s.id]},"¿Eliminar a "+(s.nombre||s.codigo)+"? Se borran también sus sellos y movimientos.")} style={{background:"transparent",color:PC.tx3,padding:6,borderRadius:8,display:"flex"}} title="Eliminar socio"><Ic n="trash" s={16}/></button>
               </div>
             ))}
+            {socios.length>0&&<div style={{padding:"10px 18px",borderTop:"1px solid "+PC.line,textAlign:"right"}}>
+              <button onClick={()=>borrarSocios({all:true},"¿Eliminar a TODOS los socios ("+socios.length+") de este programa? No se puede deshacer.")} style={{background:"transparent",color:"#FF8B8B",fontSize:12.5,padding:"6px 10px",borderRadius:8}}>Eliminar todos los socios</button>
+            </div>}
           </div>}
 
           {tab==="movimientos"&&<div style={{...D_CARD,padding:0,overflow:"hidden"}}>

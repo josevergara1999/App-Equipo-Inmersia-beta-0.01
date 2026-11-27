@@ -1819,6 +1819,19 @@ app.get("/api/loyalty/programs/:id/socios", requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Borrar socios (pruebas). Sellos, canjes y dispositivos caen por cascada. Con `all` vacía el
+// programa entero. Siempre se acota por program_id: nunca se borra un socio suelto sin programa.
+app.delete("/api/loyalty/programs/:id/socios", requireAuth, async (req, res) => {
+  try {
+    const pid = encodeURIComponent(req.params.id);
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(x => /^[0-9a-f-]{36}$/i.test(x)) : [];
+    if (!req.body?.all && !ids.length) return res.status(400).json({ error: "Indica qué socios borrar" });
+    const filtro = req.body?.all ? "" : `&id=in.(${ids.join(",")})`;
+    const d = await lyRest(`loyalty_members?program_id=eq.${pid}${filtro}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    res.json({ borrados: Array.isArray(d) ? d.length : 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Últimos movimientos del programa — es lo que responde un "me faltó un sello".
 app.get("/api/loyalty/programs/:id/eventos", requireAuth, async (req, res) => {
   try {

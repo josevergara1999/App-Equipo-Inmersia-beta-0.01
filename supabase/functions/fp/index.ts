@@ -177,11 +177,7 @@ app.post("/api/fp/:slug/alta", rateLimit(15, "fp-alta"), async (req: any, res: a
     if (!nombre) return res.status(400).json({ error: "Escribe tu nombre" });
     if (telefono.length < 8 && !email.includes("@")) return res.status(400).json({ error: "Escribe un teléfono o un correo" });
 
-    const filtros: string[] = [];
-    if (telefono.length >= 8) filtros.push(`telefono.eq.${enc(telefono)}`);
-    if (email.includes("@")) filtros.push(`email.eq.${enc(email)}`);
-    const ya = lyUno(await lyRest(`loyalty_members?program_id=eq.${p.id}&or=(${filtros.join(",")})&select=id&limit=1`));
-    if (ya) return res.status(409).json({ error: "Ya tienes una tarjeta con ese dato. Ábrela desde el teléfono donde la instalaste" });
+    // Pruebas: se permite registrar el mismo correo/teléfono más de una vez (sin aviso de "ya tienes una tarjeta").
 
     const tarjeta = (p.tarjetas || []).length ? ((p.tarjetas.some((t: any) => t.id === b.tarjeta)) ? b.tarjeta : null)
                   : (/^[a-z0-9-]{1,20}$/.test(String(b.tarjeta || "")) ? b.tarjeta : null);
