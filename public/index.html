@@ -7764,6 +7764,15 @@ function LyEscaner({modo:modoInicial,cu,programa,onCerrar,onHecho}){
 const LY_NUEVA={nombre:"",tipo:"sellos",meta:10,premio:"",color_fondo:PC.bg,color_texto:"#FFFFFF",
   color_etiqueta:PC.tx3,strip_estilo:{preset:"degradado",c1:PC.line,c2:PC.cian}};
 
+// Desde la app instalada, target=_blank abre dentro de la propia app y ahí no deja instalar.
+// En Android se fuerza Chrome con un intent; en iPhone no hay forma de salir de la app instalada.
+function abrirEnNavegador(e,u){
+  if(/Android/i.test(navigator.userAgent)&&enPantallaInicio()){
+    e.preventDefault();
+    const x=new URL(u);
+    window.location.href="intent://"+x.host+x.pathname+x.search+"#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url="+encodeURIComponent(u)+";end";
+  }
+}
 function LyAccesosFP(){
   const base="https://josevergara1999.github.io/tarjeta-family-pets/";
   return(<div style={{...D_CARD,padding:"14px 16px",marginBottom:14}}>
@@ -7772,7 +7781,7 @@ function LyAccesosFP(){
       {[["Admin","Socios, cajeros y programa",base+"admin/"],
         ["Caja","Escanear y sellar en el mesón",base+"caja/"],
         ["Tarjeta (demo)","Ver la app como cliente",base+"?demo=1"]].map(([t,d,u])=>(
-        <a key={t} href={u} target="_blank" rel="noopener noreferrer"
+        <a key={t} href={u} target="_blank" rel="noopener noreferrer" onClick={e=>abrirEnNavegador(e,u)}
           style={{flex:"1 1 150px",textDecoration:"none",color:PC.tx,border:"1px solid "+PC.line2,borderRadius:12,padding:"11px 14px",display:"block"}}>
           <div style={{fontSize:13.5,fontWeight:600}}>{t} ↗</div>
           <div style={{fontSize:11.5,color:PC.tx3,marginTop:3}}>{d}</div>
