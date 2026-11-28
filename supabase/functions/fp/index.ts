@@ -12,6 +12,7 @@
 // ============================================================================
 import crypto from "node:crypto";
 import { Buffer } from "node:buffer";
+import webpush from "npm:web-push@3.6.7";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -432,6 +433,13 @@ app.get("/api/fp/admin/resumen", adminAuth, async (req: any, res: any) => {
     const nom = Object.fromEntries(socios.map((s: any) => [s.id, s.nombre || s.codigo6]));
     const cajeros = await lyRest(`loyalty_cashiers?program_id=eq.${p.id}&select=id,nombre,activo,created_at,ultimo_login,ultimo_dispositivo&order=created_at`);
     const cn = Object.fromEntries(cajeros.map((c: any) => [c.id, c.nombre]));
+    const evd = await lyRest(`loyalty_events?dispositivo=not.is.null&select=tipo,dispositivo,created_at,cashier_id,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&order=created_at.desc&limit=20000`);
+    const porDisp: any = {};
+    for (const e of evd) {
+      const d = porDisp[e.dispositivo] || (porDisp[e.dispositivo] = { dispositivo: e.dispositivo, total: 0, tipos: {}, ultimo: e.created_at, cajeros: new Set() });
+      d.total++; d.tipos[e.tipo] = (d.tipos[e.tipo] || 0) + 1; if (cn[e.cashier_id]) d.cajeros.add(cn[e.cashier_id]);
+    }
+    const dispositivos = Object.values(porDisp).map((d: any) => ({ ...d, cajeros: [...d.cajeros] })).sort((a: any, b: any) => b.total - a.total);
     const sorteos = await lyRest(`loyalty_draws?program_id=eq.${p.id}&select=id,mes,member_id,premio,participantes,entregado,created_at&order=mes.desc`);
     res.json({
       programa: p,
@@ -444,7 +452,7 @@ app.get("/api/fp/admin/resumen", adminAuth, async (req: any, res: any) => {
       },
       socios,
       eventos: evs.slice(0, 150).map((e: any) => { const { loyalty_members: _x, ...r } = e; return { ...r, socio: nom[e.member_id], cajero: cn[e.cashier_id] || null }; }),
-      cajeros,
+      cajeros, dispositivos,
       sorteos: sorteos.map((s: any) => ({ ...s, ganador: nom[s.member_id] || "-", telefono: socios.find((x: any) => x.id === s.member_id)?.telefono || null })),
     });
   } catch (e) { fallo(res, e, "resumen"); }
@@ -527,6 +535,231 @@ app.post("/api/fp/admin/sorteo/entregado", adminAuth, async (req: any, res: any)
     await lyRest(`loyalty_draws?id=eq.${id}&program_id=eq.${req.p.id}`, { method: "PATCH", body: JSON.stringify({ entregado: !!req.body?.entregado }) });
     res.json({ ok: true });
   } catch (e) { fallo(res, e, "entregado"); }
+});
+
+// ===========================================================================
+// AVISOS (notificaciones push)
+// ===========================================================================
+const VAPID_PUB = Deno.env.get("VAPID_PUBLIC") || "";
+const VAPID_PRV = Deno.env.get("VAPID_PRIVATE") || "";
+const CRON_KEY = Deno.env.get("FP_CRON") || "";
+if (VAPID_PUB && VAPID_PRV) webpush.setVapidDetails("mailto:avisos@familypets.cl", VAPID_PUB, VAPID_PRV);
+
+const AUTO_DEF: any = {
+  cumple:    { activo: true,  hora: "09:00", titulo: "¡Feliz cumpleaños, {nombre}!", cuerpo: "Hoy tienes un regalo: {beneficio}" },
+  falta1:    { activo: true,  titulo: "Te falta 1 sello", cuerpo: "{nombre}, con tu próxima visita completas tu tarjeta y ganas {premio}." },
+  premio:    { activo: true,  titulo: "Tu premio está listo", cuerpo: "{nombre}, ya puedes canjear {premio} en tu próxima visita." },
+  bienvenida:{ activo: false, hora: "18:30", dias: 7, titulo: "Tu descuento de bienvenida te espera", cuerpo: "{nombre}, aún no usas tu descuento. Pasa a buscarlo." },
+  inactivo:  { activo: false, hora: "18:30", dias: 30, titulo: "Te echamos de menos", cuerpo: "{nombre}, te esperamos con tu regalón." },
+  gracias:   { activo: false, titulo: "¡Gracias por tu visita!", cuerpo: "{nombre}, gracias por elegirnos." },
+};
+const autoDe = (p: any) => {
+  const g = p.avisos_auto || {}; const o: any = {};
+  for (const k of Object.keys(AUTO_DEF)) o[k] = { ...AUTO_DEF[k], ...(g[k] || {}) };
+  return o;
+};
+const hoyChile = () => {
+  const d = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Santiago" }));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { fecha: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, anio: d.getFullYear(), mmdd: `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, hhmm: `${pad(d.getHours())}:${pad(d.getMinutes())}`, dow: d.getDay() };
+};
+const rellenar = (t: string, m: any, p: any) =>
+  String(t || "").replace(/\{nombre\}/g, (m?.nombre || "").split(" ")[0] || "amigo/a").replace(/\{premio\}/g, p?.premio || "tu premio").replace(/\{beneficio\}/g, p?.cumple_texto || "tu beneficio de cumpleaños");
+
+// Envía a una lista de suscripciones; devuelve {ok, mal}. Borra las que el navegador ya dio de baja.
+async function enviarPush(subs: any[], armar: (s: any) => any) {
+  let ok = 0, mal = 0;
+  if (!VAPID_PUB || !VAPID_PRV) return { ok, mal: subs.length };
+  for (let i = 0; i < subs.length; i += 15) {
+    await Promise.all(subs.slice(i, i + 15).map(async (s) => {
+      try {
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(armar(s)), { TTL: 6 * 3600 });
+        ok++;
+      } catch (e: any) {
+        mal++;
+        if (e?.statusCode === 404 || e?.statusCode === 410) lyRest(`fp_push_subs?id=eq.${s.id}`, { method: "DELETE" }).catch(() => {});
+      }
+    }));
+  }
+  return { ok, mal };
+}
+const subsDe = (progId: string) => lyRest(`fp_push_subs?program_id=eq.${progId}&select=id,member_id,endpoint,p256dh,auth,loyalty_members(nombre,saldo,canjes,nacimiento)&limit=5000`);
+
+// ── Cliente ─────────────────────────────────────────────────────────────────
+app.get("/api/fp/:slug/push/clave", rateLimit(60, "fp-pushk"), (_req: any, res: any) => res.json({ clave: VAPID_PUB }));
+app.post("/api/fp/:slug/push/suscribir", rateLimit(20, "fp-push"), async (req: any, res: any) => {
+  try {
+    const p = await progPorSlug(req.params.slug);
+    if (!p) return res.status(404).json({ error: "Programa no disponible" });
+    const { codigo, clave, sub } = req.body || {};
+    const m = lyUno(await lyRest(`loyalty_members?program_id=eq.${p.id}&codigo=eq.${enc(String(codigo || ""))}&select=id,qr_clave&limit=1`));
+    if (!m || !iguales(m.qr_clave, clave)) return res.status(401).json({ error: "Tarjeta no válida en este teléfono" });
+    const ep = String(sub?.endpoint || ""), k = sub?.keys || {};
+    if (!/^https:\/\/[^\s]{10,500}$/.test(ep) || !k.p256dh || !k.auth || String(k.p256dh).length > 200 || String(k.auth).length > 100) return res.status(400).json({ error: "Suscripción no válida" });
+    await lyRest("fp_push_subs?on_conflict=endpoint", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ program_id: p.id, member_id: m.id, endpoint: ep, p256dh: String(k.p256dh), auth: String(k.auth), ua: String(req.headers["user-agent"] || "").slice(0, 160) }) });
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "push suscribir"); }
+});
+app.post("/api/fp/:slug/push/baja", rateLimit(20, "fp-push"), async (req: any, res: any) => {
+  try {
+    const p = await progPorSlug(req.params.slug);
+    if (!p) return res.status(404).json({ error: "Programa no disponible" });
+    const { codigo, clave, endpoint } = req.body || {};
+    const m = lyUno(await lyRest(`loyalty_members?program_id=eq.${p.id}&codigo=eq.${enc(String(codigo || ""))}&select=id,qr_clave&limit=1`));
+    if (!m || !iguales(m.qr_clave, clave)) return res.status(401).json({ error: "Tarjeta no válida" });
+    await lyRest(`fp_push_subs?member_id=eq.${m.id}&endpoint=eq.${enc(String(endpoint || ""))}`, { method: "DELETE" });
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "push baja"); }
+});
+
+// ── Admin ───────────────────────────────────────────────────────────────────
+app.get("/api/fp/admin/avisos", adminAuth, async (req: any, res: any) => {
+  try {
+    const p = req.p;
+    const avisos = await lyRest(`fp_avisos?program_id=eq.${p.id}&select=*&order=created_at.desc&limit=100`);
+    const envios = await lyRest(`fp_envios?program_id=eq.${p.id}&select=*&order=created_at.desc&limit=40`);
+    const subs = await lyRest(`fp_push_subs?program_id=eq.${p.id}&select=member_id&limit=5000`);
+    res.json({ avisos, envios, auto: autoDe(p), tope: p.aviso_tope_sem ?? 3, suscritos: new Set(subs.map((s: any) => s.member_id)).size, configurado: !!(VAPID_PUB && VAPID_PRV) });
+  } catch (e) { fallo(res, e, "avisos"); }
+});
+const textoAviso = (b: any) => ({ titulo: limpio(b?.titulo, 60), cuerpo: limpio(b?.cuerpo, 180) });
+app.post("/api/fp/admin/avisos/enviar", rateLimit(10, "fp-avisoenv"), adminAuth, async (req: any, res: any) => {
+  try {
+    const { titulo, cuerpo } = textoAviso(req.body);
+    if (!titulo || !cuerpo) return res.status(400).json({ error: "Escribe el título y el mensaje" });
+    const subs = await subsDe(req.p.id);
+    const r = await enviarPush(subs, (s: any) => ({ title: rellenar(titulo, s.loyalty_members, req.p), body: rellenar(cuerpo, s.loyalty_members, req.p), url: "./", tag: "fp-manual" }));
+    await lyRest("fp_envios", { method: "POST", body: JSON.stringify({ program_id: req.p.id, origen: "Manual", titulo, cuerpo, enviados: r.ok, fallidos: r.mal }) });
+    res.json({ ok: true, enviados: r.ok, fallidos: r.mal });
+  } catch (e) { fallo(res, e, "avisos enviar"); }
+});
+app.post("/api/fp/admin/avisos/guardar", adminAuth, async (req: any, res: any) => {
+  try {
+    const b = req.body || {}; const { titulo, cuerpo } = textoAviso(b);
+    if (!titulo || !cuerpo) return res.status(400).json({ error: "Escribe el título y el mensaje" });
+    const hora = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.hora)) ? b.hora : "18:30";
+    const tipo = b.tipo === "repetido" ? "repetido" : "unico";
+    const dias = Array.isArray(b.dias) ? [...new Set(b.dias.map((d: any) => parseInt(d, 10)).filter((d: number) => d >= 0 && d <= 6))] : [];
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(b.fecha || "")) ? b.fecha : null;
+    if (tipo === "repetido" && !dias.length) return res.status(400).json({ error: "Elige al menos un día" });
+    if (tipo === "unico" && !fecha) return res.status(400).json({ error: "Elige la fecha" });
+    const fila = { titulo, cuerpo, tipo, hora, dias: tipo === "repetido" ? dias : [], fecha: tipo === "unico" ? fecha : null, activo: b.activo !== false };
+    if (b.id) {
+      if (!UUID.test(String(b.id))) return res.status(400).json({ error: "Aviso no válido" });
+      await lyRest(`fp_avisos?id=eq.${b.id}&program_id=eq.${req.p.id}`, { method: "PATCH", body: JSON.stringify({ ...fila, ultimo_envio: null }) });
+    } else {
+      await lyRest("fp_avisos", { method: "POST", body: JSON.stringify({ ...fila, program_id: req.p.id }) });
+    }
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "avisos guardar"); }
+});
+app.post("/api/fp/admin/avisos/borrar", adminAuth, async (req: any, res: any) => {
+  try {
+    if (!UUID.test(String(req.body?.id || ""))) return res.status(400).json({ error: "Aviso no válido" });
+    await lyRest(`fp_avisos?id=eq.${req.body.id}&program_id=eq.${req.p.id}`, { method: "DELETE" });
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "avisos borrar"); }
+});
+app.post("/api/fp/admin/avisos/auto", adminAuth, async (req: any, res: any) => {
+  try {
+    const b = req.body?.auto || {}; const sal: any = {};
+    for (const k of Object.keys(AUTO_DEF)) {
+      const x = b[k] || {};
+      sal[k] = { activo: !!x.activo, titulo: limpio(x.titulo, 60) || AUTO_DEF[k].titulo, cuerpo: limpio(x.cuerpo, 180) || AUTO_DEF[k].cuerpo };
+      if (AUTO_DEF[k].hora) sal[k].hora = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(x.hora)) ? x.hora : AUTO_DEF[k].hora;
+      if (AUTO_DEF[k].dias) sal[k].dias = Math.min(180, Math.max(1, parseInt(x.dias, 10) || AUTO_DEF[k].dias));
+    }
+    const tope = Math.min(14, Math.max(1, parseInt(req.body?.tope, 10) || 3));
+    await lyRest(`loyalty_programs?id=eq.${req.p.id}`, { method: "PATCH", body: JSON.stringify({ avisos_auto: sal, aviso_tope_sem: tope }) });
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "avisos auto"); }
+});
+
+// ── Disparador (lo llama pg_cron cada minuto) ───────────────────────────────
+// Cada aviso automático se anota en fp_aviso_log con una clave única por socio y periodo:
+// así nunca se repite, aunque el disparador corra dos veces. El tope semanal no aplica a cumpleaños.
+async function mandarAuto(p: any, clave: string, cfg: any, m: any, subs: any[], topeDesde: string, sinTope = false) {
+  try { await lyRest("fp_aviso_log", { method: "POST", body: JSON.stringify({ member_id: m.id, clave }) }); } catch { return 0; }
+  if (!sinTope) {
+    const usados = await lyRest(`fp_aviso_log?member_id=eq.${m.id}&created_at=gte.${topeDesde}&select=id&limit=50`);
+    if (usados.length > (p.aviso_tope_sem ?? 3)) return 0;
+  }
+  const r = await enviarPush(subs, () => ({ title: rellenar(cfg.titulo, m, p), body: rellenar(cfg.cuerpo, m, p), url: "./", tag: "fp-" + clave.split(":")[0] }));
+  return r.ok;
+}
+app.post("/api/fp/cron", async (req: any, res: any) => {
+  try {
+    if (!CRON_KEY || !iguales(String(req.headers["x-cron"] || ""), CRON_KEY)) return res.status(401).json({ error: "No autorizado" });
+    const t = hoyChile();
+    const resumen: any = {};
+    const progs = await lyRest("loyalty_programs?activo=eq.true&select=*");
+    for (const p of progs) {
+      const subsAll = await subsDe(p.id);
+      if (!subsAll.length) continue;
+      const porMiembro = new Map<string, any[]>();
+      for (const s of subsAll) { if (!porMiembro.has(s.member_id)) porMiembro.set(s.member_id, []); porMiembro.get(s.member_id)!.push(s); }
+      const topeDesde = new Date(Date.now() - 7 * 86400000).toISOString();
+      const auto = autoDe(p);
+      const conSubs = async (filtro: string) =>
+        (await lyRest(`loyalty_members?program_id=eq.${p.id}&${filtro}&select=id,nombre,saldo,canjes,nacimiento,ultima_visita,ultimo_sello,created_at&limit=3000`)).filter((m: any) => porMiembro.has(m.id));
+
+      // 1) Avisos programados
+      const progr = await lyRest(`fp_avisos?program_id=eq.${p.id}&activo=eq.true&select=*`);
+      for (const a of progr) {
+        if (a.hora > t.hhmm || a.ultimo_envio === t.fecha) continue;
+        if (a.tipo === "unico" ? a.fecha !== t.fecha : !(a.dias || []).includes(t.dow)) continue;
+        // Se marca antes de enviar: si el disparador corre dos veces, no se duplica.
+        const marcado = await lyRest(`fp_avisos?id=eq.${a.id}&or=(ultimo_envio.is.null,ultimo_envio.neq.${t.fecha})`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ultimo_envio: t.fecha, ...(a.tipo === "unico" ? { activo: false } : {}) }) });
+        if (!marcado.length) continue;
+        const r = await enviarPush(subsAll, (s: any) => ({ title: rellenar(a.titulo, s.loyalty_members, p), body: rellenar(a.cuerpo, s.loyalty_members, p), url: "./", tag: "fp-prog-" + a.id }));
+        await lyRest("fp_envios", { method: "POST", body: JSON.stringify({ program_id: p.id, origen: "Programado", titulo: a.titulo, cuerpo: a.cuerpo, enviados: r.ok, fallidos: r.mal }) });
+        resumen["prog:" + a.id] = r.ok;
+      }
+
+      // 2) Cumpleaños, a la hora elegida
+      if (auto.cumple.activo && p.cumple_activo !== false && auto.cumple.hora <= t.hhmm) {
+        let n = 0;
+        for (const m of (await conSubs("nacimiento=not.is.null")).filter((m: any) => String(m.nacimiento).slice(5, 10) === t.mmdd))
+          n += await mandarAuto(p, "cumple:" + t.anio, auto.cumple, m, porMiembro.get(m.id)!, topeDesde, true);
+        if (n) { resumen.cumple = n; await lyRest("fp_envios", { method: "POST", body: JSON.stringify({ program_id: p.id, origen: "Cumpleaños", titulo: auto.cumple.titulo, cuerpo: auto.cumple.cuerpo, enviados: n, fallidos: 0 }) }); }
+      }
+
+      // 3) Tras un sello (últimos 15 minutos): gracias, falta 1 sello, premio listo
+      const recientes = await conSubs(`ultimo_sello=gte.${new Date(Date.now() - 15 * 60000).toISOString()}`);
+      for (const m of recientes) {
+        const subs = porMiembro.get(m.id)!; let n = 0;
+        if (m.saldo >= p.meta && auto.premio.activo) n += await mandarAuto(p, "premio:" + m.canjes, auto.premio, m, subs, topeDesde);
+        else if (m.saldo === p.meta - 1 && auto.falta1.activo) n += await mandarAuto(p, "falta1:" + m.canjes, auto.falta1, m, subs, topeDesde);
+        else if (auto.gracias.activo) n += await mandarAuto(p, "gracias:" + String(m.ultimo_sello).slice(0, 16), auto.gracias, m, subs, topeDesde);
+        if (n) resumen.sello = (resumen.sello || 0) + n;
+      }
+
+      // 4) Descuento de bienvenida sin usar tras N días (a su hora)
+      if (auto.bienvenida.activo && auto.bienvenida.hora <= t.hhmm) {
+        const hasta = new Date(Date.now() - auto.bienvenida.dias * 86400000).toISOString();
+        const cup = await lyRest(`loyalty_coupons?tipo=eq.bienvenida&estado=eq.activo&created_at=lte.${hasta}&select=member_id,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&limit=3000`);
+        let n = 0;
+        for (const c of cup) {
+          const subs = porMiembro.get(c.member_id); if (!subs) continue;
+          const m = subsAll.find((s: any) => s.member_id === c.member_id)?.loyalty_members; if (!m) continue;
+          n += await mandarAuto(p, "bienvenida", auto.bienvenida, { id: c.member_id, ...m }, subs, topeDesde);
+        }
+        if (n) resumen.bienvenida = n;
+      }
+
+      // 5) Clientes que no vienen hace N días (a su hora; una vez por tramo de N días)
+      if (auto.inactivo.activo && auto.inactivo.hora <= t.hhmm) {
+        const dias = auto.inactivo.dias, corte = new Date(Date.now() - dias * 86400000).toISOString();
+        const tramo = Math.floor(Date.now() / 86400000 / dias);
+        let n = 0;
+        for (const m of await conSubs(`or=(ultima_visita.lte.${corte},and(ultima_visita.is.null,created_at.lte.${corte}))`))
+          n += await mandarAuto(p, "inactivo:" + tramo, auto.inactivo, m, porMiembro.get(m.id)!, topeDesde);
+        if (n) resumen.inactivo = n;
+      }
+    }
+    res.json({ ok: true, resumen });
+  } catch (e) { fallo(res, e, "cron"); }
 });
 
 // ===========================================================================
