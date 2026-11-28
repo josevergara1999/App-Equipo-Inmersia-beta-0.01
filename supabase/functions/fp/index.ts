@@ -447,6 +447,24 @@ app.get("/api/fp/admin/resumen", adminAuth, async (req: any, res: any) => {
   } catch (e) { fallo(res, e, "resumen"); }
 });
 
+app.post("/api/fp/admin/socios/borrar", adminAuth, async (req: any, res: any) => {
+  try {
+    const p = req.p;
+    const { id, todos } = req.body || {};
+    if (todos === true) {
+      await lyRest(`loyalty_draws?program_id=eq.${p.id}`, { method: "DELETE" });
+      await lyRest(`loyalty_members?program_id=eq.${p.id}`, { method: "DELETE" });
+      return res.json({ ok: true });
+    }
+    if (!id || !UUID.test(id)) return res.status(400).json({ error: "Id no válido" });
+    try {
+      await lyRest(`loyalty_members?id=eq.${id}&program_id=eq.${p.id}`, { method: "DELETE" });
+    } catch (_e) {
+      return res.status(409).json({ error: "No se pudo borrar: este cliente ganó un sorteo y queda en el historial" });
+    }
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, "socios_borrar"); }
+});
 app.post("/api/fp/admin/cajeros", adminAuth, async (req: any, res: any) => {
   try {
     const p = req.p;
