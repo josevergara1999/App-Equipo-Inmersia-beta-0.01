@@ -267,6 +267,16 @@ async function cajaAuth(req: any, res: any, next: any) {
   } catch { res.status(401).json({ error: "Entra con tu PIN" }); }
 }
 
+const limpio = (v: any, n: number) => String(v ?? "").replace(/[ -]/g, " ").trim().slice(0, n);
+// Anota en el último movimiento del cajero con ese socio qué celular lo hizo y el detalle de la compra.
+async function anotarMov(memberId: string, cashierId: string, tipo: string, disp: string, nota: string) {
+  if (!disp && !nota) return;
+  try {
+    const ev = lyUno(await lyRest(`loyalty_events?member_id=eq.${memberId}&cashier_id=eq.${cashierId}&tipo=eq.${tipo}&select=id&order=created_at.desc&limit=1`));
+    if (ev) await lyRest(`loyalty_events?id=eq.${ev.id}`, { method: "PATCH", body: JSON.stringify({ dispositivo: disp || null, nota: nota || null }) });
+  } catch (e: any) { console.warn("fp anotarMov:", e.message); }
+}
+
 // Tope de PINs por programa sin importar la IP: 10 intentos en 10 minutos. El intento se anota
 // ANTES de verificar (atómico en la base), así que intentos en paralelo no se lo saltan.
 app.post("/api/fp/:slug/caja/login", rateLimit(10, "fp-pin"), async (req: any, res: any) => {
@@ -286,7 +296,7 @@ app.post("/api/fp/:slug/caja/login", rateLimit(10, "fp-pin"), async (req: any, r
     for (const x of lista) { if (iguales(x.pin_hash, await hashPin(pin, x.pin_salt))) { c = x; break; } }
     if (!c) { console.warn("fp PIN fallido programa=" + p.slug); return res.status(401).json({ error: "PIN incorrecto" }); }
     await lyRest("rpc/fp_rl_clear", { method: "POST", body: JSON.stringify({ p_clave: clave }) });
-    lyRest(`loyalty_cashiers?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ ultimo_login: new Date().toISOString() }) }).catch(() => {});
+    lyRest(`loyalty_cashiers?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ ultimo_login: new Date().toISOString(), ultimo_dispositivo: limpio(req.body?.disp, 60) || null }) }).catch(() => {});
     const token = emitir("caja", { c: c.id, p: c.program_id, v: versionHash(c.pin_hash) }, CAJA_TTL);
     res.json({ ok: true, token, cajero: c.nombre, programa: p.nombre });
   } catch (e) { fallo(res, e, "login"); }
@@ -310,6 +320,7 @@ const rpcSocio = (fn: string, armar: any) => async (req: any, res: any) => {
     const r: any = await resolverSocio(req.prog, b);
     if (r.error) return res.status(r.status).json({ error: r.error });
     const out = await lyRest(`rpc/${fn}`, { method: "POST", body: JSON.stringify(armar(r.m, req, idem(b.idem), b)) });
+    if (out?.ok && !out.repetido) await anotarMov(r.m.id, req.cajero.id, fn === "fp_sellar" ? "sello" : "canje", limpio(b.disp, 60), limpio(b.nota, 300));
     const est = await estadoSocio(req.prog, lyUno(await lyRest(`loyalty_members?id=eq.${r.m.id}&select=id,codigo,codigo6,nombre,saldo,canjes,qr_clave,ultimo_sello,tarjeta,program_id&limit=1`)));
     res.json({ ...out, estado: est });
   } catch (e: any) { console.error(fn + ":", e.message); res.status(500).json({ error: "No se pudo completar, intenta de nuevo" }); }
@@ -324,6 +335,7 @@ app.post("/api/fp/caja/cupon", rateLimit(80, "fp-caja"), cajaAuth, async (req: a
     const cu = lyUno(await lyRest(`loyalty_coupons?member_id=eq.${r.m.id}&tipo=eq.bienvenida&select=id&limit=1`));
     if (!cu) return res.status(404).json({ error: "Este cliente no tiene cupón" });
     const out = await lyRest("rpc/fp_usar_cupon", { method: "POST", body: JSON.stringify({ p_cupon: cu.id, p_cashier: req.cajero.id }) });
+    if (out?.ok) await anotarMov(r.m.id, req.cajero.id, "cupon", limpio(req.body?.disp, 60), limpio(req.body?.nota, 300));
     res.json({ ...out, estado: await estadoSocio(req.prog, r.m) });
   } catch { res.status(500).json({ error: "No se pudo completar, intenta de nuevo" }); }
 });
@@ -413,9 +425,9 @@ app.get("/api/fp/admin/resumen", adminAuth, async (req: any, res: any) => {
     // Cupones y eventos se filtran por el programa del socio (join en PostgREST), no con una lista
     // de ids en la URL: esa lista se rompía con unos cientos de socios.
     const cupones = await lyRest(`loyalty_coupons?select=member_id,estado,usado_at,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&limit=5000`);
-    const evs = await lyRest(`loyalty_events?select=member_id,tipo,cantidad,created_at,cashier_id,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&order=created_at.desc&limit=300`);
+    const evs = await lyRest(`loyalty_events?select=member_id,tipo,cantidad,created_at,cashier_id,dispositivo,nota,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&order=created_at.desc&limit=300`);
     const nom = Object.fromEntries(socios.map((s: any) => [s.id, s.nombre || s.codigo6]));
-    const cajeros = await lyRest(`loyalty_cashiers?program_id=eq.${p.id}&select=id,nombre,activo,created_at,ultimo_login&order=created_at`);
+    const cajeros = await lyRest(`loyalty_cashiers?program_id=eq.${p.id}&select=id,nombre,activo,created_at,ultimo_login,ultimo_dispositivo&order=created_at`);
     const cn = Object.fromEntries(cajeros.map((c: any) => [c.id, c.nombre]));
     const sorteos = await lyRest(`loyalty_draws?program_id=eq.${p.id}&select=id,mes,member_id,premio,participantes,entregado,created_at&order=mes.desc`);
     res.json({

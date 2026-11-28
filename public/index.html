@@ -7773,21 +7773,42 @@ function abrirEnNavegador(e,u){
     window.location.href="intent://"+x.host+x.pathname+x.search+"#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url="+encodeURIComponent(u)+";end";
   }
 }
+// iPhone: desde la app instalada no se puede forzar Safari, así que se copia el enlace para pegarlo allí.
+function copiarTexto(txt){
+  if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(txt);
+  return new Promise((ok,no)=>{
+    try{
+      const t=document.createElement("textarea");t.value=txt;t.style.cssText="position:fixed;opacity:0;top:0;left:0";
+      document.body.appendChild(t);t.focus();t.select();t.setSelectionRange(0,txt.length);
+      const r=document.execCommand("copy");document.body.removeChild(t);r?ok():no();
+    }catch(err){no(err);}
+  });
+}
 function LyAccesosFP(){
   const base="https://josevergara1999.github.io/tarjeta-family-pets/";
+  const[cop,sCop]=useState("");
+  const esIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  const copiar=(t,u)=>{copiarTexto(u).then(()=>{sCop(t);setTimeout(()=>sCop(""),2500);}).catch(()=>{window.prompt("Copia este enlace y pégalo en Safari:",u);});};
   return(<div style={{...D_CARD,padding:"14px 16px",marginBottom:14}}>
     <div style={{fontFamily:"var(--font-mono)",fontSize:9.5,letterSpacing:".16em",textTransform:"uppercase",color:PC.tx4,marginBottom:10}}>Accesos de Family Pets</div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
       {[["Admin","Socios, cajeros y programa",base+"admin/"],
         ["Caja","Escanear y sellar en el mesón",base+"caja/"],
         ["Tarjeta (demo)","Ver la app como cliente",base+"?demo=1"]].map(([t,d,u])=>(
-        <a key={t} href={u} target="_blank" rel="noopener noreferrer" onClick={e=>abrirEnNavegador(e,u)}
-          style={{flex:"1 1 150px",textDecoration:"none",color:PC.tx,border:"1px solid "+PC.line2,borderRadius:12,padding:"11px 14px",display:"block"}}>
-          <div style={{fontSize:13.5,fontWeight:600}}>{t} ↗</div>
-          <div style={{fontSize:11.5,color:PC.tx3,marginTop:3}}>{d}</div>
-        </a>
+        <div key={t} style={{flex:"1 1 150px",border:"1px solid "+PC.line2,borderRadius:12,overflow:"hidden"}}>
+          <a href={u} target="_blank" rel="noopener noreferrer" onClick={e=>abrirEnNavegador(e,u)}
+            style={{textDecoration:"none",color:PC.tx,padding:"11px 14px",display:"block"}}>
+            <div style={{fontSize:13.5,fontWeight:600}}>{t} ↗</div>
+            <div style={{fontSize:11.5,color:PC.tx3,marginTop:3}}>{d}</div>
+          </a>
+          <button type="button" onClick={()=>copiar(t,u)}
+            style={{width:"100%",border:"none",borderTop:"1px solid "+PC.line2,background:"transparent",color:cop===t?PC.cian:PC.tx3,fontSize:12,fontWeight:600,padding:"9px 14px",cursor:"pointer",textAlign:"left"}}>
+            {cop===t?"✓ Enlace copiado":"📋 Copiar enlace"}
+          </button>
+        </div>
       ))}
     </div>
+    {esIOS&&<div style={{fontSize:11.5,color:PC.tx3,marginTop:10,lineHeight:1.45}}>En iPhone: toca «Copiar enlace», abre Safari y pégalo en la barra. Ahí podrás usar Compartir → «Agregar a pantalla de inicio».</div>}
   </div>);
 }
 
