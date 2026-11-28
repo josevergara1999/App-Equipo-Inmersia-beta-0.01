@@ -100,7 +100,7 @@ const versionHash = (h: any) => String(h || "").slice(0, 12);
 
 // ── Datos públicos del programa ─────────────────────────────────────────────
 const PUB = "id,slug,nombre,tipo,meta,premio,activo,color_fondo,color_texto,color_etiqueta,logo_url,logo_text," +
-            "min_horas,qr_segundos,bienvenida_activa,bienvenida_texto,sorteo_activo,sorteo_texto,tarjetas";
+            "min_horas,qr_segundos,bienvenida_activa,bienvenida_texto,sorteo_activo,sorteo_texto,tarjetas,cumple_activo,cumple_texto";
 const progPorSlug = async (slug: any) => {
   if (!SLUG.test(String(slug || ""))) return null;
   return lyUno(await lyRest(`loyalty_programs?slug=eq.${enc(slug)}&select=${PUB}&limit=1`));
@@ -121,7 +121,7 @@ function leerQR(texto: any, prog: any, socio: any) {
 }
 
 async function resolverSocio(prog: any, body: any) {
-  const sel = "id,codigo,codigo6,nombre,saldo,canjes,qr_clave,ultimo_sello,created_at,tarjeta,program_id";
+  const sel = "id,codigo,codigo6,nombre,saldo,canjes,qr_clave,ultimo_sello,created_at,tarjeta,program_id,nacimiento";
   if (body.qr) {
     const cod = String(body.qr).split(".")[1] || "";
     const m = lyUno(await lyRest(`loyalty_members?program_id=eq.${prog.id}&codigo=eq.${enc(cod)}&select=${sel}&limit=1`));
@@ -147,6 +147,7 @@ async function estadoSocio(prog: any, m: any) {
     meta: prog.meta, premio: prog.premio, qrSeg: prog.qr_segundos, sorteoTexto: prog.sorteo_activo ? (prog.sorteo_texto || "") : "",
     puedeSellar: faltanMin === 0, faltanMin,
     puedeCanjear: m.saldo >= prog.meta,
+    cumple: prog.cumple_activo !== false && m.nacimiento && String(m.nacimiento).slice(5, 10) === new Date().toLocaleDateString("en-CA", { timeZone: "America/Santiago" }).slice(5, 10) ? { texto: prog.cumple_texto || "Beneficio de cumpleaños" } : null,
     cupon: cupon ? { id: cupon.id, estado: cupon.estado, descripcion: cupon.descripcion } : null,
   };
 }
@@ -179,6 +180,8 @@ app.post("/api/fp/:slug/alta", rateLimit(15, "fp-alta"), async (req: any, res: a
 
     // Pruebas: se permite registrar el mismo correo/teléfono más de una vez (sin aviso de "ya tienes una tarjeta").
 
+    const nacRaw = String(b.nacimiento || "");
+    const nacOk = /^\d{4}-\d{2}-\d{2}$/.test(nacRaw) && +nacRaw.slice(0, 4) >= 1900 && !isNaN(Date.parse(nacRaw)) && Date.parse(nacRaw) < Date.now();
     const tarjeta = (p.tarjetas || []).length ? ((p.tarjetas.some((t: any) => t.id === b.tarjeta)) ? b.tarjeta : null)
                   : (/^[a-z0-9-]{1,20}$/.test(String(b.tarjeta || "")) ? b.tarjeta : null);
     let socio: any = null;
@@ -190,7 +193,7 @@ app.post("/api/fp/:slug/alta", rateLimit(15, "fp-alta"), async (req: any, res: a
             program_id: p.id, codigo: "FP" + crypto.randomBytes(6).toString("hex").toUpperCase(),
             codigo6: String(crypto.randomInt(0, 1000000)).padStart(6, "0"),
             qr_clave: crypto.randomBytes(24).toString("hex"),
-            nombre, telefono: telefono || null, email: email || null, tarjeta,
+            nombre, telefono: telefono || null, email: email || null, tarjeta, nacimiento: nacOk ? nacRaw : null,
             sorteo_ok: b.sorteo === true, consent_at: new Date().toISOString(),
           }),
         }));
@@ -321,7 +324,7 @@ const rpcSocio = (fn: string, armar: any) => async (req: any, res: any) => {
     if (r.error) return res.status(r.status).json({ error: r.error });
     const out = await lyRest(`rpc/${fn}`, { method: "POST", body: JSON.stringify(armar(r.m, req, idem(b.idem), b)) });
     if (out?.ok && !out.repetido) await anotarMov(r.m.id, req.cajero.id, fn === "fp_sellar" ? "sello" : "canje", limpio(b.disp, 60), limpio(b.nota, 300));
-    const est = await estadoSocio(req.prog, lyUno(await lyRest(`loyalty_members?id=eq.${r.m.id}&select=id,codigo,codigo6,nombre,saldo,canjes,qr_clave,ultimo_sello,tarjeta,program_id&limit=1`)));
+    const est = await estadoSocio(req.prog, lyUno(await lyRest(`loyalty_members?id=eq.${r.m.id}&select=id,codigo,codigo6,nombre,saldo,canjes,qr_clave,ultimo_sello,tarjeta,program_id,nacimiento&limit=1`)));
     res.json({ ...out, estado: est });
   } catch (e: any) { console.error(fn + ":", e.message); res.status(500).json({ error: "No se pudo completar, intenta de nuevo" }); }
 };
@@ -402,7 +405,7 @@ app.post("/api/fp/admin/programa", adminAuth, async (req: any, res: any) => {
       min_horas: b.min_horas !== undefined ? num(b.min_horas, 0, 168, 12) : undefined,
       qr_segundos: b.qr_segundos !== undefined ? num(b.qr_segundos, 30, 900, 120) : undefined,
       bienvenida_activa: typeof b.bienvenida_activa === "boolean" ? b.bienvenida_activa : undefined,
-      bienvenida_texto: b.bienvenida_texto, sorteo_activo: typeof b.sorteo_activo === "boolean" ? b.sorteo_activo : undefined,
+      bienvenida_texto: b.bienvenida_texto, cumple_texto: b.cumple_texto, cumple_activo: typeof b.cumple_activo === "boolean" ? b.cumple_activo : undefined, sorteo_activo: typeof b.sorteo_activo === "boolean" ? b.sorteo_activo : undefined,
       sorteo_texto: b.sorteo_texto, activo: typeof b.activo === "boolean" ? b.activo : undefined,
       color_fondo: COLOR.test(String(b.color_fondo || "")) ? b.color_fondo : undefined,
       color_texto: COLOR.test(String(b.color_texto || "")) ? b.color_texto : undefined,
@@ -410,7 +413,7 @@ app.post("/api/fp/admin/programa", adminAuth, async (req: any, res: any) => {
       logo_text: b.logo_text !== undefined ? String(b.logo_text).slice(0, 60) : undefined,
       tarjetas: Array.isArray(b.tarjetas) ? b.tarjetas.slice(0, 12).map((t: any) => ({ id: String(t.id || "").replace(/[^a-z0-9-]/gi, "").slice(0, 30), nombre: String(t.nombre || "").slice(0, 40), img: urlOk(t.img) ? String(t.img) : "", claro: !!t.claro })).filter((t: any) => t.id && t.img) : undefined,
     };
-    for (const k of ["nombre", "premio", "bienvenida_texto", "sorteo_texto"]) if (campos[k] !== undefined) campos[k] = String(campos[k]).slice(0, 200);
+    for (const k of ["nombre", "premio", "bienvenida_texto", "sorteo_texto", "cumple_texto"]) if (campos[k] !== undefined) campos[k] = String(campos[k]).slice(0, 200);
     Object.keys(campos).forEach((k) => campos[k] === undefined && delete campos[k]);
     campos.updated_at = new Date().toISOString();
     const d = await lyRest(`loyalty_programs?id=eq.${req.p.id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(campos) });
@@ -421,7 +424,7 @@ app.post("/api/fp/admin/programa", adminAuth, async (req: any, res: any) => {
 app.get("/api/fp/admin/resumen", adminAuth, async (req: any, res: any) => {
   try {
     const p = req.p;
-    const socios = await lyRest(`loyalty_members?program_id=eq.${p.id}&select=id,codigo6,nombre,telefono,email,saldo,canjes,tarjeta,created_at,ultima_visita,sorteo_ok&order=created_at.desc&limit=2000`);
+    const socios = await lyRest(`loyalty_members?program_id=eq.${p.id}&select=id,codigo6,nombre,telefono,email,saldo,canjes,tarjeta,created_at,ultima_visita,sorteo_ok,nacimiento&order=created_at.desc&limit=2000`);
     // Cupones y eventos se filtran por el programa del socio (join en PostgREST), no con una lista
     // de ids en la URL: esa lista se rompía con unos cientos de socios.
     const cupones = await lyRest(`loyalty_coupons?select=member_id,estado,usado_at,loyalty_members!inner(program_id)&loyalty_members.program_id=eq.${p.id}&limit=5000`);
